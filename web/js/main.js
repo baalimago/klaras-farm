@@ -41,14 +41,15 @@ async function boot() {
     if (!(e instanceof FarmError)) throw e;
     warnings.push("corrupt");
   }
-  if (fresh) await store.replaceAll(await loadStarter(env, navigator.language), []);
-  else repo.sweepOrphanBlobs?.(new Date(Date.now() - 24 * 3600e3).toISOString()).catch(() => {});
+  if (fresh) await store.replaceAll(await loadStarter(env, navigator.language, APP_VERSION), []);
+  else share.discardImportBackup(store).catch(() => {}); // "Undo import" lasts until the next boot
+  if (!fresh) repo.sweepOrphanBlobs?.(new Date(Date.now() - 24 * 3600e3).toISOString()).catch(() => {});
 
   const [presets, scripts] = await Promise.all([loadJsonMap("data/motions/", ["walk", "float"]), loadScripts()]);
 
   const audio = new AudioEngine({ getBlob: (sha) => store.getBlob(sha) });
   const recorder = new Recorder({ audio });
-  const engine = new PlayEngine({ store, audio, presets, rng: env.rng, flags });
+  const engine = new PlayEngine({ store, audio, presets, rng: env.rng, flags, now: () => performance.now() });
   const session = new Session({ now: () => Date.now(), holdMs: flags.holdMs });
   const wake = new WakeLock();
 
@@ -56,6 +57,7 @@ async function boot() {
   const board = document.getElementById("board");
   board.connect(services);
   services.board = board;
+  session.connect(services);
   const shell = new Shell(document.getElementById("parent-layer"), services);
   services.shell = shell;
 

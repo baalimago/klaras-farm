@@ -22,13 +22,11 @@ export class Shell {
     this.render();
   }
 
+  /** Mounts what the session wants. Renders can overlap (imports are async), so each one
+   * re-checks that it is still the latest before appending anything. */
   async render() {
-    const { mode, panel } = this.services.session.state;
-    const wanted = new Map();
-    if (mode === "gate") wanted.set("mode", { name: "gate" });
-    if (mode === "edit" || mode === "scene") wanted.set("mode", { name: mode === "scene" ? "scene" : "edit" });
-    if (panel) wanted.set("panel", panel);
-    if (this._welcome) wanted.set("welcome", { name: "welcome" });
+    const token = (this._token = (this._token ?? 0) + 1);
+    const wanted = this.wanted();
     for (const [slot, el] of this.mounted) {
       const w = wanted.get(slot);
       if (!w || el.dataset.panel !== w.name || el._params !== w.params) {
@@ -39,21 +37,30 @@ export class Shell {
     for (const [slot, w] of wanted) {
       if (this.mounted.has(slot)) continue;
       const el = await this.create(w.name, w.params);
-      if (this.services.session.state !== undefined) {
-        this.root.append(el);
-        this.mounted.set(slot, el);
-      }
+      if (token !== this._token || this.mounted.has(slot)) return; // a newer render owns the layer now
+      this.root.append(el);
+      this.mounted.set(slot, el);
     }
   }
 
-  async create(name, params = {}) {
+  wanted() {
+    const { mode, panel } = this.services.session.state;
+    const wanted = new Map();
+    if (mode === "gate") wanted.set("mode", { name: "gate", params: undefined });
+    if (mode === "edit" || mode === "scene") wanted.set("mode", { name: mode === "scene" ? "scene" : "edit", params: undefined });
+    if (panel) wanted.set("panel", { name: panel.name, params: panel.params });
+    if (this._welcome) wanted.set("welcome", { name: "welcome", params: undefined });
+    return wanted;
+  }
+
+  async create(name, params) {
     const tag = PANELS[name];
     await import(`./components/${tag}/define.js`);
     const el = document.createElement(tag);
     el.dataset.panel = name;
     el._params = params;
     el.services = this.services;
-    el.params = params;
+    el.params = params ?? {};
     el.addEventListener("kf-close", () => {
       if (name === "welcome") { this._welcome = false; this.render(); }
       else if (this.mounted.get("panel") === el) this.services.session.closePanel();
