@@ -239,7 +239,7 @@ async function mountRecorder(page, { fakeRecorder = null, denied = false } = {})
 
 const state = (page) => page.locator("#rec").getAttribute("data-state");
 
-test("<kf-recorder>: ready → recording → review → Keep dispatches kf-recorded", async () => {
+test("<kf-recorder>: ready → recording → a finished take is saved without any extra tap", async () => {
   const page = await audioPage(RECORDER_PAGE);
   await mountRecorder(page);
   assert.equal(await state(page), "ready");
@@ -249,12 +249,13 @@ test("<kf-recorder>: ready → recording → review → Keep dispatches kf-recor
   assert.ok(await page.getByRole("button", { name: "Stop" }).isVisible(), "Stop is always visible while recording");
   await page.waitForTimeout(1300);
   await page.getByRole("button", { name: "Stop" }).click();
-  await page.waitForSelector('#rec[data-state="review"]', { timeout: 5000 });
-  assert.equal(await page.evaluate(() => window.__recorded.length), 0, "nothing is kept before Keep");
-  await page.getByRole("button", { name: "Listen" }).click();
+  await page.waitForSelector('#rec[data-state="saved"]', { timeout: 5000 });
+  assert.equal(await page.evaluate(() => window.__recorded.length), 1, "kept as soon as the take finished");
+  assert.match(await page.locator("#rec .kf-rec-saved").textContent(), /Saved ✓/);
+  assert.equal(await page.locator("#rec").getByRole("button", { name: "Keep" }).count(), 0, "no Keep step");
+  assert.ok(await page.getByRole("button", { name: "Re-record" }).isVisible());
+  await page.getByRole("button", { name: "Play" }).click();
   await page.waitForFunction(() => window.__hops.length === 1);
-  await page.getByRole("button", { name: "Keep" }).click();
-  await page.waitForSelector('#rec[data-state="saved"]');
   const d = await page.evaluate(() => {
     const { clip, blob } = window.__recorded[0];
     return { n: window.__recorded.length, clip, blob: { ...blob, bytes: blob.bytes.byteLength, isBuffer: blob.bytes instanceof ArrayBuffer } };
@@ -275,22 +276,72 @@ test("<kf-recorder>: ready → recording → review → Keep dispatches kf-recor
   assert.deepEqual(page.errors, []);
 });
 
-test("<kf-recorder>: Try again from review discards the take and records a new one", async () => {
-  const page = await audioPage(RECORDER_PAGE);
-  const result = { ok: true, bytes: null, mime: "audio/wav", sha256: "ab".repeat(32), durationMs: 1000, trimStartMs: 250, trimEndMs: 850, gainDb: 6, cappedAt5s: true };
-  await mountRecorder(page, { fakeRecorder: result });
-  await page.evaluate(() => {
+// Swap the recorder's next result: a good take (wav bytes under `tag`) or a failure/cancel.
+async function nextTake(page, next) {
+  await page.evaluate((next) => {
     const el = document.getElementById("rec");
-    const clip = window.__wavClip("ab".repeat(32).slice(0, 4));
-    const fake = el.services.recorder;
-    el.services.recorder = { ...fake, start: async () => { const r = { ok: true, bytes: window.__blobs.get(clip.blobSha256).bytes, mime: "audio/wav", sha256: clip.blobSha256, durationMs: 1000, trimStartMs: 250, trimEndMs: 850, gainDb: 6, cappedAt5s: true }; return { stop: async () => r, cancel() {}, done: Promise.resolve(r) }; } };
+    let r = next;
+    if (next.tag) {
+      const clip = window.__wavClip(next.tag);
+      r = { ok: true, bytes: window.__blobs.get(clip.blobSha256).bytes, mime: "audio/wav", sha256: clip.blobSha256, durationMs: 1000, trimStartMs: 250, trimEndMs: 850, gainDb: 6, cappedAt5s: !!next.capped };
+    }
+    el.services.recorder = { permission: async () => "granted", start: async () => ({ stop: async () => r, cancel() {}, done: Promise.resolve(r) }) };
+  }, next);
+}
+
+const recordedShas = (page) => page.evaluate(() => window.__recorded.map((d) => d.clip.blobSha256));
+
+async function watchStarts(page) {
+  await page.evaluate(() => {
+    window.__starts = [];
+    document.getElementById("rec").services.audio.addEventListener("clip-start", (e) => window.__starts.push(e.detail.clipId));
   });
+}
+
+test("<kf-recorder>: a capped take is still saved, with a note; Re-record replaces it", async () => {
+  const page = await audioPage(RECORDER_PAGE);
+  await mountRecorder(page);
+  await nextTake(page, { tag: "aa01", capped: true });
   await page.getByRole("button", { name: "Record" }).click();
-  await page.waitForSelector('#rec[data-state="review"]');
+  await page.waitForSelector('#rec[data-state="saved"]');
   assert.match(await page.locator("#rec").textContent(), /5 seconds/, "says the cap cut it off");
+  const [first] = await recordedShas(page);
+  await nextTake(page, { tag: "bb02" });
+  await page.getByRole("button", { name: "Re-record" }).click();
+  await page.waitForFunction(() => window.__recorded.length === 2);
+  await page.waitForSelector('#rec[data-state="saved"]');
+  const shas = await recordedShas(page);
+  assert.notEqual(shas[1], first, "the new take replaces the old one");
+  assert.doesNotMatch(await page.locator("#rec").textContent(), /5 seconds/);
+  await watchStarts(page);
+  await page.getByRole("button", { name: "Play" }).click();
+  await page.waitForFunction(() => window.__starts.length === 1);
+  assert.equal(await page.evaluate(() => window.__starts[0]), await page.evaluate(() => window.__recorded[1].clip.id), "Play plays the newest take");
+  assert.deepEqual(page.errors, []);
+});
+
+test("<kf-recorder>: a failed or cancelled re-record saves nothing and keeps the old clip", async () => {
+  const page = await audioPage(RECORDER_PAGE);
+  await mountRecorder(page);
+  await nextTake(page, { tag: "cc03" });
+  await page.getByRole("button", { name: "Record" }).click();
+  await page.waitForSelector('#rec[data-state="saved"]');
+  await nextTake(page, { ok: false, error: "silent" });
+  await page.getByRole("button", { name: "Re-record" }).click();
+  await page.waitForSelector('#rec[data-error="silent"]');
+  assert.match(await page.locator("#rec").textContent(), /couldn.t hear/i);
+  assert.match(await page.locator("#rec").textContent(), /still saved/);
+  assert.equal(await page.evaluate(() => window.__recorded.length), 1, "nothing new is saved");
+  await watchStarts(page);
+  await page.getByRole("button", { name: "Play the saved recording" }).click();
+  await page.waitForFunction(() => window.__starts.length === 1);
+  assert.equal(await page.evaluate(() => window.__starts[0]), await page.evaluate(() => window.__recorded[0].clip.id), "the old take still plays");
+  // A cancelled take goes back to the saved state.
+  await nextTake(page, { ok: false, error: "cancelled" });
   await page.getByRole("button", { name: "Try again" }).click();
-  await page.waitForSelector('#rec[data-state="review"]');
-  assert.equal(await page.evaluate(() => window.__recorded.length), 0);
+  await page.waitForSelector('#rec[data-state="saved"]');
+  assert.equal(await page.evaluate(() => window.__recorded.length), 1);
+  assert.deepEqual(page.errors, []);
 });
 
 test("<kf-recorder>: a denied microphone shows the iPad Settings steps", async () => {
@@ -307,7 +358,7 @@ test("<kf-recorder>: a denied microphone shows the iPad Settings steps", async (
   assert.equal(await page.evaluate(() => window.__recorded.length), 0);
 });
 
-test("<kf-recorder>: too short and silent takes say Try again; nothing is kept", async () => {
+test("<kf-recorder>: too short and silent takes say Try again; nothing is saved", async () => {
   const page = await audioPage(RECORDER_PAGE);
   await mountRecorder(page, { fakeRecorder: { ok: false, error: "too-short" } });
   await page.getByRole("button", { name: "Record" }).click();
@@ -337,7 +388,7 @@ test("<kf-recorder>: a real take stopped at once is too short", async () => {
   assert.ok(await page.getByRole("button", { name: "Try again" }).isVisible());
 });
 
-test("<kf-recorder>: an existing clip can be played and stays until a new take is kept", async () => {
+test("<kf-recorder>: an existing clip can be played and stays until a new take is saved", async () => {
   const page = await audioPage(RECORDER_PAGE);
   await mountRecorder(page);
   await page.evaluate(() => {
@@ -351,7 +402,7 @@ test("<kf-recorder>: an existing clip can be played and stays until a new take i
   });
   await page.getByRole("button", { name: "Play" }).click();
   await page.waitForFunction(() => window.__starts.includes("ex"));
-  assert.ok(await page.getByRole("button", { name: "Record again" }).isVisible());
+  assert.ok(await page.getByRole("button", { name: "Re-record" }).isVisible());
   assert.equal(await state(page), "ready");
   assert.equal(await page.evaluate(() => window.__recorded.length), 0);
 });
