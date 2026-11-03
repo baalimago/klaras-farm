@@ -1,0 +1,87 @@
+/* kf-find-buttons: two big felt buttons in the bottom corners of the play screen (child-facing,
+   icon-only). The layer itself lets touches through; only the buttons catch them. */
+kf-find-buttons {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5; /* above the board, below #parent-layer (welcome, gate, panels) */
+}
+.kf-find-btn {
+  --size: 96px;
+  position: absolute;
+  bottom: calc(env(safe-area-inset-bottom) + 14px);
+  width: var(--size);
+  height: var(--size);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  cursor: pointer;
+  color: inherit;
+  /* felt: a warm cream disc with a soft fuzz and a stitched ring */
+  background:
+    radial-gradient(circle at 35% 30%, rgb(255 255 255 / 0.55), transparent 55%),
+    radial-gradient(circle, var(--cream), var(--wall));
+  box-shadow: 0 5px 0 rgb(74 51 38 / 0.18), var(--shadow);
+  transition: transform 120ms ease-out, background-color 120ms;
+}
+.kf-find-btn--animal { left: calc(env(safe-area-inset-left) + 14px); }
+.kf-find-btn--color { right: calc(env(safe-area-inset-right) + 14px); }
+.kf-find-btn::after {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  border: 2px dashed rgb(122 97 82 / 0.45);
+  pointer-events: none;
+}
+.kf-find-btn:active { transform: scale(0.94); }
+.kf-find-btn__face {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  font-size: 50px;
+  line-height: 1;
+  pointer-events: none;
+}
+.kf-find-btn--color .kf-find-btn__face {
+  grid-template-columns: repeat(2, 26px);
+  grid-template-rows: repeat(2, 26px);
+  gap: 4px;
+  place-content: center;
+}
+.kf-find-dot {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: inset 0 -3px 0 rgb(0 0 0 / 0.12);
+}
+.kf-find-dot:nth-child(1) { grid-column: 1 / span 2; justify-self: center; background: var(--yellow); }
+.kf-find-dot:nth-child(2) { background: var(--blue); }
+/* During a round: the button glows sunny and breathes, so everyone sees a game is on. */
+.kf-find-btn.is-active {
+  background:
+    radial-gradient(circle at 35% 30%, rgb(255 255 255 / 0.55), transparent 55%),
+    radial-gradient(circle, var(--yellow), var(--sun));
+  animation: kf-find-breathe 1.6s ease-in-out infinite;
+}
+.kf-find-btn.is-active::after { border-color: rgb(255 255 255 / 0.9); }
+/* Colour round: all three dots take the colour to find, on cream so even yellow shows, with a sunny ring. */
+.kf-find-btn--color.is-active {
+  background:
+    radial-gradient(circle at 35% 30%, rgb(255 255 255 / 0.55), transparent 55%),
+    radial-gradient(circle, var(--cream), var(--wall));
+  box-shadow: 0 0 0 6px var(--sun), 0 5px 0 rgb(74 51 38 / 0.18), var(--shadow);
+}
+.kf-find-btn--color.is-active::after { border-color: rgb(122 97 82 / 0.45); }
+.kf-find-btn--color.is-active .kf-find-dot { background: var(--find-color); }
+@keyframes kf-find-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.07); }
+}

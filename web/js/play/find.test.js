@@ -1,64 +1,155 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createFind, stepFind, answerFind, hintFor, findRemainingS, FIND } from "./find.js";
+import { createFind, startRound, endRound, stepFind, answerFind, isAnswer, hinting, reconcileFind, findRemainingS, FIND } from "./find.js";
+import { colorGroup, groupHex, COLOR_GROUPS } from "./colors.js";
+import { SUNNY } from "../farm/palette.js";
 
-const rng = () => 0.3;
-const on = (candidates = ["pig", "cow"], calm = true) => ({ enabled: true, candidates, calm });
+const rng = (v = 0.3) => () => v;
+const things = [
+  { id: "pig", color: "pink", askable: true },
+  { id: "cow", color: "white", askable: true },
+  { id: "hen", color: "yellow", askable: true },
+];
 
-test("asks for a thing after the first delay, never while play is busy", () => {
+test("nothing happens by itself: no round without a press, and idle time never asks", () => {
   const f = createFind();
-  assert.equal(stepFind(f, FIND.firstAskS + 1, on(["pig"], false), rng), null, "finger down or asleep: no time passes");
-  assert.equal(stepFind(f, FIND.firstAskS - 1, on(["pig"]), rng), null);
-  assert.deepEqual(stepFind(f, 1.5, on(["pig"]), rng), { type: "ask", thingId: "pig", repeat: false });
-  assert.equal(f.phase, "asking");
+  assert.equal(stepFind(f, 1000, { calm: true }), null);
+  assert.equal(f.phase, "idle");
+  assert.equal(findRemainingS(f), Infinity);
+  assert.equal(answerFind(f, "pig", "pink"), "none", "taps without a round are normal taps");
 });
 
-test("off or nothing askable: stays idle and resets", () => {
+test("an animal round always has something to find, and asks for it", () => {
   const f = createFind();
-  assert.equal(stepFind(f, 100, { enabled: false, candidates: ["pig"], calm: true }, rng), null);
-  assert.equal(stepFind(f, 100, on([]), rng), null);
-  assert.equal(f.phase, "idle");
-  assert.equal(findRemainingS(f, false), Infinity);
-});
-
-test("a right tap celebrates, then a new question comes after a gap and picks another thing", () => {
-  const f = createFind();
-  stepFind(f, FIND.firstAskS + 0.1, on(), rng);
-  const first = f.target;
-  assert.equal(answerFind(f, first), "correct");
-  assert.equal(f.phase, "celebrate");
-  assert.equal(stepFind(f, FIND.celebrateS + 0.1, on(), rng), null);
-  assert.equal(f.phase, "idle");
-  assert.ok(f.timer >= FIND.gapMinS && f.timer <= FIND.gapMaxS);
-  const ev = stepFind(f, FIND.gapMaxS + 1, on(), rng);
+  const ev = startRound(f, "animal", things, rng());
   assert.equal(ev.type, "ask");
-  assert.notEqual(ev.thingId, first, "doesn't ask for the same thing twice in a row");
+  assert.equal(ev.kind, "animal");
+  assert.ok(things.some((t) => t.id === ev.thingId));
+  assert.equal(f.phase, "asking");
+  assert.equal(startRound(createFind(), "animal", [], rng()), null, "an empty scene has no round");
 });
 
-test("wrong taps are gentle: the question repeats, and after 2 misses the right thing glows", () => {
+test("animal rounds prefer things that can be asked for by name", () => {
   const f = createFind();
-  stepFind(f, FIND.firstAskS + 0.1, on(["pig"]), rng);
-  assert.equal(answerFind(f, "cow"), "wrong");
-  assert.equal(hintFor(f), null);
-  assert.equal(answerFind(f, "cow"), "wrong");
-  assert.equal(hintFor(f), "pig");
-  assert.equal(answerFind(f, "pig"), "correct");
-  assert.equal(hintFor(f), null);
+  for (const v of [0, 0.4, 0.99]) {
+    const ev = startRound(f, "animal", [{ id: "blob", color: "red", askable: false }, { id: "cat", color: "grey", askable: true }], rng(v));
+    assert.equal(ev.thingId, "cat");
+  }
+  const only = startRound(createFind(), "animal", [{ id: "blob", color: "red" }], rng());
+  assert.equal(only.thingId, "blob", "with no askable thing, any thing still makes a round");
 });
 
-test("no answer: asks once more, then gives up quietly", () => {
+test("the target never repeats when there are two or more things", () => {
   const f = createFind();
-  stepFind(f, FIND.firstAskS + 0.1, on(["pig"]), rng);
-  assert.deepEqual(stepFind(f, FIND.repeatAfterS + 0.1, on(["pig"]), rng), { type: "ask", thingId: "pig", repeat: true });
-  assert.deepEqual(stepFind(f, FIND.repeatAfterS + 0.1, on(["pig"]), rng), { type: "give-up", thingId: "pig" });
+  let last = null;
+  for (let i = 0; i < 40; i++) {
+    const ev = startRound(f, "animal", things, rng((i * 0.37) % 1));
+    assert.notEqual(ev.thingId, last);
+    last = ev.thingId;
+    answerFind(f, ev.thingId);
+  }
+  const solo = createFind();
+  assert.equal(startRound(solo, "animal", [things[0]], rng()).thingId, "pig");
+  assert.equal(startRound(solo, "animal", [things[0]], rng()).thingId, "pig", "one thing: it can be asked again");
+});
+
+test("right tap ends the round; wrong taps count misses and reset the quiet wait", () => {
+  const f = createFind();
+  startRound(f, "animal", things, rng(0));
+  const target = f.target;
+  const other = things.find((t) => t.id !== target);
+  stepFind(f, 4, { calm: true });
+  assert.equal(answerFind(f, other.id, other.color), "wrong");
+  assert.equal(f.quietS, 0);
+  assert.equal(hinting(f), false);
+  assert.equal(answerFind(f, other.id, other.color), "wrong");
+  assert.equal(hinting(f), true, "after 2 misses the right thing glows");
+  assert.equal(answerFind(f, target), "correct");
+  assert.equal(f.phase, "idle");
+  assert.equal(hinting(f), false);
+  assert.equal(answerFind(f, target), "none");
+});
+
+test("after ~6 quiet seconds the right thing hops and the question repeats, once", () => {
+  const f = createFind();
+  startRound(f, "animal", things, rng());
+  assert.equal(stepFind(f, 10, { calm: false }), null, "the wait doesn't run while a voice plays");
+  assert.equal(stepFind(f, FIND.nudgeAfterS - 1, { calm: true }), null);
+  assert.ok(findRemainingS(f) <= 1.001);
+  assert.deepEqual(stepFind(f, 1.1, { calm: true }), { type: "nudge" });
+  assert.equal(stepFind(f, FIND.nudgeAfterS + 1, { calm: true }), null, "only once");
+});
+
+test("a round ends quietly after ~30 s without the right tap", () => {
+  const f = createFind();
+  startRound(f, "animal", things, rng());
+  let ev = null;
+  for (let t = 0; t < FIND.timeoutS + 1 && !ev?.type?.startsWith("time"); t += 0.5) ev = stepFind(f, 0.5, { calm: false });
+  assert.deepEqual(ev, { type: "timeout" });
+  assert.equal(f.phase, "idle");
+  assert.equal(findRemainingS(f), Infinity);
+});
+
+test("findRemainingS wakes the renderer for the nudge, then for the timeout", () => {
+  const f = createFind();
+  startRound(f, "animal", things, rng());
+  assert.equal(findRemainingS(f), FIND.nudgeAfterS);
+  stepFind(f, FIND.nudgeAfterS + 0.01, { calm: true });
+  assert.ok(Math.abs(findRemainingS(f) - (FIND.timeoutS - FIND.nudgeAfterS - 0.01)) < 1e-9);
+});
+
+test("colour round: a colour present in the scene; any thing of that simple colour is right", () => {
+  const f = createFind();
+  const scene = [
+    { id: "sun", color: "yellow" },
+    { id: "hen", color: "sand" },
+    { id: "pot", color: "blue" },
+    { id: "sea", color: "water" },
+  ];
+  const ev = startRound(f, "color", scene, rng(0));
+  assert.equal(ev.kind, "color");
+  assert.equal(ev.thingId, null);
+  assert.ok(["yellow", "blue"].includes(ev.color));
+  const [right, alsoRight] = ev.color === "yellow" ? ["sun", "hen"] : ["pot", "sea"];
+  const wrong = ev.color === "yellow" ? scene[2] : scene[0];
+  assert.ok(isAnswer(f, alsoRight, scene.find((t) => t.id === alsoRight).color), "sky, water and blue are all blue");
+  assert.equal(answerFind(f, wrong.id, wrong.color), "wrong");
+  assert.equal(answerFind(f, right, scene.find((t) => t.id === right).color), "correct");
+});
+
+test("colour rounds don't repeat the last colour when there are two or more; one colour is fine", () => {
+  const f = createFind();
+  let last = null;
+  for (let i = 0; i < 20; i++) {
+    const ev = startRound(f, "color", things, rng((i * 0.61) % 1));
+    assert.notEqual(ev.color, last);
+    last = ev.color;
+  }
+  const mono = createFind();
+  const one = [{ id: "a", color: "red" }, { id: "b", color: "red" }];
+  assert.equal(startRound(mono, "color", one, rng()).color, "red");
+  assert.equal(startRound(mono, "color", one, rng()).color, "red");
+});
+
+test("a round ends when its answer leaves the scene; endRound remembers the last target", () => {
+  const f = createFind();
+  startRound(f, "animal", things, rng(0));
+  const target = f.target;
+  assert.equal(reconcileFind(f, things), false);
+  assert.equal(reconcileFind(f, things.filter((t) => t.id !== target)), true);
+  assert.equal(f.phase, "idle");
+  assert.equal(f.last, target);
+  startRound(f, "color", [{ id: "x", color: "red" }], rng());
+  assert.equal(reconcileFind(f, [{ id: "y", color: "leaf" }]), true);
+  startRound(f, "animal", things, rng());
+  endRound(f);
   assert.equal(f.phase, "idle");
 });
 
-test("taps when nothing is asked are normal taps; a deleted target cancels the question", () => {
-  const f = createFind();
-  assert.equal(answerFind(f, "pig"), "none");
-  stepFind(f, FIND.firstAskS + 0.1, on(["pig", "cow"]), rng);
-  stepFind(f, 0.1, on(["hen"]), rng);
-  assert.equal(f.phase, "idle");
-  assert.equal(f.target, null);
+test("every felt colour folds into a simple colour word with a swatch", () => {
+  for (const key of Object.keys(SUNNY)) assert.ok(COLOR_GROUPS[colorGroup(key)], `${key} has a simple colour`);
+  assert.equal(colorGroup("sky"), "blue");
+  assert.equal(colorGroup("dark"), "black");
+  assert.equal(colorGroup("nope"), null);
+  assert.equal(groupHex("green"), SUNNY.leaf);
 });

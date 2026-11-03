@@ -1,1 +1,3 @@
-{ "lang": "en", "articles": [], "templates": ["Where is the {name}?", "Can you find the {name}?", "Show me the {name}!"] }
+{ "lang": "en", "articles": [], "templates": ["Where is the {name}?", "Can you find the {name}?", "Show me the {name}!"],
+  "colorTemplates": ["Find something {color}!", "Where is something {color}?", "Can you find something {color}?"],
+  "colors": { "red": "red", "orange": "orange", "yellow": "yellow", "green": "green", "blue": "blue", "purple": "purple", "pink": "pink", "brown": "brown", "white": "white", "grey": "grey", "black": "black" } }

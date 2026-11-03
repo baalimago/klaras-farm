@@ -16,6 +16,7 @@ import { PlayEngine } from "./play-engine.js";
 import { Session } from "./session.js";
 import { Shell } from "./shell.js";
 import "./components/kf-board/define.js";
+import "./components/kf-find-buttons/define.js";
 
 const APP_VERSION = document.querySelector("base")?.getAttribute("href")?.split("/")[2] || "dev";
 
@@ -63,6 +64,10 @@ async function boot() {
   board.connect(services);
   services.board = board;
   session.connect(services);
+  // Find games: the child starts them with the 🔍 and colour buttons (created here so they upgrade).
+  const findButtons = document.createElement("kf-find-buttons");
+  findButtons.services = services;
+  document.getElementById("stage").append(findButtons);
   const shell = new Shell(document.getElementById("parent-layer"), services);
   services.shell = shell;
 

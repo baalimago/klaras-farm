@@ -59,14 +59,21 @@ test("first run: starter farm, welcome once, a child view without text or button
   assert.deepEqual(s.places.sort(), ["Farm", "Kitchen", "Sea"]);
   assert.ok(s.things >= 2 && s.things <= 4);
 
-  // US-5.2: the child sees no text and no buttons (the VoiceOver "Edit" button is visually hidden).
+  // US-5.2: the child sees no text and no buttons (the VoiceOver "Edit" button is visually hidden),
+  // except the two icon-only find game buttons (playtest round 2), each at least 88 px.
   const visible = await kf(page, () => {
     const isVisible = (el) => { const r = el.getBoundingClientRect(); return r.width > 2 && r.height > 2 && getComputedStyle(el).visibility !== "hidden"; };
-    const texts = [...document.body.querySelectorAll("*")].filter((el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && isVisible(el) && !el.closest("noscript"));
+    const texts = [...document.body.querySelectorAll("*")].filter((el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && isVisible(el) && !el.closest("noscript, kf-find-buttons"));
     const buttons = [...document.querySelectorAll("button, a, input")].filter(isVisible);
-    return { texts: texts.map((e) => e.textContent.trim()), buttons: buttons.length };
+    const find = buttons.filter((b) => b.closest("kf-find-buttons"));
+    return {
+      texts: texts.map((e) => e.textContent.trim()),
+      buttons: buttons.length - find.length,
+      find: find.map((b) => b.getAttribute("aria-label")),
+      small: find.filter((b) => b.getBoundingClientRect().width < 88 || b.getBoundingClientRect().height < 88).length,
+    };
   });
-  assert.deepEqual(visible, { texts: [], buttons: 0 });
+  assert.deepEqual(visible, { texts: [], buttons: 0, find: ["Find the animal", "Find a colour"], small: 0 });
 
   // Welcome shows only once.
   await page.reload();
@@ -105,6 +112,37 @@ test("a tap makes a thing react; hold, adult check, edit mode and Done", async (
   await page.getByRole("button", { name: "Done", exact: true }).click();
   await page.locator("kf-edit-layer").waitFor({ state: "detached" });
   assert.equal(await kf(page, () => window.__kf.session.state.mode), "play");
+  assert.deepEqual(page.errors, []);
+});
+
+test("find games: the 🔍 button asks for an animal, tapping it celebrates; hidden in edit mode", async () => {
+  const page = await h.newPage();
+  await dismissWelcome(page);
+  const animal = page.getByRole("button", { name: "Find the animal" });
+  await animal.waitFor();
+  const asked = kf(page, () => new Promise((ok) => window.__kf.engine.addEventListener("ask", (e) => ok(e.detail), { once: true })));
+  await animal.click();
+  const ask = await asked;
+  assert.equal(ask.kind, "animal");
+  assert.equal(await animal.getAttribute("aria-pressed"), "true", "the button shows the round is on");
+
+  // Wait for the question to settle, then the child taps the right thing.
+  const target = await kf(page, (id) => { const a = window.__kf.engine.actorFor(id); return { x: a.x, y: a.y }; }, ask.thingId);
+  const answered = kf(page, () => new Promise((ok) => window.__kf.engine.addEventListener("answer", (e) => ok(e.detail), { once: true })));
+  const p = await boardPoint(page, target.x, target.y);
+  await page.mouse.click(p.x, p.y);
+  assert.deepEqual(await answered, { thingId: ask.thingId, outcome: "correct" });
+  assert.equal(await animal.getAttribute("aria-pressed"), "false");
+  assert.equal(await kf(page, () => window.__kf.engine.findRound), null);
+
+  // The colour button starts a colour round, then edit mode hides both buttons and ends it.
+  await page.getByRole("button", { name: "Find a colour" }).click();
+  assert.equal(await kf(page, () => window.__kf.engine.findRound?.kind), "color");
+  await enterEdit(page);
+  assert.equal(await page.locator("kf-find-buttons").isHidden(), true);
+  assert.equal(await kf(page, () => window.__kf.engine.findRound), null);
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await animal.waitFor();
   assert.deepEqual(page.errors, []);
 });
 

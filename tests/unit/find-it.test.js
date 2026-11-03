@@ -1,4 +1,4 @@
-// Find it and the built-in voice, through the real PlayEngine with a FarmStore and a fake audio.
+// Find games and the built-in voice, through the real PlayEngine with a FarmStore and a fake audio.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -6,11 +6,14 @@ import { PlayEngine } from "../../web/js/play-engine.js";
 import { FarmStore } from "../../web/js/farm-store.js";
 import { MemoryRepo } from "../../web/js/io/memory-repo.js";
 import { FIND } from "../../web/js/play/find.js";
+import { COLOR_GROUPS } from "../../web/js/play/colors.js";
+import { colorLine } from "../../web/js/farm/scripts.js";
 import { fixedEnv, square, aSnapshot, aPlace, aThing, aClip } from "../builders.js";
 
 const json = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url), "utf8"));
 const presets = { walk: json("../../web/data/motions/walk.json"), float: json("../../web/data/motions/float.json") };
-const scripts = { en: json("../../web/data/scripts/en.json"), sv: json("../../web/data/scripts/sv.json") };
+const LANGS = json("../../web/data/scripts/index.json");
+const scripts = Object.fromEntries(LANGS.map((l) => [l, json(`../../web/data/scripts/${l}.json`)]));
 
 class FakeAudio {
   canSpeak = true;
@@ -22,21 +25,26 @@ class FakeAudio {
   speak(text, lang) { return this._later(["speak", `${lang}:${text}`]); }
   chime(kind) { this.calls.push(["chime", kind]); }
   stop() { this.calls.push(["stop"]); }
-  finishAll() { for (const r of this.pending.splice(0)) r(); }
+  finishAll() { for (const r of this.pending.splice(0)) r(true); }
   last(kind) { return this.calls.filter((c) => c[0] === kind).at(-1)?.[1]; }
+  since(n) { return this.calls.slice(n); }
 }
 
 const seeded = (s = 3) => () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 2 ** 32);
-const flush = () => new Promise((r) => setImmediate(r));
+const flush = async () => { for (let i = 0; i < 4; i++) await new Promise((r) => setImmediate(r)); };
 
-async function setup({ findIt = true, lang = "en" } = {}) {
-  const snap = aSnapshot()
-    .withPlace(
-      aPlace({ id: "farm", findIt })
-        .withThing(aThing({ id: "pig", names: { en: "pig", sv: "grisen" }, outline: square(0.3, 0.7, 0.08) }).withClip(aClip({ language: "en", kind: "prompt", take: 1 })).withClip(aClip({ language: "en", kind: "name" })))
-        .withThing(aThing({ id: "cow", names: { en: "cow" }, outline: square(0.7, 0.7, 0.08) })),
+/** Pig: recorded question, name and sound, pink. Cow: typed name only, white. Hen: typed name, pink too. */
+async function setup({ findIt, lang = "en", withHen = false } = {}) {
+  const place = aPlace({ id: "farm", ...(findIt === undefined ? {} : { findIt }) })
+    .withThing(
+      aThing({ id: "pig", color: "pink", names: { en: "pig", sv: "grisen" }, outline: square(0.3, 0.7, 0.08) })
+        .withClip(aClip({ language: "en", kind: "prompt", take: 1 }))
+        .withClip(aClip({ language: "en", kind: "name" }))
+        .withClip(aClip({ language: "en", kind: "sound" })),
     )
-    .build();
+    .withThing(aThing({ id: "cow", color: "white", names: { en: "cow" }, outline: square(0.7, 0.7, 0.08) }));
+  if (withHen) place.withThing(aThing({ id: "hen", color: "pink", names: { en: "hen" }, outline: square(0.5, 0.3, 0.06) }));
+  const snap = aSnapshot().withPlace(place).build();
   snap.settings.languages = [lang];
   snap.settings.playLanguage = lang;
   const store = new FarmStore(new MemoryRepo(), fixedEnv());
@@ -46,92 +54,232 @@ async function setup({ findIt = true, lang = "en" } = {}) {
   const clock = { t: 0 };
   const engine = new PlayEngine({ store, audio, presets, scripts, rng: seeded(), now: () => clock.t });
   const events = [];
-  for (const k of ["ask", "answer", "reaction"]) engine.addEventListener(k, (e) => events.push([k, e.detail]));
+  for (const k of ["ask", "answer", "reaction", "find"]) engine.addEventListener(k, (e) => events.push([k, e.detail]));
   const advance = (s) => { for (let i = 0; i < Math.round(s * 30); i++) { clock.t += 1000 / 30; engine.step(1 / 30); } };
   const tapThing = (id) => { const a = engine.actorFor(id); return engine.tap(a.x, a.y); };
-  return { store, audio, engine, events, advance, tapThing };
+  const asks = () => events.filter(([k]) => k === "ask").map(([, d]) => d);
+  /** Starts an animal round on a given target (re-presses until the rng lands on it). */
+  const roundOn = async (target) => {
+    for (let i = 0; i < 20; i++) {
+      engine.startFind("animal");
+      if (engine.asking === target) return;
+      engine.stopFind();
+    }
+    throw new Error(`never asked for ${target}`);
+  };
+  return { store, audio, engine, events, advance, tapThing, asks, roundOn };
 }
 
 test("a thing without a recording chimes, then the device says its name in the play language", async () => {
-  const { audio, tapThing } = await setup({ findIt: false });
+  const { audio, tapThing } = await setup();
   tapThing("cow");
   assert.deepEqual(audio.calls.slice(0, 2), [["chime", "tap"], ["speak", "en:cow"]]);
 });
 
 test("the built-in voice falls back to another typed name when the play language has none", async () => {
-  const { audio, tapThing } = await setup({ findIt: false, lang: "sv" });
+  const { audio, tapThing } = await setup({ lang: "sv" });
   tapThing("cow");
   assert.equal(audio.last("speak"), "en:cow");
 });
 
-test("Find it is off unless the place turns it on", async () => {
-  const { engine, events, advance } = await setup({ findIt: false });
-  advance(FIND.firstAskS + FIND.gapMaxS);
-  assert.equal(events.filter(([k]) => k === "ask").length, 0);
-  assert.equal(engine.nextWakeMs() > FIND.gapMaxS * 1000 || engine.nextWakeMs() < Infinity, true);
+test("find never starts by itself: a long calm stretch asks nothing", async () => {
+  const { engine, asks, advance } = await setup();
+  advance(120);
+  assert.equal(asks().length, 0);
+  assert.equal(engine.findRound, null);
+  assert.equal(engine.nextWakeMs() > 0, true);
 });
 
-test("asks with a recorded question, or the scripted cue in the device's voice, and freezes things meanwhile", async () => {
-  const { engine, audio, events, advance } = await setup();
-  assert.ok(engine.nextWakeMs() <= FIND.firstAskS * 1000, "the renderer is woken for the question");
-  advance(FIND.firstAskS + 0.2);
-  const ask = events.find(([k]) => k === "ask")[1];
-  const asked = ask.thingId === "pig" ? audio.last("playClip") : audio.last("speak");
-  assert.equal(asked, ask.thingId === "pig" ? "en:prompt:1" : "en:Where is the cow?");
-  assert.equal(engine.asking, ask.thingId);
-  audio.finishAll();
-  await flush();
+test("the find games show by default (findIt absent), hide when the place switches them off, and outside play", async () => {
+  const on = await setup();
+  assert.equal(on.engine.findAvailable, true);
+  on.engine.setMode("edit");
+  assert.equal(on.engine.findAvailable, false);
+  assert.equal(on.engine.startFind("animal"), false);
+  const off = await setup({ findIt: false });
+  assert.equal(off.engine.findAvailable, false);
+  assert.equal(off.engine.startFind("animal"), false);
+  assert.equal(off.asks().length, 0);
 });
 
-test("right tap: celebration chime, confetti, then the name; a new question comes later", async () => {
-  const { engine, audio, events, advance, tapThing } = await setup();
-  advance(FIND.firstAskS + 0.2);
+test("animal round: the recorded question, then the thing's own sound as a clue; things freeze meanwhile", async () => {
+  const { engine, audio, asks, roundOn } = await setup();
+  await roundOn("pig");
+  assert.deepEqual(engine.findRound, { kind: "animal", thingId: "pig", color: null });
+  assert.equal(asks().at(-1).kind, "animal");
+  assert.equal(audio.last("playClip"), "en:prompt:1");
+  assert.equal(engine._input.fingerDown || engine._prompting, true);
+  const n = audio.calls.length;
   audio.finishAll();
   await flush();
-  const target = engine.asking;
-  tapThing(target);
-  assert.deepEqual(events.filter(([k]) => k === "answer").at(-1)[1], { thingId: target, outcome: "correct" });
+  assert.deepEqual(audio.since(n), [["playClip", "en:sound:1"]], "the sound follows the question");
+});
+
+test("animal round without recordings: the scripted cue in the device's voice", async () => {
+  const { audio, roundOn } = await setup();
+  await roundOn("cow");
+  assert.match(audio.last("speak"), /^en:(Where is|Can you find|Show me) the cow[?!]$/);
+});
+
+test("right tap: yay chime and confetti, then the name and the sound; the round ends", async () => {
+  const { engine, audio, events, tapThing, roundOn } = await setup();
+  await roundOn("pig");
+  audio.finishAll();
+  await flush();
+  const n = audio.calls.length;
+  tapThing("pig");
+  assert.deepEqual(events.filter(([k]) => k === "answer").at(-1)[1], { thingId: "pig", outcome: "correct" });
   assert.equal(events.filter(([k]) => k === "reaction").at(-1)[1].celebrate, true);
-  assert.ok(audio.calls.some(([k, v]) => k === "chime" && v === "yay"));
-  assert.equal(engine.asking, null);
-  audio.finishAll();
-  await flush();
-  advance(FIND.celebrateS + FIND.gapMaxS + 0.5);
-  assert.equal(events.filter(([k]) => k === "ask").length, 2);
+  assert.deepEqual(audio.since(n), [["stop"], ["chime", "yay"], ["playThing", "en:name,en:sound"]]);
+  assert.equal(engine.findRound, null);
+  assert.equal(events.filter(([k]) => k === "find").at(-1)[1].round, null);
 });
 
-test("wrong taps: the tapped thing says its own name, the question repeats, and after 2 misses the right one glows", async () => {
-  const { engine, audio, events, advance, tapThing } = await setup();
-  advance(FIND.firstAskS + 0.2);
+test("right tap on a thing with a typed name only: the device says the name", async () => {
+  const { audio, tapThing, roundOn } = await setup();
+  await roundOn("cow");
   audio.finishAll();
   await flush();
-  const target = engine.asking;
-  const other = target === "pig" ? "cow" : "pig";
+  tapThing("cow");
+  assert.equal(audio.last("speak"), "en:cow");
+});
+
+test("wrong taps: the tapped thing says its own name, the question repeats; after 2 misses the right one glows and hops", async () => {
+  const { engine, audio, events, advance, tapThing, asks, roundOn } = await setup();
+  await roundOn("cow");
+  audio.finishAll();
+  await flush();
   for (let miss = 1; miss <= 2; miss++) {
     advance(0.5); // past the mash window
-    tapThing(other);
+    tapThing("pig");
     assert.equal(events.filter(([k]) => k === "answer").at(-1)[1].outcome, "wrong");
-    audio.finishAll(); // its name ends…
+    assert.equal(audio.last("playThing"), "en:name,en:sound", "the pig says its name");
+    const before = asks().length;
+    audio.finishAll();
     await flush();
-    assert.equal(events.filter(([k]) => k === "ask").at(-1)[1].repeat, true, "…then the question comes again");
+    assert.equal(asks().length, before + 1, "then the question comes again");
+    assert.equal(asks().at(-1).repeat, true);
     audio.finishAll();
     await flush();
   }
   advance(0.05);
-  assert.equal(engine.actorFor(target).glow, 1);
-  assert.equal(engine.actorFor(other).glow, 0);
+  assert.equal(engine.actorFor("cow").glow, 1);
+  assert.equal(engine.actorFor("pig").glow, 0);
+  assert.equal(engine.actorFor("cow").state, "react", "the right one hops");
   assert.equal(engine.isIdle(), false, "the glow keeps the renderer running");
-  tapThing(target);
+  tapThing("cow");
   advance(0.05);
-  assert.equal(engine.actorFor(target).glow, 0);
+  assert.equal(engine.actorFor("cow").glow, 0);
 });
 
-test("edit mode cancels a question", async () => {
-  const { engine, advance, audio } = await setup();
-  advance(FIND.firstAskS + 0.2);
+test("no answer: after ~6 quiet seconds the target hops and the question repeats once; after ~30 s the round ends quietly", async () => {
+  const { engine, audio, asks, advance, roundOn } = await setup();
+  await roundOn("cow");
   audio.finishAll();
   await flush();
-  assert.ok(engine.asking);
-  engine.setMode("edit");
+  const asked = asks().length;
+  assert.ok(engine.nextWakeMs() <= FIND.nudgeAfterS * 1000 + 50, "the renderer is woken for the nudge");
+  advance(FIND.nudgeAfterS + 0.2);
+  assert.equal(asks().length, asked + 1);
+  assert.equal(asks().at(-1).repeat, true);
+  assert.equal(engine.actorFor("cow").state, "react");
+  audio.finishAll();
+  await flush();
+  const n = audio.calls.length;
+  advance(FIND.timeoutS);
+  assert.equal(engine.findRound, null);
+  assert.equal(asks().length, asked + 1, "only one repeat");
+  assert.ok(!audio.since(n).some(([k]) => k === "chime" || k === "speak" || k === "playClip"), "no failure sound");
+});
+
+test("a find timer that runs while the board is idle still fires (nextWakeMs covers it)", async () => {
+  const { engine, audio, roundOn } = await setup();
+  await roundOn("cow");
+  audio.finishAll();
+  await flush();
+  const wake = engine.nextWakeMs();
+  assert.ok(wake < Infinity && wake <= FIND.nudgeAfterS * 1000 + 50);
+});
+
+test("pressing the button again during its round repeats the question; the other button switches game", async () => {
+  const { engine, asks, roundOn } = await setup();
+  await roundOn("cow");
+  const n = asks().length;
+  engine.startFind("animal");
+  assert.equal(asks().length, n + 1);
+  assert.equal(asks().at(-1).repeat, true);
+  assert.equal(engine.asking, "cow");
+  engine.startFind("color");
+  assert.equal(engine.findRound.kind, "color");
   assert.equal(engine.asking, null);
+});
+
+test("colour round: asks for a colour in the scene; any thing of that colour is right", async () => {
+  const { engine, audio, events, advance, tapThing } = await setup({ withHen: true });
+  let ok = false;
+  for (let i = 0; i < 10 && !ok; i++) { engine.stopFind(); engine.startFind("color"); ok = engine.findRound.color === "pink"; }
+  assert.ok(ok);
+  assert.equal(audio.last("speak").startsWith("en:"), true);
+  assert.match(audio.last("speak"), /pink/);
+  audio.finishAll();
+  await flush();
+  advance(0.5);
+  tapThing("cow");
+  assert.equal(events.filter(([k]) => k === "answer").at(-1)[1].outcome, "wrong");
+  audio.finishAll();
+  await flush();
+  assert.match(audio.last("speak"), /pink/, "the colour question repeats after the cow's name");
+  audio.finishAll();
+  await flush();
+  advance(0.5);
+  tapThing("cow");
+  audio.finishAll();
+  await flush();
+  advance(0.05);
+  assert.equal(engine.actorFor("pig").glow, 1, "after 2 misses every pink thing glows");
+  assert.equal(engine.actorFor("hen").glow, 1);
+  assert.equal(engine.actorFor("cow").glow, 0);
+  tapThing("hen");
+  assert.equal(events.filter(([k]) => k === "answer").at(-1)[1].outcome, "correct");
+  assert.equal(audio.last("speak"), "en:hen");
+});
+
+test("the colour question is in the play language", async () => {
+  const { engine, audio } = await setup({ lang: "sv" });
+  engine.startFind("color");
+  assert.match(audio.last("speak"), /^sv:(Hitta|Var|Kan)/);
+});
+
+test("edit mode and deleting the target end a round", async () => {
+  const { engine, store, roundOn } = await setup();
+  await roundOn("cow");
+  engine.setMode("edit");
+  assert.equal(engine.findRound, null);
+  engine.setMode("play");
+  await roundOn("cow");
+  await store.deleteThing({ thingId: "cow" });
+  assert.equal(engine.findRound, null);
+});
+
+test("the find buttons hide while the things sleep", async () => {
+  const { engine, store, advance, events } = await setup();
+  await store.updateSettings({ patch: { sleepMinutes: 5 } });
+  assert.equal(engine.findAvailable, true);
+  advance(5 * 60 + 1);
+  assert.equal(engine.world.asleep, true);
+  assert.equal(engine.findAvailable, false);
+  assert.equal(events.filter(([k]) => k === "find").at(-1)[1].available, false);
+  assert.equal(engine.startFind("animal"), false);
+});
+
+test("every script language has a word for every simple colour and colour questions", () => {
+  for (const lang of LANGS) {
+    for (const group of Object.keys(COLOR_GROUPS)) {
+      const line = colorLine(scripts, group, lang);
+      assert.equal(line.lang, lang, `${lang} has ${group}`);
+      assert.ok(!line.text.includes("{"), line.text);
+    }
+    assert.equal(scripts[lang].colorTemplates.length, 3);
+  }
+  assert.deepEqual(colorLine(scripts, "blue", "nl"), { text: "Find something blue!", lang: "en" });
 });

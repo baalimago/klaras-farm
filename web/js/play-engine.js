@@ -1,11 +1,14 @@
 // PlayEngine: owns the ephemeral play world for the current place (ARCHITECTURE §4).
 // Reads the FarmStore, never writes it. The Renderer calls step(dt) each frame and reads
-// `actors`; the board calls tap / pick / fingerDown; guided add calls dropIn.
+// `actors`; the board calls tap / pick / fingerDown; guided add calls dropIn; the find buttons
+// call startFind.
 //
 // Events:
 //   'reaction' {thingId, x, y}   a tap reaction started (confetti), board coordinates
-//   'ask'      {thingId, repeat}  Find it asked for a thing
-//   'answer'   {thingId, outcome} Find it: 'correct' or 'wrong'
+//   'ask'      {kind, thingId, color, repeat}  a find game asked ('animal': thingId; 'color': color)
+//   'answer'   {thingId, outcome} a find game: 'correct' or 'wrong'
+//   'find'     {round, available} the find game state changed (a round started or ended, or the
+//                                buttons should show or hide): <kf-find-buttons> listens
 //   'wake'     {}                something started moving without a frame being requested
 //                                (tap, drop, mode change, store change, finger lifted):
 //                                the renderer should wake() its loop.
@@ -17,9 +20,9 @@ import { createWorld, syncWorld, step, setMode, react, dropActor, sleepAll, isId
 import { hitTest } from "./play/hit.js";
 import { decideTap, idleMash, startPlaying, stopPlaying } from "./play/mash.js";
 import { createSleep, tickSleep, sleepRemainingS } from "./play/sleep.js";
-import { createFind, stepFind, answerFind, hintFor, findRemainingS } from "./play/find.js";
+import { createFind, startRound, endRound, stepFind, answerFind, isAnswer, hinting, reconcileFind, findRemainingS } from "./play/find.js";
 import { tapClips, playLanguageFor, clipsFor } from "./farm/intents.js";
-import { cueLines } from "./farm/scripts.js";
+import { cueLines, colorLine } from "./farm/scripts.js";
 
 const MODES = ["play", "edit", "scene"];
 
@@ -49,7 +52,9 @@ export class PlayEngine extends EventTarget {
     this._find = createFind();
     this._prompting = false;
     this._askCount = 0;
-    this._candidates = null; // cached Find it candidates, cleared on store change
+    this._askToken = 0;   // the latest question; an older one finishing doesn't unfreeze things
+    this._roundToken = 0; // the latest find round; callbacks of an older round do nothing
+    this._glowIds = new Set(); // find hint: the right thing(s) glow after 2 misses
     const settings = store.settings ?? {};
     this._sleepMinutes = settings.sleepMinutes ?? 0;
     this._sleep = createSleep(this._sleepMinutes);
@@ -71,8 +76,9 @@ export class PlayEngine extends EventTarget {
     setMode(this.world, mode, this.rng);
     if (mode === "play") this._sleep = createSleep(this._sleepMinutes);
     this._sleep.paused = mode !== "play";
-    if (mode !== "play") this._find = createFind();
+    if (mode !== "play") this._endFind();
     this._wake();
+    this._emitFind();
   }
 
   /** Advances by dt seconds (the frame delta). Fixed timestep inside. */
@@ -96,9 +102,15 @@ export class PlayEngine extends EventTarget {
       this._wake();
       return id;
     }
-    const outcome = answerFind(this._find, id);
+    const round = this._roundToken;
+    const outcome = answerFind(this._find, id, this._colorOf(id));
     if (outcome !== "none") this.dispatchEvent(new CustomEvent("answer", { detail: { thingId: id, outcome } }));
-    if (outcome === "correct") return this._celebrate(id);
+    if (outcome === "correct") {
+      this._endFind();
+      this._emitFind();
+      return this._celebrate(id);
+    }
+    if (outcome === "wrong" && hinting(this._find)) this._glowIds = new Set(this._answerIds());
     const nowMs = this.now();
     const decision = decideTap(this._mash, id, nowMs);
     if (decision.action === "ignore") return id;
@@ -106,6 +118,7 @@ export class PlayEngine extends EventTarget {
     this.dispatchEvent(new CustomEvent("reaction", { detail: { thingId: id, x: a.x, y: a.y } }));
     if (decision.stopCurrent || this._prompting) this._call("stop");
     this._prompting = false;
+    this._askToken++;
     const snap = this.store.snapshot;
     const lang = this._langFor(snap, id, "name");
     const clips = tapClips(snap, id, lang);
@@ -114,8 +127,12 @@ export class PlayEngine extends EventTarget {
     // Called synchronously inside the tap so iOS treats it as user-initiated.
     const done = () => {
       this._mash = stopPlaying(this._mash, token);
-      // Find it, wrong thing: after it says its own name, the question comes again (US-6.2).
-      if (outcome === "wrong" && this._find.phase === "asking" && this._mash.playingId === null) this._ask(this._find.target, true);
+      // Find game, wrong thing: after it says its own name, the question comes again (US-6.2);
+      // after 2 misses the right thing(s) also hop (and glow, set above).
+      if (outcome === "wrong" && round === this._roundToken && this._find.phase === "asking" && this._mash.playingId === null) {
+        if (hinting(this._find)) this._hop();
+        this._ask(true);
+      }
     };
     let playing;
     if (clips.length) {
@@ -131,9 +148,50 @@ export class PlayEngine extends EventTarget {
     return id;
   }
 
-  /** Find it: what the farm is asking for right now (for tests and the hint glow), or null. */
+  /** Find the animal: the thing asked for right now, or null (also null in a colour round). */
   get asking() {
     return this._find.phase === "asking" ? this._find.target : null;
+  }
+
+  /** The find round in progress: {kind:'animal'|'color', thingId, color}, or null. */
+  get findRound() {
+    const f = this._find;
+    return f.phase === "asking" ? { kind: f.kind, thingId: f.target, color: f.color } : null;
+  }
+
+  /** True when the find buttons should show: play, awake, a scene with things, games not switched off. */
+  get findAvailable() {
+    const place = this.store.currentPlace;
+    return this._mode === "play" && !this.world.asleep && !!place && place.findIt !== false && this.world.actors.length > 0;
+  }
+
+  /**
+   * The child pressed a find button: start a round of that game ('animal' or 'color').
+   * Pressing it again during its own round repeats the question. Call it inside the press:
+   * the question starts synchronously (iOS speech needs the gesture). Returns true if asking.
+   */
+  startFind(kind) {
+    if (!this.findAvailable || (kind !== "animal" && kind !== "color")) return false;
+    this._catchUp();
+    this._call("stop");
+    this._mash = idleMash();
+    if (this._find.phase === "asking" && this._find.kind === kind) {
+      this._ask(true);
+      return true;
+    }
+    this._endFind();
+    const ev = startRound(this._find, kind, this._findThings(), this.rng);
+    if (ev) this._ask(false);
+    this._emitFind();
+    return !!ev;
+  }
+
+  /** Ends any find round quietly (no sound). */
+  stopFind() {
+    if (this._find.phase !== "asking") return;
+    this._endFind();
+    this._emitFind();
+    this._wake();
   }
 
   /** Which thing is at (x, y), in any mode (edit mode taps). */
@@ -154,13 +212,13 @@ export class PlayEngine extends EventTarget {
 
   /** True when nothing moves: the renderer can stop requesting frames. A hint glow pulses. */
   isIdle() {
-    return isIdle(this.world) && hintFor(this._find) === null;
+    return isIdle(this.world) && this._glowIds.size === 0;
   }
 
-  /** Milliseconds until something starts moving by itself (wander, blink, sleep); Infinity if never. */
+  /** Milliseconds until something happens by itself (wander, blink, sleep, a find nudge or timeout); Infinity if never. */
   nextWakeMs() {
     const sleepS = sleepRemainingS(this._sleep);
-    const findS = findRemainingS(this._find, this._findEnabled());
+    const findS = this._mode === "play" ? findRemainingS(this._find) : Infinity;
     const soonest = Math.min(sleepS, findS);
     return Math.min(nextWakeMs(this.world), soonest === Infinity ? Infinity : Math.ceil(soonest * 1000));
   }
@@ -196,31 +254,62 @@ export class PlayEngine extends EventTarget {
     // Things freeze while a question plays (DESIGN decision 7), like while a finger is down.
     this._input.fingerDown = this._finger || this._prompting;
     step(this.world, s, this._input, this.rng);
-    if (this._mode === "play" && tickSleep(this._sleep, s)) sleepAll(this.world);
-    if (this._mode === "play") {
-      const calm = !this._finger && !this.world.asleep && !this._prompting && this._mash.playingId === null;
-      const ev = stepFind(this._find, s, { enabled: this._findEnabled(), candidates: this._findCandidates(), calm }, this.rng);
-      if (ev?.type === "ask") this._ask(ev.thingId, ev.repeat);
+    if (this._mode === "play" && tickSleep(this._sleep, s)) {
+      sleepAll(this.world);
+      this._endFind();
+      this._emitFind(); // the buttons hide while the things sleep
     }
-    const hint = hintFor(this._find);
-    for (const a of this.world.actors) a.glow = a.thingId === hint ? 1 : 0;
+    if (this._mode === "play" && this._find.phase === "asking") {
+      const calm = !this._prompting && this._mash.playingId === null;
+      const ev = stepFind(this._find, s, { calm });
+      if (ev?.type === "nudge") { this._hop(); this._ask(true); }
+      else if (ev?.type === "timeout") { this._endFind(); this._emitFind(); }
+    }
+    const glow = this._glowIds;
+    for (const a of this.world.actors) a.glow = glow.has(a.thingId) ? 1 : 0;
   }
 
-  // ---- Find it ----
+  // ---- find games ----
 
-  _findEnabled() {
-    return this._mode === "play" && this.store.currentPlace?.findIt === true;
-  }
-
-  /** Things Find it can ask for: a recorded question, or (until then) a name the device can say. */
-  _findCandidates() {
-    if (this._candidates) return this._candidates;
+  /** Things of this place for a find round: id, felt colour, and whether it can be asked for by name. */
+  _findThings() {
     const snap = this.store.snapshot;
     const canSpeak = !!this.audio?.canSpeak;
-    this._candidates = this._things()
-      .filter((t) => clipsFor(snap, t.id, { kind: "prompt" }).length > 0 || (canSpeak && Object.values(t.names ?? {}).some(Boolean)))
-      .map((t) => t.id);
-    return this._candidates;
+    return this._things().map((t) => ({
+      id: t.id,
+      color: t.color,
+      askable:
+        clipsFor(snap, t.id, { kind: "prompt" }).length > 0 ||
+        clipsFor(snap, t.id, { kind: "name" }).length > 0 ||
+        (canSpeak && Object.values(t.names ?? {}).some(Boolean)),
+    }));
+  }
+
+  _colorOf(thingId) {
+    return this.store.snapshot.things.find((t) => t.id === thingId)?.color ?? null;
+  }
+
+  /** Things that answer the current round. */
+  _answerIds() {
+    return this._things().filter((t) => isAnswer(this._find, t.id, t.color)).map((t) => t.id);
+  }
+
+  /** The cue: the right thing(s) do a little hop. */
+  _hop() {
+    for (const id of this._answerIds()) react(this.world, id);
+    this._wake();
+  }
+
+  /** Ends the round quietly; callbacks of the old round become no-ops. */
+  _endFind() {
+    endRound(this._find);
+    this._roundToken++;
+    if (this._glowIds.size) this._glowIds = new Set();
+    for (const a of this.world.actors) a.glow = 0;
+  }
+
+  _emitFind() {
+    this.dispatchEvent(new CustomEvent("find", { detail: { round: this.findRound, available: this.findAvailable } }));
   }
 
   /** The language for this play: fixed, or random among the languages recorded for the thing. */
@@ -229,47 +318,87 @@ export class PlayEngine extends EventTarget {
     return playLanguageFor(snap.settings, { available, rng: this.rng });
   }
 
-  /** Plays the question for a thing: a recorded take (rotating), or the scripted cue in the device's voice. */
-  _ask(thingId, repeat = false) {
+  /**
+   * Asks the current round's question. Animal: the parent's recorded question (rotating takes),
+   * else the scripted cue in the device's voice, else the recorded name; then the thing's own
+   * sound as a clue. Colour: "Find something yellow!" in the device's voice.
+   */
+  _ask(repeat = false) {
+    const f = this._find;
+    if (f.phase !== "asking") return;
     const snap = this.store.snapshot;
-    const thing = snap.things.find((t) => t.id === thingId);
-    if (!thing) return;
-    const lang = this._langFor(snap, thingId, "prompt");
-    const prompts = clipsFor(snap, thingId, { kind: "prompt" });
-    const own = prompts.filter((c) => c.language === lang);
-    const pool = own.length ? own : prompts;
     const n = this._askCount++;
-    this._prompting = true;
-    this.dispatchEvent(new CustomEvent("ask", { detail: { thingId, repeat } }));
-    let playing;
-    if (pool.length) {
-      playing = this._call("playClip", pool[n % pool.length]);
+    const askToken = ++this._askToken;
+    const round = this._roundToken;
+    let playing = null;
+    let clue = null;
+    if (f.kind === "color") {
+      const lang = playLanguageFor(snap.settings, { rng: this.rng });
+      const line = colorLine(this.scripts, f.color, lang, n);
+      if (line && this.audio?.canSpeak) playing = this._call("speak", line.text, line.lang);
+      else this._call("chime", "tap"); // no voice: the colour button shows the colour
     } else {
-      const { lines, fallback } = cueLines(this.scripts, thing, lang);
-      const line = lines.length ? lines[n % lines.length] : null;
-      playing = line ? this._call("speak", line, fallback ? "en" : lang) : null;
+      const thingId = f.target;
+      const thing = snap.things.find((t) => t.id === thingId);
+      if (!thing) return;
+      const lang = this._langFor(snap, thingId, "prompt");
+      const prompts = clipsFor(snap, thingId, { kind: "prompt" });
+      const own = prompts.filter((c) => c.language === lang);
+      const pool = own.length ? own : prompts;
+      if (pool.length) {
+        playing = this._call("playClip", pool[n % pool.length]);
+      } else {
+        const { lines, fallback } = cueLines(this.scripts, thing, lang);
+        const line = lines.length && this.audio?.canSpeak ? lines[n % lines.length] : null;
+        const name = line ? null : tapClips(snap, thingId, lang).find((c) => c.kind === "name");
+        if (line) playing = this._call("speak", line, fallback ? "en" : lang);
+        else if (name) playing = this._call("playClip", name);
+      }
+      const sounds = clipsFor(snap, thingId, { kind: "sound" });
+      const sound = sounds.find((c) => c.language === lang) ?? sounds[0] ?? null;
+      if (sound) clue = () => this._call("playClip", sound);
     }
-    const done = () => { this._prompting = false; this._wake(); };
-    Promise.resolve(playing).then(done, done);
+    this._prompting = true;
+    this.dispatchEvent(new CustomEvent("ask", { detail: { kind: f.kind, thingId: f.target, color: f.color, repeat } }));
+    const done = () => {
+      if (askToken !== this._askToken) return;
+      this._prompting = false;
+      this._wake();
+    };
+    // The clue sound follows the question, unless something interrupted it.
+    const current = () => askToken === this._askToken && round === this._roundToken;
+    Promise.resolve(playing)
+      .then((ok) => (clue && ok !== false && current() ? clue() : undefined))
+      .then(done, done);
     this._wake();
   }
 
-  /** Find it, right thing: a happy jump, confetti, a bright chime, then its name. */
+  /** Find game, right thing: a happy jump, confetti, a bright chime, then its name and its sound. */
   _celebrate(id) {
     this._call("stop");
     this._prompting = false;
+    this._askToken++;
     const a = react(this.world, id);
     this.dispatchEvent(new CustomEvent("reaction", { detail: { thingId: id, x: a.x, y: a.y, celebrate: true } }));
     this._call("chime", "yay");
     const snap = this.store.snapshot;
     const lang = this._langFor(snap, id, "name");
-    const clips = tapClips(snap, id, lang).filter((c) => c.kind === "name");
+    const clips = tapClips(snap, id, lang);
     const nowMs = this.now();
     this._mash = startPlaying(this._mash, id, nowMs);
     const token = this._mash.token;
-    const done = () => { this._mash = stopPlaying(this._mash, token); };
-    const name = clips.length ? null : this._nameFor(id, lang);
-    const playing = clips.length ? this._call("playThing", clips) : name ? this._call("speak", name.text, name.lang) : null;
+    const done = () => { this._mash = stopPlaying(this._mash, token); this._wake(); };
+    let playing;
+    if (clips.some((c) => c.kind === "name")) {
+      playing = this._call("playThing", clips);
+    } else {
+      // No recorded name: the device says it, then the recorded sound (if any) follows.
+      const name = this._nameFor(id, lang);
+      const sound = clips.find((c) => c.kind === "sound");
+      playing = Promise.resolve(name ? this._call("speak", name.text, name.lang) : null).then((ok) =>
+        sound && ok !== false && this._mash.token === token ? this._call("playClip", sound) : undefined,
+      );
+    }
     Promise.resolve(playing).then(done, done);
     this._wake();
     return id;
@@ -311,7 +440,6 @@ export class PlayEngine extends EventTarget {
 
   _storeChanged(detail) {
     this._catchUp();
-    this._candidates = null;
     const settings = this.store.settings ?? {};
     const minutes = settings.sleepMinutes ?? 0;
     if (minutes !== this._sleepMinutes) {
@@ -324,9 +452,13 @@ export class PlayEngine extends EventTarget {
     this.world.speedFactor = settings.reduceMotion ? 0.5 : 1;
     const placeId = this.store.currentPlace?.id ?? null;
     const switched = placeId !== this._placeId && this._placeId !== null && detail.kind !== "replaced" && detail.kind !== "hydrated";
+    const moved = placeId !== this._placeId;
     this._placeId = placeId;
     syncWorld(this.world, this._things(), this.rng, { drop: switched });
     for (const id of this._pendingDrops) if (dropActor(this.world, id)) this._pendingDrops.delete(id);
+    // A find round ends with its scene, when its answer leaves it, or when the games are switched off.
+    if (this._find.phase === "asking" && (moved || reconcileFind(this._find, this._things()) || !this.findAvailable)) this._endFind();
     this._wake();
+    this._emitFind();
   }
 }
