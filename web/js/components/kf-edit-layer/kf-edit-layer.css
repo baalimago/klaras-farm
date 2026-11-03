@@ -1,1 +1,90 @@
-/* kf-edit-layer */
+/* kf-edit-layer: the edit bar and the still badges over the wiggling things (US-11.3). */
+.parent-layer > kf-edit-layer,
+kf-edit-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+kf-edit-layer button { pointer-events: auto; }
+kf-edit-layer.covered .kf-edit-bar,
+kf-edit-layer.covered .kf-edit-badges { display: none; }
+
+.kf-edit-bar {
+  position: absolute;
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  max-width: calc(100% - 2 * var(--gutter));
+  box-sizing: border-box;
+  padding: 8px;
+  background: var(--cream);
+  border-radius: 32px;
+  box-shadow: 0 5px 0 rgb(74 51 38 / 0.2), var(--shadow);
+  pointer-events: auto;
+}
+.kf-edit-bar .kf-btn { position: relative; background: var(--paper); white-space: nowrap; }
+.kf-edit-bar .kf-btn.primary { background: var(--blue); color: #fff; }
+.kf-update-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--orange);
+}
+.kf-visually-hidden {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+.kf-edit-reason {
+  position: absolute;
+  left: 50%;
+  bottom: calc(max(16px, env(safe-area-inset-bottom)) + 80px);
+  transform: translateX(-50%);
+  margin: 0;
+  max-width: calc(100% - 2 * var(--gutter));
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  font-size: 0.95rem;
+  text-align: center;
+}
+.kf-edit-empty {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 18px 22px;
+  border-radius: var(--radius);
+  background: rgb(255 250 240 / 0.92);
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+}
+.kf-edit-empty p { margin: 0; font-weight: 600; }
+
+.kf-edit-badges { position: absolute; inset: 0; }
+.kf-badge {
+  position: absolute;
+  width: 52px;
+  height: 52px;
+  margin: -26px 0 0 -26px;
+  padding: 0;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  font: 700 1.4rem/1 var(--font);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.kf-badge.pencil { background: var(--paper); color: var(--ink); }
+.kf-badge.cross { background: var(--red); color: #fff; }
