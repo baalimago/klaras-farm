@@ -1,6 +1,6 @@
 # Klara's Farm: design notes
 
-Status: concept, stress-tested once by an adversarial review, plus one round of feedback (section 0). No implementation yet. Look: **felt board** (picked), final palette pick pending in `design/sketches/final.html`.
+Status: concept, stress-tested once by an adversarial review, plus one round of feedback (section 0). No implementation yet. Look: **felt board** (picked), palette **Sunny** (picked), see `design/sketches/final.html`. User stories: `design/USER_STORIES.md`.
 
 ## 0. Feedback round 2 (latest, overrides older sections where they differ)
 
