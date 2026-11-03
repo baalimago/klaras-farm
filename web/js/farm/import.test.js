@@ -58,12 +58,12 @@ describe("checkImport", () => {
   });
 
   it("rejects a file whose minReaderFormat is newer than this app reads", () => {
-    const s = { ...farm(), formatVersion: 7, minReaderFormat: 2 };
+    const s = { ...farm(), formatVersion: 7, minReaderFormat: 3 };
     rejects(() => checkImport(input(s), { createdAt: NOW }), "newer");
   });
 
   it("accepts a newer formatVersion that this app can still read, keeping unknown fields", () => {
-    const s = { ...farm(), formatVersion: 2, minReaderFormat: 1, futureField: { x: 1 } };
+    const s = { ...farm(), formatVersion: 3, minReaderFormat: 1, futureField: { x: 1 } };
     const out = checkImport(input(s), { createdAt: NOW });
     assert.deepEqual(out.snapshot.futureField, { x: 1 });
   });

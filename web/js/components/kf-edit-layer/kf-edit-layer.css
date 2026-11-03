@@ -88,3 +88,10 @@ kf-edit-layer.covered .kf-edit-badges { display: none; }
 }
 .kf-badge.pencil { background: var(--paper); color: var(--ink); }
 .kf-badge.cross { background: var(--red); color: #fff; }
+/* "Needs your voice": a small red mic dot on the pencil of things without a recorded name. */
+.kf-voice-dot {
+  position: absolute; right: -6px; top: -6px;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--red); color: #fff; font-size: 12px; line-height: 22px; text-align: center;
+  box-shadow: 0 0 0 2px #fff; pointer-events: none;
+}

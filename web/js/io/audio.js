@@ -102,10 +102,47 @@ export class AudioEngine extends EventTarget {
     return this._sequence([clip], { chimeOnFail: false, bytes: opts.bytes });
   }
 
-  /** Stops the playing clip (with a short fade). */
+  /** Stops the playing clip (with a short fade) and any built-in speech. */
   stop() {
     this._token++;
     this._stopCurrent();
+    this.stopSpeaking();
+  }
+
+  // ---- built-in voice (until a parent records) ----
+
+  /** True when the device has a speech synthesiser. */
+  get canSpeak() {
+    return typeof globalThis.speechSynthesis !== "undefined" && typeof globalThis.SpeechSynthesisUtterance !== "undefined";
+  }
+
+  /**
+   * Says `text` with the device's voice in `lang` (BCP 47). Used only while a thing has no
+   * recording of its own, so starter things talk from the first tap. Call it inside the tap on iOS.
+   * Resolves when finished (or after a safety timeout); never rejects.
+   */
+  speak(text, lang = "en", { rate = 0.85, pitch = 1.15 } = {}) {
+    if (!this.canSpeak || !text) return Promise.resolve(false);
+    const synth = globalThis.speechSynthesis;
+    synth.cancel();
+    const u = new globalThis.SpeechSynthesisUtterance(text);
+    u.lang = lang;
+    u.rate = rate;
+    u.pitch = pitch;
+    const voice = pickVoice(synth.getVoices?.() ?? [], lang);
+    if (voice) u.voice = voice;
+    this.dispatchEvent(new CustomEvent("speak", { detail: { text, lang } }));
+    return new Promise((ok) => {
+      const done = (v) => { clearTimeout(timer); ok(v); };
+      const timer = setTimeout(() => done(true), 4000 + text.length * 120);
+      u.onend = () => done(true);
+      u.onerror = () => done(false);
+      synth.speak(u);
+    });
+  }
+
+  stopSpeaking() {
+    if (this.canSpeak) globalThis.speechSynthesis.cancel();
   }
 
   /** True when this clip's blob failed to decode on this device (US-4.5: flag "re-record"). */
@@ -347,6 +384,16 @@ function noiseBuffer(ctx) {
 }
 
 /** Schedules one chime from dsp/chimes.js into `dest` at `when`. */
+/** The best voice for a language: exact tag, then same base language, local voices first. */
+export function pickVoice(voices, lang) {
+  const base = String(lang).toLowerCase().split("-")[0];
+  const norm = (v) => String(v.lang || "").toLowerCase().replace("_", "-");
+  const ranked = voices
+    .filter((v) => norm(v).split("-")[0] === base)
+    .sort((a, b) => (norm(b) === lang.toLowerCase()) - (norm(a) === lang.toLowerCase()) || (b.localService === true) - (a.localService === true));
+  return ranked[0] ?? null;
+}
+
 export function synthChime(ctx, dest, kind, when) {
   for (const n of CHIMES[kind] ?? []) {
     const t0 = when + n.at;

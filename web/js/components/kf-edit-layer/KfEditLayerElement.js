@@ -136,7 +136,17 @@ export class KfEditLayerElement extends HTMLElement {
       const cx = r.left + r.width / 2;
       const half = Math.max(BADGE / 2 + 6, r.width * 0.3);
       const y = clampY(r.top);
-      const pencil = this._badge("pencil", `Edit ${name}`, "✎", clampX(cx - half), y, () => s.session?.openPanel("card", { thingId: thing.id }));
+      const needsVoice = s.store.clipsFor(thing.id, { kind: "name" }).length === 0;
+      const pencil = this._badge("pencil", needsVoice ? `Edit ${name} (needs your voice)` : `Edit ${name}`, "✎", clampX(cx - half), y, () => s.session?.openPanel("card", { thingId: thing.id }));
+      if (needsVoice) {
+        // A small mic dot: this thing has no recorded name yet, so play uses the iPad's voice.
+        const dot = document.createElement("span");
+        dot.className = "kf-voice-dot";
+        dot.setAttribute("aria-hidden", "true");
+        dot.textContent = "🎤";
+        pencil.append(dot);
+        pencil.classList.add("needs-voice");
+      }
       const cross = this._badge("cross", `Delete ${name}`, "✕", clampX(cx + half), y, () => this.deleteThing(thing.id));
       pencil.dataset.thingId = cross.dataset.thingId = thing.id;
       this._badges.append(pencil, cross);

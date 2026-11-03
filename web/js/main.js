@@ -49,7 +49,7 @@ async function boot() {
 
   const audio = new AudioEngine({ getBlob: (sha) => store.getBlob(sha) });
   const recorder = new Recorder({ audio });
-  const engine = new PlayEngine({ store, audio, presets, rng: env.rng, flags, now: () => performance.now() });
+  const engine = new PlayEngine({ store, audio, presets, scripts, rng: env.rng, flags, now: () => performance.now() });
   const session = new Session({ now: () => Date.now(), holdMs: flags.holdMs });
   const wake = new WakeLock();
 

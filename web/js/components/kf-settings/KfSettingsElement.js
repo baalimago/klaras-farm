@@ -174,6 +174,39 @@ export class KfSettingsElement extends HTMLElement {
     ]);
   }
 
+  /** Find it (US-6.3): per scene. Asks in the parent's recorded voice, or the device's voice until then. */
+  findItField() {
+    const store = this.services.store;
+    const place = store.currentPlace;
+    if (!place) return null;
+    const id = newId("find-it");
+    const things = store.thingsIn(place.id);
+    const recorded = things.filter((t) => store.clipsFor(t.id, { kind: "prompt" }).length > 0).length;
+    const input = h("input", {
+      type: "checkbox",
+      id,
+      "data-key": "find-it",
+      checked: place.findIt === true,
+      onchange: async (e) => {
+        try {
+          await store.updatePlace({ placeId: place.id, patch: { findIt: e.target.checked } });
+        } catch (err) {
+          e.target.checked = !e.target.checked;
+          this.services.shell?.toast?.("Couldn't save that. Try again.");
+        }
+      },
+    });
+    return h("div", { class: "kf-find-it" }, [
+      h("div", { class: "kf-row" }, [input, h("label", { htmlFor: id, text: `Find it in ${place.name}` })]),
+      h("p", {
+        class: "kf-note",
+        text:
+          `Now and then the scene asks "Where is the …?" and Klara taps it. ${recorded} of ${things.length} things here have your recorded questions` +
+          (recorded < things.length ? "; the others are asked in the iPad's voice until you record them (thing card → Questions)." : "."),
+      }),
+    ]);
+  }
+
   playSection(s) {
     const sleepId = newId("sleep");
     const gateId = newId("gate");
@@ -188,6 +221,7 @@ export class KfSettingsElement extends HTMLElement {
         ),
       ]),
       h("p", { class: "kf-note", text: "After this long, the things yawn and fall asleep, so play ends gently." }),
+      this.findItField(),
       h("div", { class: "kf-field" }, [
         h("label", { htmlFor: gateId, text: "Adult check" }),
         h(

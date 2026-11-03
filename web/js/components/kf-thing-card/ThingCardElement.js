@@ -207,7 +207,7 @@ export class ThingCardElement extends HTMLElement {
         ? null
         : h("button", {
             class: `kf-btn${failed ? " primary" : ""}`, type: "button", "data-action": "record",
-            text: clip ? "Re-record" : kind === "sound" ? "+ Add sound" : "Record",
+            text: this._recordText(kind, !!clip),
             "aria-label": `${clip ? "Re-record" : "Record"} ${what}`,
             onclick: () => { this._recording = { language: this.lang, kind, take }; this._render(); },
           }),
@@ -227,10 +227,20 @@ export class ThingCardElement extends HTMLElement {
     return box;
   }
 
+  /** Say exactly what to record, so the name and the sound are never mixed up. */
+  _recordText(kind, again) {
+    if (kind === "name") {
+      const word = this.thing.names?.[this.lang] || this.displayName(this.thing);
+      return `${again ? "Re-record" : "Record"}: say “${word}”`;
+    }
+    if (kind === "sound") return again ? "Re-record its sound" : "Record its sound (moo! cluck!)";
+    return again ? "Re-record" : "Record";
+  }
+
   _cueFor(kind, take) {
     const thing = this.thing;
     if (kind === "prompt") return cueLines(this.services.scripts ?? {}, thing, this.lang).lines[take - 1] ?? "";
-    if (kind === "sound") return `What does the ${this.displayName(thing)} say?`;
+    if (kind === "sound") return `Make the ${this.displayName(thing)}'s sound, not its name (moo! cluck!)`;
     return `Say just the word, slowly and clearly: “${thing.names?.[this.lang] || this.displayName(thing)}”`;
   }
 

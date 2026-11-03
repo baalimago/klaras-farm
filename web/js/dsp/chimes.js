@@ -42,6 +42,13 @@ export const CHIMES = Object.freeze({
   poof: [{ wave: "noise", at: 0, freq: 0, attack: 0.02, decay: 0.4, gain: 0.4, filter: 1800, toFilter: 250 }],
   // Hold complete: a rounded "pop".
   "hold-done": [{ wave: "sine", at: 0, freq: 660, toFreq: 220, slide: 0.07, attack: 0.002, decay: 0.11, gain: 0.5 }],
+  // Find it, right answer: a bright four-note music-box run (C E G C).
+  yay: [
+    { wave: "sine", at: 0, freq: C5, attack: 0.006, decay: 0.35, gain: 0.34, partials: [[2, 0.14]] },
+    { wave: "sine", at: 0.09, freq: E5, attack: 0.006, decay: 0.35, gain: 0.34, partials: [[2, 0.14]] },
+    { wave: "sine", at: 0.18, freq: G5, attack: 0.006, decay: 0.4, gain: 0.36, partials: [[2, 0.14]] },
+    { wave: "sine", at: 0.27, freq: 1046.5, attack: 0.006, decay: 0.5, gain: 0.36, partials: [[2, 0.12], [3, 0.04]] },
+  ],
 });
 
 export const CHIME_KINDS = Object.freeze(Object.keys(CHIMES));

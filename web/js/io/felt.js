@@ -370,6 +370,21 @@ export function groundShadowSprite() {
   return groundShadow;
 }
 
+let glow = null;
+/** A soft warm halo for the Find it hint (US-6.2), drawn behind the thing. Painted once. */
+export function glowSprite() {
+  if (glow) return glow;
+  glow = makeCanvas(128, 128);
+  const c = glow.getContext("2d");
+  const g = c.createRadialGradient(64, 64, 8, 64, 64, 64);
+  g.addColorStop(0, "rgba(255,236,140,.95)");
+  g.addColorStop(0.55, "rgba(255,214,90,.55)");
+  g.addColorStop(1, "rgba(255,214,90,0)");
+  c.fillStyle = g;
+  c.fillRect(0, 0, 128, 128);
+  return glow;
+}
+
 /** Felt confetti dots (one sprite per colour) of radius r px. */
 export function confettiSprites(r) {
   return CONFETTI.map((key) => {

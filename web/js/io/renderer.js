@@ -6,7 +6,7 @@
 import { INK, hex } from "../farm/palette.js";
 import { bbox, centroid } from "../geometry/stroke.js";
 import {
-  paintBackground, paintThingSprite, eyeSprite, groundShadowSprite, confettiSprites, makeCanvas, releaseCanvas,
+  paintBackground, paintThingSprite, eyeSprite, groundShadowSprite, glowSprite, confettiSprites, makeCanvas, releaseCanvas,
 } from "./felt.js";
 
 const LEG_SHADOW = "rgba(40,25,10,.25)";
@@ -167,6 +167,7 @@ export class Renderer {
     if (dt > 0.1) dt = 0.1;
     else if (dt < 0) dt = 0;
     this._last = now;
+    this._now = now;
     const e = this.engine;
     e?.step?.(dt);
     this._draw(dt);
@@ -209,6 +210,17 @@ export class Renderer {
     const facing = a.facing === -1 ? -1 : 1;
     const legs = p && p.legs ? p.legs : null;
     const nLegs = legs ? legs.length : 0;
+
+    // Find it hint: a slow warm pulse behind the thing (1 Hz, well under the 3 Hz flash limit)
+    if (a.glow) {
+      this._glow ??= glowSprite();
+      const size = Math.max(en.sprite.canvas.width, en.sprite.canvas.height) * 1.5;
+      const prev = c.globalAlpha;
+      c.globalAlpha = prev * (0.6 + 0.35 * Math.sin(((this._now || 0) / 1000) * Math.PI * 2));
+      c.setTransform(1, 0, 0, 1, x, y);
+      c.drawImage(this._glow, -size / 2, -size / 2, size, size);
+      c.globalAlpha = prev;
+    }
 
     // contact shadow stays on the ground while the thing jumps
     if (en.walker) {

@@ -253,7 +253,7 @@ describe("export and import (IndexedDB)", () => {
         garbage: new TextEncoder().encode("hello, not a zip").buffer,
         truncated: zip(good).slice(0, 2000),
         foreign: zip({ "manifest.json": fflate.strToU8('{"name":"x"}') }),
-        newer: zip({ ...good, "manifest.json": fflate.strToU8(JSON.stringify({ ...manifest, formatVersion: 2, minReaderFormat: 2 })) }),
+        newer: zip({ ...good, "manifest.json": fflate.strToU8(JSON.stringify({ ...manifest, formatVersion: 3, minReaderFormat: 3 })) }),
         tampered: zip(tampered),
         missing: zip(missing),
         dupClip: zip({ ...good, "manifest.json": fflate.strToU8(JSON.stringify(dupClip)) }),

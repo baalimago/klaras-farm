@@ -1,7 +1,10 @@
 // The snapshot as a whole: creation, validation, canonical form and migration.
 import { isColorKey } from "./palette.js";
 
-export const FORMAT_VERSION = 1;
+// Format history (additive only, ARCHITECTURE §9.5):
+//   1: first release
+//   2: optional Place.findIt (Find it on for this place; absent = off)
+export const FORMAT_VERSION = 2;
 export const MIN_READER_FORMAT = 1;
 export const MAX_THINGS_PER_PLACE = 4;
 export const CLIP_KINDS = Object.freeze(["name", "prompt", "sound"]);
@@ -75,6 +78,7 @@ export function validateSnapshot(s, opts = {}) {
         return fail(`place ${p.id}: piece stroke`);
       if (!isColorKey(piece.color)) return fail(`place ${p.id}: piece colour`);
     }
+    if ("findIt" in p && typeof p.findIt !== "boolean") return fail(`place ${p.id}: findIt`);
     if (!isIso(p.createdAt) || !isIso(p.updatedAt)) return fail(`place ${p.id}: dates`);
   }
   if (st.currentPlaceId !== null && !placeIds.has(st.currentPlaceId)) return fail("settings.currentPlaceId unknown");
@@ -124,13 +128,16 @@ export function clipKey(c) {
 }
 
 /** Steps a snapshot up to FORMAT_VERSION, one version at a time. Pure. */
+const STEPS = {
+  // 1 → 2: Place.findIt is optional and absent means off, so only the version moves.
+  1: (s) => ({ ...s, formatVersion: 2 }),
+};
+
 export function migrate(s) {
   let out = s;
-  // Future: while (out.formatVersion < FORMAT_VERSION) out = STEPS[out.formatVersion](out);
-  if (out.formatVersion > FORMAT_VERSION && out.minReaderFormat <= FORMAT_VERSION) {
-    // A newer, still-readable file: keep known fields; unknown additive fields are preserved as-is.
-    return out;
-  }
+  while (out.formatVersion < FORMAT_VERSION) out = STEPS[out.formatVersion](out);
+  // A newer file that is still readable (minReaderFormat ≤ ours) is kept as is: unknown additive
+  // fields are preserved.
   return out;
 }
 

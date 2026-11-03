@@ -75,6 +75,7 @@ export function updatePlace(s, { placeId, patch }, env) {
     if (!BACKDROPS.includes(patch.backdrop)) throw new FarmError("invalid", "backdrop");
     allowed.backdrop = patch.backdrop;
   }
+  if ("findIt" in patch) allowed.findIt = !!patch.findIt;
   if ("pieces" in patch) allowed.pieces = patch.pieces.map((p) => ({ ...p, stroke: roundPoints(p.stroke) }));
   const place = { ...old, ...allowed, updatedAt: env.now() };
   return { snapshot: { ...s, places: replace(s.places, place) }, writes: [put("places", place)], change: change("place-updated", [placeId]) };

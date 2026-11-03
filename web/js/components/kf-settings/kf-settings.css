@@ -21,3 +21,5 @@ kf-settings { position: absolute; inset: 0; display: block; }
 .kf-settings-details ol { padding-left: 20px; line-height: 1.5; }
 .kf-settings-details[open] { padding-bottom: 8px; }
 .kf-settings-version { margin-top: 16px; text-align: center; }
+.kf-find-it input[type="checkbox"] { width: 44px; height: 44px; margin: 0; accent-color: var(--blue); }
+.kf-find-it label { font-weight: 600; }

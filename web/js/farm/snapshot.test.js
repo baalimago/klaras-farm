@@ -11,13 +11,13 @@ test("a built snapshot and an empty one are valid", () => {
 });
 
 test("rejects files from a newer app that this one cannot read", () => {
-  const r = validateSnapshot({ ...full(), formatVersion: 3, minReaderFormat: 2 });
+  const r = validateSnapshot({ ...full(), formatVersion: 4, minReaderFormat: 3 });
   assert.equal(r.ok, false);
   assert.match(r.error, /newer/);
 });
 
 test("accepts a newer file that is still readable (additive change)", () => {
-  assert.equal(validateSnapshot({ ...full(), formatVersion: 2, minReaderFormat: 1 }).ok, true);
+  assert.equal(validateSnapshot({ ...full(), formatVersion: 3, minReaderFormat: 1 }).ok, true);
 });
 
 test("rejects duplicate clip keys, unknown references and bad colours", () => {
@@ -53,4 +53,14 @@ test("canonical JSON ignores key and entity order", () => {
 test("clip key and point rounding", () => {
   assert.equal(clipKey({ thingId: "t", language: "sv", kind: "prompt", take: 2 }), "t|sv|prompt|2");
   assert.deepEqual(roundPoints([[0.12345, 0.98765]]), [[0.123, 0.988]]);
+});
+
+test("migrate steps format 1 up to 2 (Find it is optional and off when absent)", async () => {
+  const { migrate, FORMAT_VERSION } = await import("./snapshot.js");
+  const v1 = { ...full(), formatVersion: 1 };
+  const v2 = migrate(v1);
+  assert.equal(v2.formatVersion, FORMAT_VERSION);
+  assert.equal(v2.places[0].findIt, undefined);
+  assert.equal(validateSnapshot(v2).ok, true);
+  assert.equal(validateSnapshot({ ...v2, places: [{ ...v2.places[0], findIt: "yes" }] }).ok, false);
 });

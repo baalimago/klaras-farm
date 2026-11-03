@@ -260,7 +260,7 @@ export class GuidedAddElement extends HTMLElement {
 
   _step_name(panel) {
     const lang = this.lang;
-    const label = () => `Say just the word, slowly and clearly: “${(this.thing.names[lang] ?? "").trim() || "…"}”`;
+    const label = () => `Record its name. Say just the word, slowly and clearly: “${(this.thing.names[lang] ?? "").trim() || "…"}”`;
     const rec = this._recorder({ kind: "name", take: 1, label: label() });
     const input = h("input", {
       type: "text", name: "name", value: this.thing.names[lang] ?? "", autocomplete: "off", autocapitalize: "words", enterkeyhint: "done", spellcheck: "false",
@@ -335,7 +335,7 @@ export class GuidedAddElement extends HTMLElement {
     fill(panel,
       h("h2", { text: name ? `What does the ${name} say?` : "What does it say?" }),
       h("p", { class: "kf-note", text: "Optional. Make its sound, as silly as you like." }),
-      this._recorder({ kind: "sound", take: 1, label: "Make its sound!" }),
+      this._recorder({ kind: "sound", take: 1, label: "Make its sound, not its name (moo! cluck!)" }),
       h(
         "div",
         { class: "kf-row end" },
