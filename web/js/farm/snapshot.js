@@ -3,7 +3,7 @@ import { isColorKey } from "./palette.js";
 
 // Format history (additive only, ARCHITECTURE §9.5):
 //   1: first release
-//   2: optional Place.findIt (Find it on for this place; absent = off)
+//   2: optional Place.findIt (Find it on for this place; absent = on (find buttons shown))
 export const FORMAT_VERSION = 2;
 export const MIN_READER_FORMAT = 1;
 export const MAX_THINGS_PER_PLACE = 4;
@@ -129,7 +129,7 @@ export function clipKey(c) {
 
 /** Steps a snapshot up to FORMAT_VERSION, one version at a time. Pure. */
 const STEPS = {
-  // 1 → 2: Place.findIt is optional and absent means off, so only the version moves.
+  // 1 → 2: Place.findIt is optional, so only the version moves.
   1: (s) => ({ ...s, formatVersion: 2 }),
 };
 
