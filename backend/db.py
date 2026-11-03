@@ -63,6 +63,9 @@ def check() -> dict:
         rows = conn.run("SELECT coalesce(max(version), 0) FROM schema_migrations")
         return {"ok": True, "configured": True, "schema": rows[0][0]}
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "configured": True, "error": type(exc).__name__}
+        detail = exc.args[0] if exc.args and isinstance(exc.args[0], dict) else {}
+        if detail.get("C") == "42P01":  # undefined_table: connected fine, migrations not run yet
+            return {"ok": False, "configured": True, "connected": True, "error": "not migrated"}
+        return {"ok": False, "configured": True, "connected": True, "error": type(exc).__name__}
     finally:
         conn.close()

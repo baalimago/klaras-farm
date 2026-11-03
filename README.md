@@ -1,15 +1,49 @@
 # Klara's Farm
 
-A playful, language-independent app that helps toddlers learn words together with a parent. iPad-first, runs in any browser. Python backend on Wasmer Edge, vanilla JS frontend.
+A felt-board word game for toddlers, played with a parent. Parents draw the things and record their names in their own voice and language; the child taps a thing and hears its name. iPad-first (base iPad 11th gen, iPadOS 18+), runs in any modern browser, works offline from the Home Screen. Python backend on Wasmer Edge, vanilla JS frontend with no build step.
 
-- Design notes: [design/DESIGN.md](design/DESIGN.md) · Architecture: [design/ARCHITECTURE.md](design/ARCHITECTURE.md) · User stories: [design/USER_STORIES.md](design/USER_STORIES.md)
-- Look-and-feel sketches (open in a browser): [final felt](design/sketches/final.html), [round 2](design/sketches/round2.html), [round 1](design/sketches/farm-sketches.html)
+Live: https://klaras-farm.wasmer.app
 
-## Proof of concept
+## How to play
 
-One felt pig on a farm. Tap it: it jumps, chimes and says "Pig" (browser speech for now; the parent's own recording comes in M1).
+- **Play:** tap anything. It jumps and says its name (then its sound, if recorded).
+- **Edit mode (grown-ups):** press and hold an empty spot or a thing for 1.5 s, then tap the code shown. Things wiggle; pencil edits, cross deletes. The bar has Scenes, Change scene, + Add, Settings and Done. Edit mode closes by itself after a minute.
+- **Settings:** languages, sleep timer, adult-check kind, export/import (share sheet), privacy, Guided Access guide, delete all data.
 
-- `main.py`: a small ASGI app (`main:app`) that serves `web/` from memory with gzip, ETags and `/healthz`. Its only dependency is plain `uvicorn`.
-- Run locally: `pip install uvicorn && uvicorn main:app --port 8000`, then open http://localhost:8000.
-- Tests: `pip install pytest && python -m pytest`.
-- Wasmer Edge: Python app with entrypoint `main:app` (dependencies from `pyproject.toml` / `requirements.txt`). `/healthz` reports `GIT_SHA` if set.
+## Run locally
+
+```sh
+pip install -e ".[dev]"          # uvicorn, pg8000, pytest, testcontainers
+python main.py                    # http://localhost:8000 (Wasmer runs the same command)
+```
+
+## Tests
+
+```sh
+npm test                          # unit tests, Node's built-in runner, single process (~1 s)
+python -m pytest -q               # backend unit + e2e: real Postgres (testcontainers, needs Docker) and a temp dir as the volume
+npm run test:browser              # Chromium against the real Python app (needs the playwright package)
+```
+
+CI (`.github/workflows/ci.yml`) runs all three. `tests/manual-ipad.md` lists what only a real iPad can prove.
+
+## Database migrations
+
+Postgres is not needed to play (everything lives on the iPad). It is wired for the later encrypted backup. Migrations run as a deploy step, never on boot:
+
+```sh
+python -m backend.migrate         # uses DB_HOST, DB_PORT, DB_NAME, DB_USERNAME, DB_PASSWORD
+```
+
+`/healthz` reports the git SHA (`GIT_SHA`) and asset hash; `/healthz?deep=1` also checks the database.
+
+## Layout
+
+- `backend/`: ASGI app (in-memory static server with hashed immutable assets, rendered service worker, health), asset archive on the volume, Postgres access and migrations.
+- `web/`: `index.html`, `css/`, `data/` (motion presets, question scripts per language, starter content), `vendor/fflate.js`, and `js/`:
+  - pure domains: `farm/` `geometry/` `motion/` `play/` `edit/` `dsp/`
+  - state owners: `farm-store.js` `session.js` `play-engine.js`
+  - device adapters: `io/` (IndexedDB, audio, mic, renderer, felt painter, export, storage)
+  - `components/<tag>/`: custom elements
+- `tests/`: builders, the repository contract, unit and browser tests, fixtures.
+- `design/`: [design notes](design/DESIGN.md), [user stories](design/USER_STORIES.md), [architecture](design/ARCHITECTURE.md), [implementation contracts](design/IMPLEMENTATION.md), sketches.

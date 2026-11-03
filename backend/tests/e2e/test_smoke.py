@@ -55,3 +55,10 @@ def test_database_outage_fails_only_the_deep_health_check(fresh_db, spawn_app, t
     assert json.loads(body)["db"]["ok"] is False
     assert get(app.url + "/healthz")[0] == 200
     assert get(app.url + "/")[0] == 200
+
+
+def test_unmigrated_database_is_reported_as_connected_but_not_migrated(fresh_db, spawn_app, tmp_path):
+    app = spawn_app(tmp_path / "volume", db=fresh_db)
+    status, _, body = get(app.url + "/healthz?deep=1")
+    assert status == 503
+    assert json.loads(body)["db"] == {"ok": False, "configured": True, "connected": True, "error": "not migrated"}
