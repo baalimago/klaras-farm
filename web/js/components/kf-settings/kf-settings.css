@@ -1,1 +1,23 @@
-/* kf-settings */
+/* <kf-settings>: one scrolling sheet with sections. */
+kf-settings { position: absolute; inset: 0; display: block; }
+.kf-settings-scrim { position: absolute; inset: 0; background: rgb(74 51 38 / 0.25); }
+.kf-settings.kf-sheet { max-width: 760px; margin: 0 auto; }
+.kf-settings-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.kf-settings-head h2 { margin: 0; }
+.kf-settings-section { padding: 4px 0 12px; border-bottom: 2px solid #f1e5d1; }
+.kf-settings-section:last-of-type { border-bottom: 0; }
+.kf-settings .kf-warning { margin: 10px 0; }
+.kf-lang-list { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 4px; }
+.kf-lang { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 0 0 12px; background: var(--cream); border-radius: var(--radius-sm); font-weight: 600; }
+.kf-lang-add { align-items: end; }
+.kf-lang-add .kf-field { flex: 1 1 220px; }
+.kf-settings-update { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin: 12px 0; padding: 10px 12px; background: #e3f0ff; border-radius: var(--radius-sm); }
+.kf-settings-update p { margin: 0; font-weight: 600; }
+.kf-settings-message:empty { display: none; }
+.kf-settings-message { margin-top: 8px; font-weight: 600; }
+.kf-settings-details { margin: 6px 0; border-radius: var(--radius-sm); background: var(--cream); }
+.kf-settings-details summary { min-height: var(--tap); display: flex; align-items: center; padding: 0 14px; font-weight: 700; cursor: pointer; }
+.kf-settings-details > :not(summary) { margin-left: 14px; margin-right: 14px; }
+.kf-settings-details ol { padding-left: 20px; line-height: 1.5; }
+.kf-settings-details[open] { padding-bottom: 8px; }
+.kf-settings-version { margin-top: 16px; text-align: center; }

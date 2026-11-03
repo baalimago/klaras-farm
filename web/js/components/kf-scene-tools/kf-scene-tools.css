@@ -1,1 +1,65 @@
-/* kf-scene-tools */
+/* <kf-scene-tools>: tool rail at the left, stage over the board, Back to animals bottom right. */
+kf-scene-tools { position: absolute; inset: 0; display: block; touch-action: none; }
+.kf-st-stage { position: absolute; touch-action: none; }
+.kf-st-overlay { position: absolute; inset: 0; cursor: crosshair; touch-action: none; }
+.kf-st-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.kf-st-selected { fill: rgb(255 255 255 / 0.18); stroke: var(--ink); stroke-width: 3; stroke-dasharray: 8 6; }
+.kf-st-ghost { fill: none; stroke-width: 8; stroke-linecap: round; stroke-linejoin: round; opacity: 0.75; }
+.kf-st-side {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  left: var(--gutter);
+  display: grid;
+  grid-template-columns: auto minmax(0, 260px);
+  gap: 10px;
+  align-items: start;
+  pointer-events: none;
+}
+.kf-st-side > * { pointer-events: auto; }
+.kf-st-rail {
+  grid-row: span 2;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  background: var(--paper);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.kf-st-tool {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-width: 64px;
+  min-height: 56px;
+  padding: 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: 600 0.85rem/1 var(--font);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.kf-st-tool[aria-pressed="true"] { background: var(--blue); color: #fff; }
+.kf-st-tool:disabled { opacity: 0.4; cursor: not-allowed; }
+.kf-st-tool[data-tool="undo"] { border-top: 2px solid #eadcc6; border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
+.kf-st-icon { font-size: 1.4rem; line-height: 1; }
+.kf-st-hint {
+  margin: 0;
+  padding: 10px 14px;
+  background: var(--paper);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  font: 600 0.95rem/1.3 var(--font);
+}
+.kf-st-panel:empty { display: none; }
+.kf-st-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  background: var(--paper);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.kf-st-panel .kf-btn[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.kf-st-back { position: absolute; right: var(--gutter); bottom: max(16px, env(safe-area-inset-bottom)); box-shadow: var(--shadow); }

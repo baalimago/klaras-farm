@@ -1,1 +1,29 @@
-/* kf-dialog */
+/* <kf-dialog>: modal confirm (backdrop + centred sheet) and bottom toast. */
+kf-dialog[data-kind="confirm"] { position: fixed; inset: 0; z-index: 100; }
+.kf-dialog-backdrop { position: absolute; inset: 0; background: rgb(74 51 38 / 0.35); }
+.kf-dialog-sheet { z-index: 1; }
+.kf-dialog-sheet .kf-row { margin-top: 16px; }
+kf-dialog[data-kind="toast"] {
+  position: fixed;
+  inset: auto 0 max(24px, env(safe-area-inset-bottom)) 0;
+  z-index: 90;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.kf-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: var(--tap);
+  padding: 4px 8px 4px 20px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--paper);
+  font: 600 1rem/1.2 var(--font);
+  box-shadow: var(--shadow);
+  animation: kf-toast-in 160ms ease-out;
+}
+.kf-toast .kf-toast-undo { color: var(--sun); }
+@keyframes kf-toast-in { from { transform: translateY(12px); opacity: 0; } to { transform: none; opacity: 1; } }

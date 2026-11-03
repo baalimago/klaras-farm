@@ -1,1 +1,78 @@
-/* kf-scenes */
+/* <kf-scenes>: scenes shelf and the New scene form. */
+kf-scenes { position: absolute; inset: 0; display: block; }
+.kf-scenes-scrim { position: absolute; inset: 0; background: rgb(74 51 38 / 0.25); }
+.kf-scenes-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.kf-scenes-head h2 { margin: 0; }
+.kf-shelf {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 18px;
+}
+.kf-scene-item { position: relative; }
+.kf-scene-card {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  min-height: 120px;
+  padding: 8px 8px 12px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--cream);
+  color: var(--ink);
+  font: 700 1.05rem/1.2 var(--font);
+  text-align: left;
+  box-shadow: 0 4px 0 rgb(74 51 38 / 0.18);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.kf-scene-card[aria-current="true"] { box-shadow: 0 0 0 4px var(--blue), 0 4px 0 rgb(74 51 38 / 0.18); }
+.kf-scene-thumb, .kf-backdrop-thumb, .kf-scene-preview {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  height: auto;
+  border-radius: var(--radius-sm);
+  outline: 2px dashed rgb(255 255 255 / 0.7);
+  outline-offset: -6px;
+}
+.kf-scene-name { padding: 0 6px; overflow-wrap: anywhere; }
+.kf-scene-more { position: absolute; top: 14px; right: 14px; background: rgb(255 250 240 / 0.92); }
+.kf-scene-menu {
+  position: absolute;
+  top: 64px;
+  right: 10px;
+  z-index: 2;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  background: var(--paper);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+}
+.kf-scene-new { place-items: center; align-content: center; min-height: 100%; aspect-ratio: auto; background: var(--paper); outline: 3px dashed #e6d7bf; outline-offset: -8px; text-align: center; }
+.kf-scene-plus { font-size: 2.4rem; line-height: 1; }
+.kf-scene-rename { padding: 12px; background: var(--cream); border-radius: var(--radius); }
+.kf-scene-new-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.kf-scene-preview-wrap { position: sticky; top: 0; padding-top: 16px; }
+.kf-backdrops { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.kf-backdrop {
+  display: grid;
+  gap: 6px;
+  padding: 6px;
+  min-height: var(--tap);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--cream);
+  color: var(--ink);
+  font: 700 0.95rem var(--font);
+  cursor: pointer;
+}
+.kf-backdrop[aria-pressed="true"] { box-shadow: 0 0 0 4px var(--ink); }
+.kf-scene-actions { margin-top: 20px; }
+@media (max-width: 700px) {
+  .kf-scene-new-grid { grid-template-columns: 1fr; }
+  .kf-scene-preview-wrap { display: none; }
+}
