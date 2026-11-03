@@ -108,7 +108,7 @@
  */
 
 /**
- * @typedef {Object} Snapshot   Format version 1. Also the export manifest.
+ * @typedef {Object} Snapshot   Format version FORMAT_VERSION (farm/snapshot.js, now 3). Also the export manifest.
  * @property {number} formatVersion
  * @property {number} minReaderFormat
  * @property {string} appVersion

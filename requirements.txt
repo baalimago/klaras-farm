@@ -1,2 +1,16 @@
-uvicorn>=0.30
-pg8000>=1.31
+asn1crypto==1.5.1
+    # via scramp
+click==8.5.0
+    # via uvicorn
+h11==0.16.0
+    # via uvicorn
+pg8000==1.31.6
+    # via klaras-farm
+python-dateutil==4.0.0
+    # via pg8000
+scramp==1.5.0
+    # via pg8000
+tzdata==2026.6
+    # via python-dateutil
+uvicorn==0.54.0
+    # via klaras-farm

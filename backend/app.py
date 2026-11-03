@@ -16,6 +16,7 @@ Routes:
 
 from __future__ import annotations
 
+import contextlib
 import gzip
 import hashlib
 import json
@@ -51,7 +52,7 @@ NO_CACHE = "no-cache"
 
 
 class Asset:
-    __slots__ = ("body", "gz", "type", "etag")
+    __slots__ = ("body", "etag", "gz", "type")
 
     def __init__(self, body: bytes, content_type: str):
         self.body = body
@@ -124,10 +125,9 @@ def make_app(root: Path, data_dir_env: str = "KF_DATA_DIR"):
         archived["done"] = True
         directory = data_dir()
         if directory is not None:
-            try:
+            # The volume is a convenience for old clients; never fail a request over it.
+            with contextlib.suppress(OSError):
                 archive.store(directory, site.hash, {k: v for k, v in site.files.items() if k in site.assets})
-            except OSError:
-                pass  # the volume is a convenience for old clients; never fail a request over it
 
     def old_asset(version: str, rel: str) -> Asset | None:
         if version not in old_sets:
@@ -166,7 +166,9 @@ def make_app(root: Path, data_dir_env: str = "KF_DATA_DIR"):
             status = 200 if body["ok"] else 503
             return await respond(send, status, json.dumps(body).encode(), "application/json", cache=NO_CACHE)
         if path in ("/", "/index.html"):
-            return await serve(send, method, headers, site.index, NO_CACHE, extra=[(b"content-security-policy", CSP.encode())])
+            return await serve(
+                send, method, headers, site.index, NO_CACHE, extra=[(b"content-security-policy", CSP.encode())]
+            )
         if path == "/sw.js":
             return await serve(send, method, headers, site.sw, NO_CACHE)
         if path.startswith("/v/"):
@@ -181,7 +183,7 @@ def make_app(root: Path, data_dir_env: str = "KF_DATA_DIR"):
                 return await serve(send, method, headers, asset, IMMUTABLE)
         return await not_found(send)
 
-    app.site = site  # for tests
+    app.site = site  # for tests  # ty: ignore[unresolved-attribute]
     return app
 
 
@@ -214,18 +216,29 @@ def health(asset_hash: str, deep: bool) -> dict:
     return body
 
 
-async def serve(send, method, headers, asset: Asset, cache: str, extra=()):
+Header = tuple[bytes, bytes]
+
+
+async def serve(send, method, headers, asset: Asset, cache: str, extra: tuple[Header, ...] | list[Header] = ()):
     if headers.get(b"if-none-match", b"").decode() == asset.etag:
         return await respond(send, 304, b"", asset.type, etag=asset.etag, cache=cache, extra=extra)
     use_gzip = asset.gz is not None and b"gzip" in headers.get(b"accept-encoding", b"")
     body = asset.gz if use_gzip else asset.body
-    extra = list(extra)
+    extra = list[Header](extra)
     if asset.gz is not None:
         extra.append((b"vary", b"accept-encoding"))
     if use_gzip:
         extra.append((b"content-encoding", b"gzip"))
-    await respond(send, 200, b"" if method == "HEAD" else body, asset.type, etag=asset.etag, cache=cache,
-                  extra=extra, length=len(body))
+    await respond(
+        send,
+        200,
+        b"" if method == "HEAD" else body,
+        asset.type,
+        etag=asset.etag,
+        cache=cache,
+        extra=extra,
+        length=len(body),
+    )
 
 
 async def not_found(send):

@@ -4,9 +4,12 @@
   "type": "module",
   "description": "Klara's Farm frontend tests. No build step; the app runs straight from web/.",
   "scripts": {
-    "test": "node --test \"web/js/**/*.test.js\" \"tests/unit/**/*.test.js\"",
+    "test": "node --test --experimental-test-coverage --test-coverage-exclude=\"**/*.test.js\" --test-coverage-exclude=\"tests/**\" --test-coverage-lines=70 --test-coverage-branches=70 --test-coverage-functions=70 \"web/js/**/*.test.js\" \"tests/unit/**/*.test.js\"",
     "test:browser": "node --test --test-concurrency=1 \"tests/browser/**/*.test.js\"",
-    "test:all": "npm test && npm run test:browser"
+    "test:all": "npm test && npm run test:browser",
+    "test:fast": "node --test \"web/js/**/*.test.js\" \"tests/unit/**/*.test.js\""
   },
-  "engines": { "node": ">=22" }
+  "engines": {
+    "node": ">=22"
+  }
 }

@@ -1,3 +1,5 @@
+> **Historical plan.** This was the original design. The current architecture is in [`docs/`](../docs/) (one file per domain), which wins where the two disagree. See [AGENTS.md](../AGENTS.md).
+
 # Klara's Farm: architecture and software design
 
 Status: **v2**, revised after review by five adversarial reviewers (QA lead, product manager, iPad web-platform specialist, simplicity skeptic, data and release engineer). All five said "approve with changes"; the changes are applied below and summarised in section 16. Builds on `DESIGN.md`, `USER_STORIES.md` and the approved UX in `sketches/ux-flows.html`.

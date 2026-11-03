@@ -70,13 +70,17 @@ def spawn_app(tmp_path, request):
             app_dir = web_dir.parent
             if not (app_dir / "main.py").exists():
                 shutil.copy(ROOT / "main.py", app_dir / "main.py")
-                shutil.copytree(ROOT / "backend", app_dir / "backend", ignore=shutil.ignore_patterns("tests", "__pycache__"))
+                shutil.copytree(
+                    ROOT / "backend", app_dir / "backend", ignore=shutil.ignore_patterns("tests", "__pycache__")
+                )
         port = free_port()
         log = tmp_path / f"app-{port}.log"
         env = {k: v for k, v in os.environ.items() if not k.startswith("DB_")}
         env.update({"PORT": str(port), "KF_DATA_DIR": str(volume), "GIT_SHA": sha, "PYTHONUNBUFFERED": "1"})
         env.update(db or {})
-        proc = subprocess.Popen([sys.executable, "main.py"], cwd=app_dir, env=env, stdout=log.open("w"), stderr=subprocess.STDOUT)
+        proc = subprocess.Popen(
+            [sys.executable, "main.py"], cwd=app_dir, env=env, stdout=log.open("w"), stderr=subprocess.STDOUT
+        )
         app = AppProcess(port, proc, log, env)
         started.append(app)
         deadline = time.monotonic() + 20
@@ -119,7 +123,7 @@ def postgres():
     try:
         container = PostgresContainer("postgres:16-alpine", username="kf", password="kf-secret", dbname="kf")
         container.start()
-    except Exception as exc:  # noqa: BLE001 - no Docker → skip with the reason
+    except Exception as exc:
         pytest.skip(f"Docker is not available: {exc}")
     try:
         yield {
@@ -144,8 +148,13 @@ def fresh_db(postgres):
 def run_sql(db_env: dict, sql: str):
     import pg8000.native
 
-    conn = pg8000.native.Connection(user=db_env["DB_USERNAME"], password=db_env["DB_PASSWORD"], host=db_env["DB_HOST"],
-                                    port=int(db_env["DB_PORT"]), database=db_env["DB_NAME"])
+    conn = pg8000.native.Connection(
+        user=db_env["DB_USERNAME"],
+        password=db_env["DB_PASSWORD"],
+        host=db_env["DB_HOST"],
+        port=int(db_env["DB_PORT"]),
+        database=db_env["DB_NAME"],
+    )
     try:
         return conn.run(sql)
     finally:
@@ -154,4 +163,6 @@ def run_sql(db_env: dict, sql: str):
 
 def migrate(db_env: dict) -> subprocess.CompletedProcess:
     env = {**os.environ, **db_env}
-    return subprocess.run([sys.executable, "-m", "backend.migrate"], cwd=ROOT, env=env, capture_output=True, text=True, timeout=60)
+    return subprocess.run(
+        [sys.executable, "-m", "backend.migrate"], cwd=ROOT, env=env, capture_output=True, text=True, timeout=60
+    )

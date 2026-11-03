@@ -15,15 +15,16 @@ Live: https://klaras-farm.wasmer.app
 ## Run locally
 
 ```sh
-pip install -e ".[dev]"          # uvicorn, pg8000, pytest, testcontainers
-python main.py                    # http://localhost:8000 (Wasmer runs the same command)
+uv sync                          # Python env from uv.lock (uvicorn, pg8000; dev: pytest, ruff, ty, testcontainers)
+uv run python main.py             # http://localhost:8000 (Wasmer runs python main.py from requirements.txt)
 ```
 
 ## Tests
 
 ```sh
-npm test                          # unit tests, Node's built-in runner, single process (~1 s)
-python -m pytest -q               # backend unit + e2e: real Postgres (testcontainers, needs Docker) and a temp dir as the volume
+npm test                          # unit tests with coverage (fails under 70%), Node's built-in runner
+uv run pytest -q                  # backend unit + e2e: real Postgres (testcontainers, needs Docker); coverage fails under 70%
+uv run ruff check . && uv run ruff format --check .   # Python lint and format
 npm run test:browser              # Chromium against the real Python app (needs the playwright package)
 ```
 
@@ -34,7 +35,7 @@ CI (`.github/workflows/ci.yml`) runs all three. `tests/manual-ipad.md` lists wha
 Postgres is not needed to play (everything lives on the iPad). It is wired for the later encrypted backup. Migrations run as a deploy step, never on boot:
 
 ```sh
-python -m backend.migrate         # uses DB_HOST, DB_PORT, DB_NAME, DB_USERNAME, DB_PASSWORD
+uv run python -m backend.migrate  # uses DB_HOST, DB_PORT, DB_NAME, DB_USERNAME, DB_PASSWORD
 ```
 
 `/healthz` reports the git SHA (`GIT_SHA`) and asset hash; `/healthz?deep=1` also checks the database.

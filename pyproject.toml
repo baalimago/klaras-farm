@@ -6,12 +6,30 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = ["uvicorn>=0.30", "pg8000>=1.31"]
 
-[project.optional-dependencies]
-dev = ["pytest>=8", "testcontainers[postgres]>=4.8"]
+[dependency-groups]
+# uv installs this group by default (uv sync); CI and local runs use it.
+dev = ["pytest>=8", "pytest-cov>=6", "testcontainers[postgres]>=4.8", "ruff>=0.16", "ty"]
 
-[tool.setuptools]
-packages = ["backend"]
-py-modules = ["main"]
+[tool.uv]
+package = false  # an app, not a library: uv installs the dependencies, the code runs from the checkout
 
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]
+addopts = "--cov=backend --cov=main --cov-report=term-missing:skip-covered --cov-fail-under=70"
+
+[tool.coverage.run]
+omit = ["backend/tests/*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+# pycodestyle, pyflakes, isort, pyupgrade, bugbear, simplify, comprehensions, pytest style, ruff's own
+select = ["E", "W", "F", "I", "UP", "B", "SIM", "C4", "PT", "RUF"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.ty.environment]
+python-version = "3.12"

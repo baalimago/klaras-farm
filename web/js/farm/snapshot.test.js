@@ -55,7 +55,7 @@ test("clip key and point rounding", () => {
   assert.deepEqual(roundPoints([[0.12345, 0.98765]]), [[0.123, 0.988]]);
 });
 
-test("migrate steps format 1 up to 2 (Find it is optional and off when absent)", async () => {
+test("migrate steps format 1 up to 2 (Place.findIt is optional; absent shows the find buttons)", async () => {
   const { migrate, FORMAT_VERSION } = await import("./snapshot.js");
   const v1 = { ...full(), formatVersion: 1 };
   const v2 = migrate(v1);

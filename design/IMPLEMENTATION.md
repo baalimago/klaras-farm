@@ -1,3 +1,5 @@
+> **Historical plan.** This was the original design. The current architecture is in [`docs/`](../docs/) (one file per domain), which wins where the two disagree. See [AGENTS.md](../AGENTS.md).
+
 # Implementation contracts (v1)
 
 How the first version is split into parallel work packages, and the interfaces between them. Read with `ARCHITECTURE.md` (the why), `USER_STORIES.md` (the acceptance criteria) and `sketches/ux-flows.html` (the screens). Where this file and the architecture differ on a detail, this file wins: it records what was actually built.

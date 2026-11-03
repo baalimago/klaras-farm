@@ -33,10 +33,12 @@ def test_two_versions_share_the_volume_and_database_across_restarts(fresh_db, sp
     a_css = f"/v/{ha['assets']}/css/tokens.css"
     b_css = f"/v/{hb['assets']}/css/tokens.css"
     status, headers, body = get(b.url + a_css)
-    assert status == 200 and b"/* v2 */" not in body
+    assert status == 200
+    assert b"/* v2 */" not in body
     assert headers["cache-control"] == "public, max-age=31536000, immutable"
     status, _, body = get(a.url + b_css)
-    assert status == 200 and b"/* v2 */" in body
+    assert status == 200
+    assert b"/* v2 */" in body
 
     # Each instance's own sw.js points at its own version.
     assert f'"{ha["assets"]}"'.encode() in get(a.url + "/sw.js")[2]

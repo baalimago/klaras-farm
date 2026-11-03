@@ -46,8 +46,13 @@ def connect(cfg: DbConfig):
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
     return pg8000.native.Connection(
-        user=cfg.user, password=cfg.password, host=cfg.host, port=cfg.port,
-        database=cfg.name, ssl_context=context, timeout=5,
+        user=cfg.user,
+        password=cfg.password,
+        host=cfg.host,
+        port=cfg.port,
+        database=cfg.name,
+        ssl_context=context,
+        timeout=5,
     )
 
 
@@ -57,12 +62,12 @@ def check() -> dict:
         return {"ok": True, "configured": False}
     try:
         conn = connect(cfg)
-    except Exception as exc:  # noqa: BLE001 - report any driver error as unhealthy
+    except Exception as exc:
         return {"ok": False, "configured": True, "error": type(exc).__name__}
     try:
         rows = conn.run("SELECT coalesce(max(version), 0) FROM schema_migrations")
         return {"ok": True, "configured": True, "schema": rows[0][0]}
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         detail = exc.args[0] if exc.args and isinstance(exc.args[0], dict) else {}
         if detail.get("C") == "42P01":  # undefined_table: connected fine, migrations not run yet
             return {"ok": False, "configured": True, "connected": True, "error": "not migrated"}
