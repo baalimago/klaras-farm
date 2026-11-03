@@ -1,0 +1,311 @@
+{
+  "snapshot": {
+    "appVersion": "fixture",
+    "clips": [
+      {
+        "blobSha256": "2221e9029a311028c76ec6d2d480c8ae7222ee382c39730a992c0209dd22704e",
+        "createdAt": "2026-11-01T09:30:00.000Z",
+        "durationMs": 800,
+        "gainDb": 4.5,
+        "id": "c0000001-0000-4000-8000-000000000001",
+        "kind": "name",
+        "language": "en",
+        "mime": "audio/mp4",
+        "take": 1,
+        "thingId": "0a7e5c11-8d2f-4b39-a6e4-5c1d2e3f4a11",
+        "trimEndMs": 720,
+        "trimStartMs": 60
+      },
+      {
+        "blobSha256": "4aab8470275648e6968728692f80e2bb9a8afa42dad0059041bc0bd570a7abe5",
+        "createdAt": "2026-11-01T09:30:00.000Z",
+        "durationMs": 760,
+        "gainDb": 4.5,
+        "id": "c0000001-0000-4000-8000-000000000002",
+        "kind": "name",
+        "language": "sv",
+        "mime": "audio/mp4",
+        "take": 1,
+        "thingId": "0a7e5c11-8d2f-4b39-a6e4-5c1d2e3f4a11",
+        "trimEndMs": 680,
+        "trimStartMs": 60
+      },
+      {
+        "blobSha256": "417fc6e7e6f1050cfec794f972db02468fb218ea321fdcf14d07844681e63409",
+        "createdAt": "2026-11-01T09:30:00.000Z",
+        "durationMs": 640,
+        "gainDb": 4.5,
+        "id": "c0000001-0000-4000-8000-000000000003",
+        "kind": "sound",
+        "language": "sv",
+        "mime": "audio/mp4",
+        "take": 1,
+        "thingId": "0a7e5c11-8d2f-4b39-a6e4-5c1d2e3f4a11",
+        "trimEndMs": 560,
+        "trimStartMs": 60
+      },
+      {
+        "blobSha256": "1688fce26a90970ca63771e6f33f57d55ca380a951f60d55d35e9dc1c3ed56eb",
+        "createdAt": "2026-11-01T09:30:00.000Z",
+        "durationMs": 500,
+        "gainDb": 4.5,
+        "id": "c0000001-0000-4000-8000-000000000004",
+        "kind": "name",
+        "language": "en",
+        "mime": "audio/webm;codecs=opus",
+        "take": 1,
+        "thingId": "2c907e33-af41-4d5b-88a6-7e3f4a5b6c33",
+        "trimEndMs": 420,
+        "trimStartMs": 60
+      }
+    ],
+    "deviceId": "device-fixture",
+    "exportedAt": "2026-11-01T09:40:00.000Z",
+    "formatVersion": 1,
+    "minReaderFormat": 1,
+    "places": [
+      {
+        "backdrop": "meadow",
+        "createdAt": "2026-11-01T09:02:00.000Z",
+        "groundColor": "grass",
+        "id": "6f1c2a52-3b7e-4d0a-9a51-1d0f4c2b7e01",
+        "name": "Farm",
+        "pieces": [
+          {
+            "color": "red",
+            "id": "a1d2e3f4-0000-4000-8000-000000000001",
+            "kind": "shape",
+            "stroke": [
+              [
+                0.12000000000000001,
+                0.37
+              ],
+              [
+                0.28,
+                0.37
+              ],
+              [
+                0.28,
+                0.53
+              ],
+              [
+                0.12000000000000001,
+                0.53
+              ]
+            ]
+          },
+          {
+            "color": "brown",
+            "id": "a1d2e3f4-0000-4000-8000-000000000002",
+            "kind": "yarn",
+            "stroke": [
+              [
+                0.05,
+                0.7
+              ],
+              [
+                0.4,
+                0.68
+              ],
+              [
+                0.95,
+                0.71
+              ]
+            ]
+          }
+        ],
+        "skyColor": "sky",
+        "thingOrder": [
+          "0a7e5c11-8d2f-4b39-a6e4-5c1d2e3f4a11",
+          "1b8f6d22-9e30-4c4a-b7f5-6d2e3f4a5b22"
+        ],
+        "updatedAt": "2026-11-01T09:05:00.000Z"
+      },
+      {
+        "backdrop": "sea",
+        "createdAt": "2026-11-01T09:03:00.000Z",
+        "groundColor": "water",
+        "id": "9b0e7d33-52a1-4f6e-8c0d-2e9f5a7c3d02",
+        "name": "Sea",
+        "pieces": [],
+        "skyColor": "sky",
+        "thingOrder": [
+          "2c907e33-af41-4d5b-88a6-7e3f4a5b6c33"
+        ],
+        "updatedAt": "2026-11-01T09:03:00.000Z"
+      }
+    ],
+    "settings": {
+      "currentPlaceId": "6f1c2a52-3b7e-4d0a-9a51-1d0f4c2b7e01",
+      "gateKind": "keypad",
+      "languages": [
+        "sv",
+        "en"
+      ],
+      "playLanguage": "alternate",
+      "reduceMotion": false,
+      "sleepMinutes": 8,
+      "updatedAt": "2026-11-01T09:01:00.000Z",
+      "welcomed": true
+    },
+    "things": [
+      {
+        "color": "pink",
+        "createdAt": "2026-11-01T09:06:00.000Z",
+        "cues": {
+          "sv": {
+            "lines": [
+              "Var är grisen?",
+              "Där är grisen!",
+              "Vad säger grisen?"
+            ]
+          }
+        },
+        "eyes": [
+          {
+            "x": 0.47,
+            "y": 0.62
+          },
+          {
+            "x": 0.53,
+            "y": 0.62
+          }
+        ],
+        "id": "0a7e5c11-8d2f-4b39-a6e4-5c1d2e3f4a11",
+        "motion": {
+          "kind": "preset",
+          "params": {},
+          "preset": "walk"
+        },
+        "names": {
+          "en": "Pig",
+          "sv": "Gris"
+        },
+        "outline": [
+          [
+            0.4,
+            0.55
+          ],
+          [
+            0.6,
+            0.55
+          ],
+          [
+            0.6,
+            0.75
+          ],
+          [
+            0.4,
+            0.75
+          ]
+        ],
+        "placeId": "6f1c2a52-3b7e-4d0a-9a51-1d0f4c2b7e01",
+        "updatedAt": "2026-11-01T09:20:00.000Z"
+      },
+      {
+        "color": "white",
+        "createdAt": "2026-11-01T09:07:00.000Z",
+        "cues": {},
+        "eyes": [
+          {
+            "x": 0.72,
+            "y": 0.58
+          }
+        ],
+        "id": "1b8f6d22-9e30-4c4a-b7f5-6d2e3f4a5b22",
+        "motion": {
+          "kind": "preset",
+          "params": {
+            "travel.speed": 0.8
+          },
+          "preset": "walk"
+        },
+        "names": {
+          "en": "Cow"
+        },
+        "outline": [
+          [
+            0.63,
+            0.5
+          ],
+          [
+            0.87,
+            0.5
+          ],
+          [
+            0.87,
+            0.74
+          ],
+          [
+            0.63,
+            0.74
+          ]
+        ],
+        "placeId": "6f1c2a52-3b7e-4d0a-9a51-1d0f4c2b7e01",
+        "updatedAt": "2026-11-01T09:07:00.000Z"
+      },
+      {
+        "color": "orange",
+        "createdAt": "2026-11-01T09:08:00.000Z",
+        "cues": {},
+        "eyes": [
+          {
+            "x": 0.42,
+            "y": 0.48
+          }
+        ],
+        "id": "2c907e33-af41-4d5b-88a6-7e3f4a5b6c33",
+        "motion": {
+          "kind": "preset",
+          "params": {},
+          "preset": "float"
+        },
+        "names": {
+          "en": "Fish"
+        },
+        "outline": [
+          [
+            0.33,
+            0.43
+          ],
+          [
+            0.47000000000000003,
+            0.43
+          ],
+          [
+            0.47000000000000003,
+            0.5700000000000001
+          ],
+          [
+            0.33,
+            0.5700000000000001
+          ]
+        ],
+        "placeId": "9b0e7d33-52a1-4f6e-8c0d-2e9f5a7c3d02",
+        "updatedAt": "2026-11-01T09:08:00.000Z"
+      }
+    ]
+  },
+  "blobs": [
+    {
+      "sha256": "1688fce26a90970ca63771e6f33f57d55ca380a951f60d55d35e9dc1c3ed56eb",
+      "mime": "audio/webm;codecs=opus",
+      "size": 700
+    },
+    {
+      "sha256": "2221e9029a311028c76ec6d2d480c8ae7222ee382c39730a992c0209dd22704e",
+      "mime": "audio/mp4",
+      "size": 1200
+    },
+    {
+      "sha256": "417fc6e7e6f1050cfec794f972db02468fb218ea321fdcf14d07844681e63409",
+      "mime": "audio/mp4",
+      "size": 900
+    },
+    {
+      "sha256": "4aab8470275648e6968728692f80e2bb9a8afa42dad0059041bc0bd570a7abe5",
+      "mime": "audio/mp4",
+      "size": 1100
+    }
+  ]
+}
