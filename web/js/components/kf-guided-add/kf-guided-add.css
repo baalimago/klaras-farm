@@ -1,1 +1,123 @@
-/* kf-guided-add */
+/* kf-guided-add: add-a-thing flow. Also holds the shared 4:3 stage and the eye stamping view
+   (.kf-stage, .kf-eyes) that kf-thing-card reuses. */
+kf-guided-add {
+  position: absolute;
+  inset: 0;
+  display: block;
+  background: var(--wall);
+}
+
+/* A 4:3 stage letterboxed in the viewport, like the board. */
+.kf-stage {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(100vw, 133.333vh);
+  height: min(100vh, 75vw);
+  background: var(--cream);
+  overflow: hidden;
+  touch-action: none;
+}
+.kf-stage > canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.kf-stage > kf-draw-pad { position: absolute; inset: 0; display: block; }
+
+.kf-ga-top {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  left: var(--gutter);
+  right: var(--gutter);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 2;
+  pointer-events: none;
+}
+.kf-ga-top > * { pointer-events: auto; }
+.kf-ga-top .kf-ga-steps { flex: 1; justify-content: center; margin: 0; }
+.kf-ga-top .kf-btn { box-shadow: var(--shadow); }
+
+.kf-sheet.kf-ga-panel {
+  inset: 76px var(--gutter) auto auto;
+  width: min(440px, 44%);
+  max-height: calc(100% - 92px);
+  z-index: 1;
+}
+.kf-sheet.kf-ga-panel.draw {
+  inset: auto var(--gutter) max(16px, env(safe-area-inset-bottom)) auto;
+  width: min(360px, 40%);
+}
+@media (orientation: portrait) {
+  .kf-sheet.kf-ga-panel,
+  .kf-sheet.kf-ga-panel.draw {
+    inset: auto var(--gutter) max(16px, env(safe-area-inset-bottom)) var(--gutter);
+    width: auto;
+    max-height: 52%;
+  }
+}
+.kf-ga-panel kf-recorder { display: block; margin: 12px 0; }
+.kf-ga-cue {
+  margin: 8px 0;
+  padding: 12px 16px;
+  background: #fff;
+  border-radius: var(--radius-sm);
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+.kf-ga-motion { min-height: 64px; font-size: 1.15rem; padding: 0 24px; }
+.kf-ga-motion[aria-pressed="true"] { background: var(--ink); color: #fff; }
+
+.kf-ga-dim {
+  position: absolute;
+  inset: 0;
+  background: rgb(40 30 20 / 0.35);
+  z-index: 5;
+}
+
+/* Live motion preview on the Moves step: the transparent preview canvas moves, the stage does not. */
+.kf-ga-canvas.walk { animation: kf-ga-walk 0.7s ease-in-out infinite alternate; transform-origin: 28% 62%; }
+.kf-ga-canvas.float { animation: kf-ga-float 1.6s ease-in-out infinite alternate; }
+@keyframes kf-ga-walk {
+  from { transform: translateX(-2%) scale(1.03, 0.97); }
+  to { transform: translateX(2%) translateY(-1.5%) scale(0.97, 1.03); }
+}
+@keyframes kf-ga-float {
+  from { transform: translateY(-2%) rotate(-1deg); }
+  to { transform: translateY(2%) rotate(1deg); }
+}
+
+/* Eye stamping: full screen, nothing to hit but the stage; the parent holds the strip for 1 s. */
+.kf-eyes {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: var(--wall);
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.kf-eyes-strip {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(520px, 70%);
+  min-height: 56px;
+  padding: max(8px, env(safe-area-inset-top)) 16px 8px;
+  border: 0;
+  border-radius: 0 0 var(--radius) var(--radius);
+  background: rgb(255 250 240 / 0.85);
+  color: var(--ink-soft);
+  font: 600 0.95rem var(--font);
+  overflow: hidden;
+  z-index: 1;
+  touch-action: none;
+}
+.kf-eyes-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  background: rgb(61 139 255 / 0.25);
+}
+.kf-eyes-strip.holding .kf-eyes-fill { width: 100%; transition: width var(--hold-ms, 1000ms) linear; }
+.kf-eyes-label { position: relative; }
