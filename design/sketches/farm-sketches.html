@@ -1,0 +1,469 @@
+<title>Klara's Farm sketches</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<style>
+/* Layout: one centred column; a 4:3 iPad-shaped stage per direction, tabs above, notes below */
+:root {
+  --bg: #f3f4f1; --fg: #1d2420; --muted: #5d6862; --line: #d5dad5; --card: #ffffff; --accent: #2f6f4f;
+  --display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #141917; --fg: #e8ece9; --muted: #9aa59f; --line: #2c3530; --card: #1c2320; --accent: #7cc9a0; color-scheme: dark } }
+:root[data-theme="dark"] { --bg: #141917; --fg: #e8ece9; --muted: #9aa59f; --line: #2c3530; --card: #1c2320; --accent: #7cc9a0; color-scheme: dark }
+html, body { background: var(--bg); color: var(--fg); }
+body { font-family: var(--body); font-size: 16px; line-height: 1.5; }
+.wrap { max-width: 1040px; margin: 0 auto; padding-block: 28px 56px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 20px; }
+h1 { font-family: var(--display); font-weight: 700; font-size: clamp(28px, 4vw, 40px); line-height: 1.1; margin: 0; text-wrap: balance; }
+.lede { margin: 6px 0 0; color: var(--muted); max-width: 65ch; }
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.tabs button { font: 600 15px/1 var(--body); padding: 12px 16px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; display: flex; gap: 8px; align-items: center; }
+.tabs button .k { font-family: var(--display); font-weight: 700; color: var(--accent); }
+.tabs button[aria-selected="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.tabs button[aria-selected="true"] .k { color: var(--bg); }
+.tabs button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.stage { position: relative; width: 100%; max-width: 100%; aspect-ratio: 4 / 3; border-radius: 22px; overflow: hidden; box-shadow: 0 0 0 10px #1b1b1d, 0 18px 40px rgba(0,0,0,.25); margin: 10px; width: calc(100% - 20px); touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+canvas#farm { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: pointer; }
+/* prompt bubble: no text, only parent avatar + colour + animal, so it works in any language */
+.prompt { position: absolute; top: 4%; left: 50%; transform: translate(-50%, -140%); transition: transform .45s cubic-bezier(.3,1.5,.5,1); display: flex; align-items: center; gap: 12px; padding: 10px 18px 10px 10px; border-radius: 999px; cursor: pointer; }
+.prompt.show { transform: translate(-50%, 0); }
+.avatar { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; font: 700 22px/1 var(--display); position: relative; }
+.avatar::after { content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 3px solid currentColor; opacity: 0; }
+.prompt.speaking .avatar::after { animation: talk .7s ease-out 3; }
+@keyframes talk { from { opacity: .7; transform: scale(.9) } to { opacity: 0; transform: scale(1.35) } }
+.swatch { width: 40px; height: 40px; border-radius: 46% 54% 50% 50% / 55% 45% 55% 45%; }
+.swatch[hidden] { display: none !important; }
+.mini { width: 100px; height: 72px; display: block; }
+.star { font-size: 40px; line-height: 1; }
+.gate { position: absolute; right: 2.5%; bottom: 3.5%; width: 52px; height: 52px; border-radius: 50%; border: 0; display: grid; place-items: center; cursor: pointer; font: 700 26px/1 var(--display); }
+.gate svg { position: absolute; inset: -4px; width: 60px; height: 60px; transform: rotate(-90deg); pointer-events: none; }
+.gate circle { fill: none; stroke-width: 4; stroke-dasharray: 176; stroke-dashoffset: 176; }
+.gate.hold circle { transition: stroke-dashoffset 1.5s linear; stroke-dashoffset: 0; }
+.toast { position: absolute; left: 50%; bottom: 5%; transform: translateX(-50%); padding: 10px 16px; border-radius: 12px; background: rgba(20,20,20,.85); color: #fff; font: 600 14px/1.3 var(--body); opacity: 0; transition: opacity .3s; pointer-events: none; max-width: 80%; text-align: center; }
+.toast.on { opacity: 1; }
+/* per-direction chrome */
+.stage[data-look="crayon"] .prompt { background: #fff; box-shadow: 3px 4px 0 #2b2b3a; border: 3px solid #2b2b3a; }
+.stage[data-look="crayon"] .avatar { background: #ffd8a8; color: #2b2b3a; border: 3px solid #2b2b3a; }
+.stage[data-look="crayon"] .gate { background: #fff; color: #2b2b3a; border: 3px solid #2b2b3a; }
+.stage[data-look="crayon"] .gate circle { stroke: #e8590c; }
+.stage[data-look="paper"] .prompt { background: #ffffff; box-shadow: 0 8px 0 rgba(16,42,67,.18); }
+.stage[data-look="paper"] .avatar { background: #ff8a5b; color: #fff; }
+.stage[data-look="paper"] .gate { background: #fff; color: #102a43; box-shadow: 0 5px 0 rgba(16,42,67,.2); }
+.stage[data-look="paper"] .gate circle { stroke: #ff8a5b; }
+.stage[data-look="chalk"] .prompt { background: rgba(255,255,255,.08); border: 2px dashed rgba(255,255,255,.6); }
+.stage[data-look="chalk"] .avatar { background: transparent; color: #f6f1d8; border: 2px solid rgba(246,241,216,.8); }
+.stage[data-look="chalk"] .gate { background: transparent; color: #f6f1d8; border: 2px solid rgba(246,241,216,.6); }
+.stage[data-look="chalk"] .gate circle { stroke: #ffd43b; }
+.notes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.notes > div { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; min-width: 0; }
+.notes h3 { margin: 0 0 4px; font: 700 12px/1.2 var(--body); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.notes p { margin: 0; }
+.howto { color: var(--muted); font-size: 14px; margin: 0; max-width: 70ch; }
+@media (max-width: 700px) { .notes { grid-template-columns: 1fr; } .mini { width: 60px; height: 44px; } .avatar { width: 40px; height: 40px; font-size: 18px; } .swatch { width: 30px; height: 30px; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Klara's Farm: three looks for the play phase</h1>
+    <p class="lede">Each sketch is live. The animals are procedurally "hand drawn" stand-ins for what a parent would draw. Every few seconds the farm asks for an animal, and you tap to answer.</p>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Look and feel">
+    <button role="tab" id="tab-crayon" data-look="crayon" aria-selected="true"><span class="k">A</span> Crayon Meadow</button>
+    <button role="tab" id="tab-paper" data-look="paper" aria-selected="false"><span class="k">B</span> Paper Theatre</button>
+    <button role="tab" id="tab-chalk" data-look="chalk" aria-selected="false"><span class="k">C</span> Chalk Night</button>
+  </nav>
+
+  <div class="stage" id="stage" data-look="crayon">
+    <canvas id="farm" aria-label="Farm with walking animals. Tap the animal the bubble asks for."></canvas>
+    <div class="prompt" id="prompt" role="button" tabindex="0" aria-label="Replay the question">
+      <div class="avatar" aria-hidden="true">M</div>
+      <div class="swatch" id="swatch"></div>
+      <canvas class="mini" id="mini" width="156" height="112"></canvas>
+      <div class="star" id="star" hidden>⭐</div>
+    </div>
+    <button class="gate" id="gate" aria-label="Parent area: press and hold">
+      <svg viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="30" r="28"/></svg>+
+    </button>
+    <div class="toast" id="toast" role="status"></div>
+  </div>
+
+  <p class="howto">Try it: tap the right animal for a celebration. Tap a wrong one and it hops and "says its name"; after two misses the right animal starts glowing. Tap the bubble to hear the question again. Press and hold the + to see the parent gate.</p>
+
+  <section class="notes" aria-label="About this look">
+    <div><h3>Feel</h3><p id="n-feel"></p></div>
+    <div><h3>Good for</h3><p id="n-good"></p></div>
+    <div><h3>Risk</h3><p id="n-risk"></p></div>
+  </section>
+</div>
+
+<script>
+(() => {
+"use strict";
+const NOTES = {
+  crayon: {
+    feel: "Like the fridge drawing came to life. White paper, wax-crayon scribbles, wobbly lines. The parent's drawing looks most at home here because the whole world is drawn the same way.",
+    good: "Making the child feel the farm is theirs. Every new animal fits in with no style clash. Cheap to produce: the background is procedural scribbles, no illustrator needed.",
+    risk: "Busy textures can make the target harder to spot for very young children. Hatching the colour needs care so 'blue' still reads as solid blue."
+  },
+  paper: {
+    feel: "A bright cut-paper diorama with layered hills, soft drop shadows and bold clean outlines. Feels like a polished iPad app.",
+    good: "Clarity. High contrast and flat colour make 'find the blue dog' easiest to see. Depth layers let animals walk in front of and behind each other, which feels alive.",
+    risk: "A shaky parent drawing next to crisp paper shapes can look out of place. We would smooth the strokes and give them a thick outline to compensate."
+  },
+  chalk: {
+    feel: "A calm chalkboard at dusk. Few elements, a moon, chalk-white animals, and the asked-for colour glows. Low stimulation, good before bed.",
+    good: "Focus. With almost nothing else on screen, colour is the only colour, so the colour word stands out. Pairs well with an 8-minute 'animals fall asleep' ending.",
+    risk: "Dark and moody may feel less joyful in the daytime. Could ship as a night mode of A or B instead of the main look."
+  }
+};
+
+// ---------- tiny utilities ----------
+const rng = (seed) => () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const hash = (i) => { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+const COLORS = { blue: "#2f7cf6", red: "#f0473c", yellow: "#ffc61a", green: "#33b56b" };
+
+function blob(cx, cy, rx, ry, n, wob, r, fluffy = 0) {
+  const p1 = r() * 6.28, p2 = r() * 6.28, start = r() * 6.28, pts = [];
+  for (let i = 0; i <= n + 2; i++) {
+    const a = start + i / n * Math.PI * 2;
+    const k = 1 + wob * (Math.sin(a * 2 + p1) * .5 + Math.sin(a * 3 + p2) * .3) + fluffy * Math.abs(Math.sin(a * 5.5));
+    pts.push([cx + Math.cos(a) * rx * k, cy + Math.sin(a) * ry * k]);
+  }
+  return pts;
+}
+const line = (...p) => p;
+
+// ---------- species: a parent-style doodle, built once per animal ----------
+const SPECIES = {
+  dog:     { rx: 34, ry: 17, hr: 15, hx: 36, hy: -16, leg: 24, legs: [-24, -16, 20, 28] },
+  cow:     { rx: 44, ry: 24, hr: 15, hx: 48, hy: -8,  leg: 26, legs: [-32, -22, 26, 36] },
+  chicken: { rx: 20, ry: 17, hr: 9,  hx: 16, hy: -20, leg: 18, legs: [-4, 5] },
+  sheep:   { rx: 30, ry: 21, hr: 11, hx: 34, hy: -8,  leg: 20, legs: [-20, -12, 16, 24], fluffy: .16 },
+};
+function makeAnimal(kind, seed) {
+  const s = SPECIES[kind], r = rng(seed);
+  const by = -(s.leg + s.ry * .75);
+  const body = blob(0, by, s.rx, s.ry, 30, .07, r, s.fluffy || 0);
+  const hx = s.hx, hy = by + s.hy;
+  const head = blob(hx, hy, s.hr, s.hr * .92, 20, .06, r);
+  const extras = [];
+  if (kind === "dog") {
+    extras.push(line([hx - 6, hy - s.hr * .8], [hx - 14, hy - 2], [hx - 10, hy + 8]));
+    extras.push(line([-s.rx + 2, by - 4], [-s.rx - 10, by - 16], [-s.rx - 8, by - 24]));
+    extras.push(line([hx + s.hr * .8, hy + 4], [hx + s.hr + 4, hy + 6]));
+  } else if (kind === "cow") {
+    extras.push(line([hx - 6, hy - s.hr * .8], [hx - 10, hy - s.hr - 8], [hx - 3, hy - s.hr - 10]));
+    extras.push(line([hx + 5, hy - s.hr * .8], [hx + 6, hy - s.hr - 9], [hx + 13, hy - s.hr - 9]));
+    extras.push(line([-s.rx, by - 6], [-s.rx - 8, by + 8], [-s.rx - 7, by + 20]));
+    extras.push(blob(-10, by - 4, 9, 7, 12, .2, r).slice(0, 13));
+    extras.push(blob(16, by + 6, 7, 6, 12, .2, r).slice(0, 13));
+  } else if (kind === "chicken") {
+    extras.push(line([hx + s.hr - 1, hy - 3], [hx + s.hr + 8, hy], [hx + s.hr - 1, hy + 3]));
+    extras.push(line([hx - 4, hy - s.hr + 1], [hx - 2, hy - s.hr - 6], [hx + 1, hy - s.hr], [hx + 3, hy - s.hr - 6], [hx + 5, hy - s.hr + 1]));
+    extras.push(line([-s.rx + 2, by - 4], [-s.rx - 8, by - 20]));
+    extras.push(line([-s.rx + 4, by - 2], [-s.rx - 12, by - 12]));
+    extras.push(line([-4, by - 2], [6, by + 6], [12, by - 2]));
+  } else if (kind === "sheep") {
+    extras.push(line([hx - 4, hy - 6], [hx - 14, hy - 4]));
+  }
+  return { kind, s, body, head, extras, by, hx, hy,
+    eye: [hx + s.hr * .3, hy - s.hr * .2], eyeR: Math.max(4, s.hr * .32) };
+}
+
+// ---------- looks: how lines, fills and backgrounds are painted ----------
+function pathOf(ctx, pts, close) { ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]); if (close) ctx.closePath(); }
+function smoothPath(ctx, pts) { ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length - 1; i++) { const mx = (pts[i][0] + pts[i + 1][0]) / 2, my = (pts[i][1] + pts[i + 1][1]) / 2; ctx.quadraticCurveTo(pts[i][0], pts[i][1], mx, my); } }
+function hatch(ctx, pts, color, gap, width, alpha) {
+  ctx.save(); pathOf(ctx, pts.slice(0, -2), true); ctx.clip();
+  let minx = 1e9, maxx = -1e9, miny = 1e9, maxy = -1e9;
+  for (const [x, y] of pts) { minx = Math.min(minx, x); maxx = Math.max(maxx, x); miny = Math.min(miny, y); maxy = Math.max(maxy, y); }
+  ctx.strokeStyle = color; ctx.lineWidth = width; ctx.globalAlpha = alpha; ctx.lineCap = "round";
+  const h = maxy - miny; let k = 0;
+  for (let x = minx - h; x < maxx; x += gap) { ctx.beginPath(); ctx.moveTo(x + hash(k) * 2, maxy + 2); ctx.lineTo(x + h + hash(k + 9) * 2, miny - 2); ctx.stroke(); k++; }
+  ctx.restore();
+}
+
+const LOOKS = {
+  crayon: {
+    ink: "#2b2b3a", plain: "#ffffff", lw: 3.4,
+    stroke(ctx, pts, closed) {
+      ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = this.ink;
+      ctx.globalAlpha = .9; ctx.lineWidth = this.lw; smoothPath(ctx, pts); ctx.stroke();
+      ctx.globalAlpha = .45; ctx.lineWidth = this.lw * .6;
+      ctx.beginPath(); pts.forEach(([x, y], i) => { const ox = (hash(i) - .5) * 2.4, oy = (hash(i + 50) - .5) * 2.4; i ? ctx.lineTo(x + ox, y + oy) : ctx.moveTo(x + ox, y + oy); }); ctx.stroke();
+      ctx.globalAlpha = 1;
+    },
+    fill(ctx, pts, color) {
+      ctx.fillStyle = this.plain; pathOf(ctx, pts.slice(0, -2), true); ctx.fill();
+      if (color) hatch(ctx, pts, color, 3.2, 3, .85);
+    },
+    glow(ctx, color) {},
+    background(ctx, W, H) {
+      ctx.fillStyle = "#fdfdfb"; ctx.fillRect(0, 0, W, H);
+      const r = rng(7);
+      for (let i = 0; i < 1400; i++) { ctx.fillStyle = `rgba(80,70,50,${r() * .05})`; ctx.fillRect(r() * W, r() * H, 1.5, 1.5); }
+      // sky scribble
+      ctx.strokeStyle = "#74b4ff"; ctx.lineWidth = 7; ctx.globalAlpha = .35; ctx.lineCap = "round";
+      ctx.beginPath(); for (let y = 0; y < H * .5; y += 11) { ctx.moveTo(-10, y + r() * 4); ctx.lineTo(W + 10, y + 6 + r() * 4); } ctx.stroke();
+      ctx.globalAlpha = 1;
+      // sun
+      const sx = W * .12, sy = H * .13, sr = H * .06;
+      ctx.fillStyle = "#fdfdfb"; ctx.beginPath(); ctx.arc(sx, sy, sr * 1.15, 0, 7); ctx.fill();
+      hatch(ctx, blob(sx, sy, sr, sr, 24, .05, r), "#ffc61a", 3, 3.5, .95);
+      ctx.strokeStyle = "#f59f00"; ctx.lineWidth = 4;
+      for (let i = 0; i < 9; i++) { const a = i / 9 * 6.28; ctx.beginPath(); ctx.moveTo(sx + Math.cos(a) * sr * 1.35, sy + Math.sin(a) * sr * 1.35); ctx.lineTo(sx + Math.cos(a) * sr * 1.8, sy + Math.sin(a) * sr * 1.8); ctx.stroke(); }
+      // hills
+      const hill = []; for (let x = -20; x <= W + 20; x += 20) hill.push([x, H * .46 + Math.sin(x / W * 5) * H * .03]);
+      hill.push([W + 20, H + 20], [-20, H + 20]);
+      ctx.fillStyle = "#fdfdfb"; pathOf(ctx, hill, true); ctx.fill();
+      hatch(ctx, hill.concat([[0, 0], [0, 0]]), "#51cf66", 5, 4, .5);
+      this.stroke(ctx, hill.slice(0, -2));
+      // barn
+      const bx = W * .8, bw = W * .1, bh = H * .1, byy = H * .43;
+      const barn = [[bx, byy], [bx + bw, byy], [bx + bw, byy - bh], [bx + bw / 2, byy - bh * 1.6], [bx, byy - bh], [bx, byy], [bx, byy]];
+      ctx.fillStyle = "#fdfdfb"; pathOf(ctx, barn, true); ctx.fill(); hatch(ctx, barn, "#e03131", 3.5, 3, .8); this.stroke(ctx, barn);
+      this.stroke(ctx, [[bx + bw * .35, byy], [bx + bw * .35, byy - bh * .55], [bx + bw * .65, byy - bh * .55], [bx + bw * .65, byy]]);
+      // fence
+      for (let x = W * .03; x < W * .5; x += W * .045) this.stroke(ctx, [[x, H * .5], [x + 1, H * .43]]);
+      this.stroke(ctx, [[W * .02, H * .455], [W * .5, H * .46]]); this.stroke(ctx, [[W * .02, H * .485], [W * .5, H * .49]]);
+      // flowers
+      for (let i = 0; i < 14; i++) { const fx = r() * W, fy = H * .55 + r() * H * .42; ctx.fillStyle = ["#f783ac", "#ffd43b", "#ffffff"][i % 3]; ctx.strokeStyle = this.ink; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(fx, fy, 5, 0, 7); ctx.fill(); ctx.stroke(); }
+    },
+    confetti: ["#2f7cf6", "#f0473c", "#ffc61a", "#33b56b", "#ae3ec9"], confettiShape: "scrap",
+  },
+  paper: {
+    ink: "#102a43", plain: "#ffffff", lw: 5,
+    stroke(ctx, pts) { ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = this.ink; ctx.lineWidth = this.lw; smoothPath(ctx, pts); ctx.stroke(); },
+    fill(ctx, pts, color) {
+      ctx.save(); ctx.shadowColor = "rgba(16,42,67,.25)"; ctx.shadowOffsetY = 6; ctx.shadowBlur = 0;
+      ctx.fillStyle = color || this.plain; smoothPath(ctx, pts.slice(0, -1)); ctx.closePath(); ctx.fill(); ctx.restore();
+    },
+    glow() {},
+    background(ctx, W, H) {
+      const g = ctx.createLinearGradient(0, 0, 0, H * .6); g.addColorStop(0, "#7cc7ff"); g.addColorStop(1, "#d5f0ff");
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "#ffd43b"; ctx.beginPath(); ctx.arc(W * .85, H * .15, H * .07, 0, 7); ctx.fill();
+      const cloud = (x, y, s) => { ctx.fillStyle = "#fff"; [[0, 0, 1], [1, -.4, 1.2], [2.1, 0, .95]].forEach(([dx, dy, k]) => { ctx.beginPath(); ctx.arc(x + dx * s, y + dy * s, s * k, 0, 7); ctx.fill(); }); };
+      cloud(W * .15, H * .14, H * .035); cloud(W * .5, H * .08, H * .028);
+      const layers = [["#8fd694", .40, 4, .035], ["#5cb874", .46, 2.4, .03], ["#3f9d5c", .56, 3.3, .025]];
+      layers.forEach(([c, top, f, amp], i) => {
+        ctx.save(); ctx.shadowColor = "rgba(16,42,67,.18)"; ctx.shadowOffsetY = -5;
+        ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(0, H);
+        for (let x = 0; x <= W; x += 10) ctx.lineTo(x, H * top + Math.sin(x / W * f * 3.14 + i) * H * amp);
+        ctx.lineTo(W, H); ctx.closePath(); ctx.fill(); ctx.restore();
+        if (i === 0) { // barn and trees on the far hill
+          const bx = W * .12, byy = H * .42, bw = W * .09, bh = H * .08;
+          ctx.fillStyle = "#e8505b"; ctx.fillRect(bx, byy - bh, bw, bh);
+          ctx.beginPath(); ctx.moveTo(bx - 8, byy - bh); ctx.lineTo(bx + bw / 2, byy - bh * 1.7); ctx.lineTo(bx + bw + 8, byy - bh); ctx.fillStyle = "#b8323d"; ctx.fill();
+          ctx.fillStyle = "#fff"; ctx.fillRect(bx + bw * .35, byy - bh * .6, bw * .3, bh * .6);
+          [[.72, .41], [.78, .43], [.93, .40]].forEach(([tx, ty]) => { ctx.fillStyle = "#7a4f2a"; ctx.fillRect(W * tx - 3, H * ty - 20, 6, 22); ctx.fillStyle = "#2f8a4c"; ctx.beginPath(); ctx.arc(W * tx, H * ty - 30, 18, 0, 7); ctx.fill(); });
+        }
+      });
+    },
+    confetti: ["#ff8a5b", "#2f7cf6", "#ffd43b", "#ef476f", "#06d6a0"], confettiShape: "rect",
+  },
+  chalk: {
+    ink: "#f6f1d8", plain: "#1f3a33", lw: 3,
+    stroke(ctx, pts) {
+      ctx.lineCap = "round"; ctx.strokeStyle = this.ink;
+      for (let i = 1; i < pts.length; i++) { ctx.globalAlpha = .55 + hash(i) * .4; ctx.lineWidth = this.lw * (.8 + hash(i + 3) * .5); ctx.beginPath(); ctx.moveTo(pts[i - 1][0], pts[i - 1][1]); ctx.lineTo(pts[i][0], pts[i][1]); ctx.stroke(); }
+      ctx.globalAlpha = 1;
+    },
+    fill(ctx, pts, color) {
+      ctx.fillStyle = this.plain; pathOf(ctx, pts.slice(0, -2), true); ctx.fill();
+      if (color) { ctx.save(); ctx.shadowColor = color; ctx.shadowBlur = 22; hatch(ctx, pts, color, 3, 2.6, .9); ctx.restore(); }
+    },
+    background(ctx, W, H) {
+      ctx.fillStyle = "#1f3a33"; ctx.fillRect(0, 0, W, H);
+      const r = rng(11);
+      for (let i = 0; i < 40; i++) { ctx.fillStyle = `rgba(255,255,255,${r() * .015})`; ctx.beginPath(); ctx.ellipse(r() * W, r() * H, 40 + r() * 120, 20 + r() * 50, r() * 3, 0, 7); ctx.fill(); }
+      const mx = W * .82, my = H * .16, mr = H * .065;
+      hatch(ctx, blob(mx, my, mr, mr, 24, .03, r), "#fff6c9", 2.6, 2, .7); this.stroke(ctx, blob(mx, my, mr, mr, 24, .03, r));
+      for (let i = 0; i < 26; i++) { const x = r() * W, y = r() * H * .38, s = 3 + r() * 4; this.stroke(ctx, [[x - s, y], [x + s, y]]); this.stroke(ctx, [[x, y - s], [x, y + s]]); }
+      const hz = []; for (let x = 0; x <= W; x += 14) hz.push([x, H * .47 + Math.sin(x / W * 4) * H * .02]); this.stroke(ctx, hz);
+      for (let x = W * .05; x < W * .35; x += W * .05) this.stroke(ctx, [[x, H * .5], [x, H * .42]]);
+      this.stroke(ctx, [[W * .04, H * .45], [W * .36, H * .45]]);
+      const tx = W * .6; this.stroke(ctx, [[tx, H * .48], [tx, H * .36]]); this.stroke(ctx, blob(tx, H * .3, 30, 34, 22, .1, r));
+    },
+    confetti: ["#fff6c9", "#ffd43b", "#a5d8ff", "#ffc9c9"], confettiShape: "star",
+  }
+};
+
+// ---------- farm state ----------
+const canvas = document.getElementById("farm"), ctx = canvas.getContext("2d");
+const stage = document.getElementById("stage");
+const mini = document.getElementById("mini"), mctx = mini.getContext("2d");
+const promptEl = document.getElementById("prompt"), swatch = document.getElementById("swatch"), star = document.getElementById("star");
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+let look = LOOKS.crayon, W = 0, H = 0, dpr = 1, bg = null;
+
+// at most four animals; two dogs in different colours so "blue dog" actually means something
+const animals = [
+  { ...makeAnimal("dog", 3), color: "blue" },
+  { ...makeAnimal("dog", 9), color: "red" },
+  { ...makeAnimal("cow", 5), color: null },
+  { ...makeAnimal("chicken", 4), color: null },
+].map((a, i) => ({ ...a, id: i, x: .15 + i * .23, y: .6 + (i % 2) * .2, face: 1, tx: .1 + Math.random() * .8, ty: .6 + Math.random() * .3, wait: i * .6, phase: Math.random() * 6, hop: 0, hopV: 0, hops: 0 }));
+
+function resize() {
+  const r = canvas.getBoundingClientRect(); dpr = Math.min(2, devicePixelRatio || 1);
+  W = r.width; H = r.height; canvas.width = W * dpr; canvas.height = H * dpr;
+  bg = document.createElement("canvas"); bg.width = canvas.width; bg.height = canvas.height;
+  const b = bg.getContext("2d"); b.scale(dpr, dpr); look.background(b, W, H);
+}
+const GROUND = [.55, .92];
+const scaleAt = (y) => (H / 320) * (.75 + .55 * (y - GROUND[0]) / (GROUND[1] - GROUND[0]));
+
+function drawAnimal(c, a, lk, sc, x, y, t, opts = {}) {
+  c.save(); c.translate(x, y);
+  const squash = a.hop > 0 ? Math.min(.12, a.hopV * .004) : 0;
+  c.translate(0, -a.hop * sc); c.scale(sc * a.face * (1 - squash), sc * (1 + squash));
+  const walking = opts.still ? 0 : (a.wait > 0 ? 0 : 1);
+  const bob = -Math.abs(Math.sin(a.phase)) * 2.5 * walking;
+  const lw0 = lk.lw; lk.lw = lw0 / sc * (H / 420) * (opts.lwk || 1);
+  c.translate(0, bob);
+  // legs: the "rig" is just swinging sticks under a squash-and-stretch body
+  const legs = a.s.legs, swing = .45 * walking;
+  legs.forEach((lx, i) => {
+    const ang = Math.sin(a.phase * 2 + (i % 2 ? Math.PI : 0) + (i >= legs.length / 2 ? Math.PI : 0)) * swing;
+    const top = [lx, a.by + a.s.ry * .55], foot = [lx + Math.sin(ang) * a.s.leg, top[1] + Math.cos(ang) * a.s.leg - bob];
+    lk.stroke(c, [top, [(top[0] + foot[0]) / 2 + 1, (top[1] + foot[1]) / 2], foot, [foot[0] + 4, foot[1]]]);
+  });
+  const col = opts.plain ? null : (a.color && COLORS[a.color]);
+  if (a.kind === "dog") { const tw = Math.sin(t * 12) * 4; lk.stroke(c, a.extras[1].map(([px, py], i) => [px - (i ? tw * i * .5 : 0), py])); }
+  lk.fill(c, a.body, col); lk.stroke(c, a.body);
+  lk.fill(c, a.head, col); lk.stroke(c, a.head);
+  a.extras.forEach((e, i) => { if (!(a.kind === "dog" && i === 1)) lk.stroke(c, e); });
+  // googly eye that looks toward the last touch
+  const [ex, ey] = a.eye, er = a.eyeR;
+  c.fillStyle = "#fff"; c.beginPath(); c.arc(ex, ey, er, 0, 7); c.fill(); lk.stroke(c, blob(ex, ey, er, er, 12, 0, rng(1)));
+  const blink = (Math.sin(t * .9 + a.id * 2) > .985);
+  if (!blink) { const lx = (opts.lookX ?? 1) * er * .35; c.fillStyle = "#111"; c.beginPath(); c.arc(ex + lx, ey + er * .1, er * .5, 0, 7); c.fill(); }
+  lk.lw = lw0; c.restore();
+}
+
+// ---------- game loop: wander, ask, celebrate ----------
+let state = "idle", nextAsk = 1.8, target = null, misses = 0, celebrateT = 0, lookAt = null;
+const confetti = [];
+
+function ask() {
+  const pool = [0, 1, 2, 3]; const pick = pool[Math.floor(Math.random() * pool.length)];
+  target = animals[pick]; misses = 0; state = "asking";
+  swatch.hidden = !target.color; if (target.color) swatch.style.background = COLORS[target.color];
+  star.hidden = true; mini.hidden = false;
+  mctx.setTransform(1, 0, 0, 1, 0, 0); mctx.clearRect(0, 0, mini.width, mini.height);
+  const sc = 1.15; const lk = look; const save = H; H = 420;
+  drawAnimal(mctx, { ...target, hop: 0, face: 1, wait: 1 }, lk, sc, mini.width * .45, mini.height * .95, 0, { still: true, plain: true, lwk: 1.3 });
+  H = save;
+  promptEl.classList.add("show"); speak();
+  animals.forEach((a) => { a.wait = Math.max(a.wait, 1.6); }); // freeze while the question plays
+}
+function speak() { promptEl.classList.remove("speaking"); void promptEl.offsetWidth; promptEl.classList.add("speaking"); }
+
+let actx = null;
+function chime(good) {
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const notes = good ? [523, 659, 784, 1046] : [392, 330];
+    notes.forEach((f, i) => { const o = actx.createOscillator(), g = actx.createGain(); o.type = "triangle"; o.frequency.value = f; g.gain.setValueAtTime(0, actx.currentTime + i * .09); g.gain.linearRampToValueAtTime(.18, actx.currentTime + i * .09 + .02); g.gain.exponentialRampToValueAtTime(.001, actx.currentTime + i * .09 + .35); o.connect(g).connect(actx.destination); o.start(actx.currentTime + i * .09); o.stop(actx.currentTime + i * .09 + .4); });
+  } catch (e) { /* sound is optional */ }
+}
+
+function burst(x, y) {
+  const n = reduced ? 30 : 110;
+  for (let i = 0; i < n; i++) { const a = Math.random() * 6.28, v = 3 + Math.random() * 8; confetti.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 6, r: Math.random() * 6.28, vr: (Math.random() - .5) * .4, c: look.confetti[i % look.confetti.length], life: 1 }); }
+}
+
+function hitTest(px, py) {
+  const order = [...animals].sort((a, b) => b.y - a.y);
+  for (const a of order) {
+    const sc = scaleAt(a.y), cx = a.x * W, cy = a.y * H - (a.s.leg + a.s.ry * .6) * sc;
+    const rx = (a.s.rx + a.s.hr + 10) * sc * 1.3, ry = (a.s.ry + a.s.leg) * sc * 1.3; // generous: 1.3x the drawing
+    if (((px - cx) / rx) ** 2 + ((py - cy) / ry) ** 2 <= 1) return a;
+  }
+  return null;
+}
+
+canvas.addEventListener("pointerdown", (e) => {
+  if (!e.isPrimary) return; // ignore extra fingers and palms
+  const r = canvas.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+  lookAt = px; const a = hitTest(px, py);
+  if (!a) return;
+  if (state === "asking" && a === target) {
+    state = "celebrate"; celebrateT = 2.8; a.hops = 3; a.hopV = 9;
+    burst(px, py); chime(true);
+    swatch.hidden = true; mini.hidden = true; star.hidden = false; speak();
+  } else if (a.hop <= 0) {
+    a.hops = 1; a.hopV = 6; a.wait = Math.max(a.wait, .8); // wrong tap: the animal happily "says its own name"
+    if (state === "asking") { misses++; chime(false); setTimeout(speak, 500); }
+  }
+});
+promptEl.addEventListener("click", speak);
+promptEl.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); speak(); } });
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(.05, (now - last) / 1000); last = now; const t = now / 1000;
+  // update
+  for (const a of animals) {
+    if (a.hops > 0 || a.hop > 0) { a.hop += a.hopV; a.hopV -= 1.1; if (a.hop <= 0) { a.hop = 0; a.hops--; a.hopV = a.hops > 0 ? 9 : 0; } }
+    if (a.wait > 0) { a.wait -= dt; continue; }
+    const dx = a.tx - a.x, dy = a.ty - a.y, d = Math.hypot(dx, dy);
+    if (d < .01) { a.wait = 1 + Math.random() * 2.5; a.tx = .08 + Math.random() * .84; a.ty = GROUND[0] + Math.random() * (GROUND[1] - GROUND[0]); continue; }
+    const sp = (reduced ? .03 : .055) * dt; a.x += dx / d * sp; a.y += dy / d * sp * .6;
+    a.face = dx >= 0 ? 1 : -1; a.phase += dt * 5;
+  }
+  if (state === "idle") { nextAsk -= dt; if (nextAsk <= 0) ask(); }
+  if (state === "celebrate") { celebrateT -= dt; if (celebrateT <= 0) { state = "idle"; nextAsk = 4; target = null; promptEl.classList.remove("show"); } }
+  // draw
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(bg, 0, 0); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const order = [...animals].sort((a, b) => a.y - b.y);
+  for (const a of order) {
+    const sc = scaleAt(a.y), x = a.x * W, y = a.y * H;
+    ctx.fillStyle = look === LOOKS.chalk ? "rgba(0,0,0,.25)" : "rgba(20,40,30,.15)"; ctx.beginPath(); ctx.ellipse(x, y + 2, a.s.rx * sc * 1.1, 6 * sc, 0, 0, 7); ctx.fill();
+    if (state === "asking" && a === target && misses >= 2) { // scaffolding hint after two misses
+      const pr = (a.s.rx + a.s.hr) * sc * (1.25 + Math.sin(t * 6) * .08);
+      ctx.save(); ctx.strokeStyle = look === LOOKS.chalk ? "#ffd43b" : "#ffb703"; ctx.lineWidth = 6; ctx.globalAlpha = .7; ctx.beginPath(); ctx.ellipse(x, y - (a.s.leg + a.s.ry) * sc, pr, pr * .7, 0, 0, 7); ctx.stroke(); ctx.restore();
+    }
+    const lx = lookAt == null ? 1 : Math.max(-1, Math.min(1, (lookAt - x) / 120)) * a.face;
+    drawAnimal(ctx, a, look, sc, x, y, t, { lookX: lx });
+  }
+  for (let i = confetti.length - 1; i >= 0; i--) {
+    const p = confetti[i]; p.vy += .25; p.vx *= .99; p.x += p.vx; p.y += p.vy; p.r += p.vr; p.life -= dt * .45;
+    if (p.life <= 0 || p.y > H + 20) { confetti.splice(i, 1); continue; }
+    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.r); ctx.globalAlpha = Math.min(1, p.life * 2); ctx.fillStyle = p.c;
+    if (look.confettiShape === "star") { ctx.beginPath(); for (let k = 0; k < 10; k++) { const rr = k % 2 ? 3 : 8, aa = k / 10 * 6.28; ctx.lineTo(Math.cos(aa) * rr, Math.sin(aa) * rr); } ctx.fill(); }
+    else if (look.confettiShape === "scrap") { ctx.beginPath(); ctx.moveTo(-6, -3); ctx.lineTo(5, -5); ctx.lineTo(6, 4); ctx.lineTo(-4, 5); ctx.fill(); }
+    else ctx.fillRect(-6, -3.5, 12, 7);
+    ctx.restore();
+  }
+  requestAnimationFrame(frame);
+}
+
+// ---------- parent gate: press and hold ----------
+const gate = document.getElementById("gate"), toast = document.getElementById("toast"); let holdTimer = null;
+const showToast = (msg) => { toast.textContent = msg; toast.classList.add("on"); setTimeout(() => toast.classList.remove("on"), 2600); };
+gate.addEventListener("pointerdown", (e) => { e.preventDefault(); gate.classList.add("hold"); holdTimer = setTimeout(() => { gate.classList.remove("hold"); showToast("Parent area opens here: draw a new animal, record its name, pick a language."); }, 1500); });
+["pointerup", "pointerleave", "pointercancel"].forEach((ev) => gate.addEventListener(ev, () => { clearTimeout(holdTimer); gate.classList.remove("hold"); }));
+gate.addEventListener("click", (e) => { if (e.detail === 0) showToast("Parent area opens here: draw a new animal, record its name, pick a language."); });
+
+// ---------- switching looks ----------
+const tabs = [...document.querySelectorAll(".tabs button")];
+function setLook(name) {
+  if (!LOOKS[name]) name = "crayon";
+  look = LOOKS[name]; stage.dataset.look = name;
+  tabs.forEach((b) => b.setAttribute("aria-selected", String(b.dataset.look === name)));
+  document.getElementById("n-feel").textContent = NOTES[name].feel;
+  document.getElementById("n-good").textContent = NOTES[name].good;
+  document.getElementById("n-risk").textContent = NOTES[name].risk;
+  resize();
+  if (state === "asking" && target) { const t0 = target; state = "idle"; target = t0; ask(); }
+}
+tabs.forEach((b) => b.addEventListener("click", () => { location.hash = b.dataset.look; }));
+addEventListener("hashchange", () => setLook(location.hash.slice(1)));
+new ResizeObserver(() => resize()).observe(canvas);
+setLook(location.hash.slice(1) || "crayon");
+requestAnimationFrame(frame);
+})();
+</script>
