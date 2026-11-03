@@ -1,0 +1,12 @@
+[project]
+name = "klaras-farm"
+version = "0.1.0"
+description = "A felt-board word game for toddlers, played with a parent."
+requires-python = ">=3.12"
+dependencies = ["uvicorn>=0.30"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
