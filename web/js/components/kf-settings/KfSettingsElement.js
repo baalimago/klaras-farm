@@ -1,5 +1,5 @@
 // <kf-settings>: the parent settings panel (US-5.4, 7.3, 7.4, 7.5, 8.2, 8.3, 9.1, 11.2).
-// Languages (add/remove, which plays or "alternate"), sleep timer, adult check kind,
+// Languages (add/remove, which plays or a random mix), sleep timer, adult check kind,
 // export (pre-built so the share sheet opens inside the tap), import (confirm with counts,
 // replace, Undo until next boot), storage status, privacy, Guided Access guide, delete all data,
 // "Update ready", app version. Props: services, params. Dispatches kf-close.
@@ -153,7 +153,7 @@ export class KfSettingsElement extends HTMLElement {
     const addSelect = h("select", { id: addId, "data-key": "add-lang" }, [group("With ready-made questions", scripted), group("Other languages", others)]);
     const playId = newId("play-lang");
     const playOptions = s.languages.map((c) => h("option", { value: c, text: languageName(c), selected: s.playLanguage === c }));
-    if (s.languages.length > 1) playOptions.push(h("option", { value: "alternate", text: "Alternate between languages", selected: s.playLanguage === "alternate" }));
+    if (s.languages.length > 1) playOptions.push(h("option", { value: "alternate", text: "Mix languages (random each tap)", selected: s.playLanguage === "alternate" }));
     const playSelect = h("select", { id: playId, "data-key": "play-lang", onchange: (e) => this.save({ playLanguage: e.target.value }) }, playOptions);
     return h("section", { class: "kf-settings-section", "aria-label": "Languages" }, [
       h("h3", { text: "Languages" }),

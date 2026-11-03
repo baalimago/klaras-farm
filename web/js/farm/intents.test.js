@@ -102,5 +102,14 @@ test("tapClips plays the name then the sound, falling back to another language",
   const s = aSnapshot().withPlace(aPlace().withThing(aThing().withClip(aClip({ language: "sv" })).withClip(aClip({ kind: "sound", language: "sv" })))).build();
   const t = s.things[0].id;
   assert.deepEqual(I.tapClips(s, t, "en").map((c) => c.kind), ["name", "sound"]);
-  assert.equal(I.playLanguageFor({ playLanguage: "alternate", languages: ["sv", "en"] }, 3), "en");
+});
+
+test("playLanguageFor: fixed language, or a random pick among recorded languages when mixing", () => {
+  const mix = { playLanguage: "alternate", languages: ["sv", "en", "de"] };
+  assert.equal(I.playLanguageFor({ playLanguage: "sv", languages: ["sv", "en"] }, { rng: () => 0.9 }), "sv");
+  assert.equal(I.playLanguageFor(mix, { rng: () => 0 }), "sv");
+  assert.equal(I.playLanguageFor(mix, { rng: () => 0.99 }), "de");
+  assert.equal(I.playLanguageFor(mix, { available: ["en", "de"], rng: () => 0 }), "en", "skips languages with no recording");
+  assert.equal(I.playLanguageFor(mix, { available: ["en", "de"], rng: () => 0.99 }), "de");
+  assert.equal(I.playLanguageFor(mix, { available: ["fr"], rng: () => 0.5 }), "en", "nothing recorded in the family's languages: any of them");
 });

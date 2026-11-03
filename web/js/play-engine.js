@@ -42,7 +42,6 @@ export class PlayEngine extends EventTarget {
     this._mode = "play";
     this._finger = false;
     this._mash = idleMash();
-    this._tapCount = 0;
     this._pendingDrops = new Set();
     this._input = { fingerDown: false };
     this._lastStepAt = null;
@@ -108,7 +107,7 @@ export class PlayEngine extends EventTarget {
     if (decision.stopCurrent || this._prompting) this._call("stop");
     this._prompting = false;
     const snap = this.store.snapshot;
-    const lang = playLanguageFor(snap.settings, this._tapCount++);
+    const lang = this._langFor(snap, id, "name");
     const clips = tapClips(snap, id, lang);
     this._mash = startPlaying(this._mash, id, nowMs);
     const token = this._mash.token;
@@ -224,12 +223,18 @@ export class PlayEngine extends EventTarget {
     return this._candidates;
   }
 
+  /** The language for this play: fixed, or random among the languages recorded for the thing. */
+  _langFor(snap, thingId, kind) {
+    const available = [...new Set(clipsFor(snap, thingId, { kind }).map((c) => c.language))];
+    return playLanguageFor(snap.settings, { available, rng: this.rng });
+  }
+
   /** Plays the question for a thing: a recorded take (rotating), or the scripted cue in the device's voice. */
   _ask(thingId, repeat = false) {
     const snap = this.store.snapshot;
     const thing = snap.things.find((t) => t.id === thingId);
     if (!thing) return;
-    const lang = playLanguageFor(snap.settings, this._tapCount);
+    const lang = this._langFor(snap, thingId, "prompt");
     const prompts = clipsFor(snap, thingId, { kind: "prompt" });
     const own = prompts.filter((c) => c.language === lang);
     const pool = own.length ? own : prompts;
@@ -257,7 +262,7 @@ export class PlayEngine extends EventTarget {
     this.dispatchEvent(new CustomEvent("reaction", { detail: { thingId: id, x: a.x, y: a.y, celebrate: true } }));
     this._call("chime", "yay");
     const snap = this.store.snapshot;
-    const lang = playLanguageFor(snap.settings, this._tapCount++);
+    const lang = this._langFor(snap, id, "name");
     const clips = tapClips(snap, id, lang).filter((c) => c.kind === "name");
     const nowMs = this.now();
     this._mash = startPlaying(this._mash, id, nowMs);

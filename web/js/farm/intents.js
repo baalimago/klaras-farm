@@ -273,10 +273,16 @@ export function clipsFor(s, thingId, { language, kind } = {}) {
     .sort((a, b) => a.take - b.take);
 }
 
-/** Which language plays now. `alternate` rotates through the family's languages by tap count. */
-export function playLanguageFor(settings, tapCount = 0) {
+/**
+ * Which language plays now. `alternate` (shown as "Mix languages") picks a random language on
+ * each tap, from the ones recorded for this thing (`available`) when there are any, so the
+ * mix never lands on a silent language; otherwise from the family's languages.
+ */
+export function playLanguageFor(settings, { available = [], rng = () => 0 } = {}) {
   if (settings.playLanguage !== "alternate") return settings.playLanguage;
-  return settings.languages[tapCount % settings.languages.length];
+  const recorded = settings.languages.filter((l) => available.includes(l));
+  const pool = recorded.length ? recorded : settings.languages;
+  return pool[Math.min(pool.length - 1, Math.floor(rng() * pool.length))];
 }
 
 /**

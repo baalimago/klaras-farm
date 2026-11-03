@@ -91,7 +91,7 @@
 /**
  * @typedef {Object} Settings
  * @property {Lang[]} languages          languages the family records in, first = default
- * @property {Lang|'alternate'} playLanguage
+ * @property {Lang|'alternate'} playLanguage  'alternate' = random language per tap ("Mix languages")
  * @property {number} sleepMinutes       0 = off
  * @property {'keypad'|'sum'} gateKind
  * @property {boolean} reduceMotion

@@ -124,11 +124,15 @@ test("once the clip has ended, the same thing plays again at once", async () => 
   assert.deepEqual(audio.names(), ["playThing", "playThing"], "no stop: nothing was playing");
 });
 
-test("alternate play language rotates through the family's languages", async () => {
+test("mixed play language picks a random recorded language on each tap", async () => {
   const { engine, audio, clock } = await setup({ settings: { languages: ["en", "sv"], playLanguage: "alternate" } });
-  for (let i = 0; i < 3; i++) { clock.t += 1000; engine.tap(0.3, 0.7); }
-  const played = audio.calls.filter((c) => c[0] === "playThing").map((c) => c[1]);
-  assert.deepEqual(played, [["en:name", "en:sound"], ["sv:name", "en:sound"], ["en:name", "en:sound"]]);
+  for (let i = 0; i < 40; i++) { clock.t += 1000; engine.tap(0.3, 0.7); }
+  const names = audio.calls.filter((c) => c[0] === "playThing").map((c) => c[1][0]);
+  assert.equal(names.length, 40);
+  const en = names.filter((n) => n === "en:name").length;
+  assert.ok(en > 5 && en < 35, `both languages come up (${en} en of 40)`);
+  assert.ok(names.every((n) => n === "en:name" || n === "sv:name"));
+  assert.notDeepEqual(names.slice(0, 10), names.slice(0, 10).map((_, i) => (i % 2 ? "sv:name" : "en:name")), "not a fixed rotation");
 });
 
 test("edit mode: taps do not play, pick finds things, things wiggle and settle", async () => {
