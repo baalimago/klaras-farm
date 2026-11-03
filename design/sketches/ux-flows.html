@@ -1,0 +1,286 @@
+<title>Klara's Farm UX flows</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<style>
+/* Layout: one column of flows; each flow is a numbered row of iPad screens (a real sequence), wrapping to fit */
+:root {
+  --bg: #f3f4f1; --fg: #1d2420; --muted: #5d6862; --line: #d5dad5; --card: #ffffff; --accent: #2f6f4f;
+  --display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+  /* Sunny felt, used inside the iPad screens in both themes */
+  --sky: #8fd8f5; --grass: #7ccc4f; --red: #ff5a4e; --sun: #ffc93c; --ink: #4a3326; --cream: #fffaf0; --pink: #ff8fb8; --blue: #3d8bff; --leaf: #3fb85f; --wood: #c98a4b;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #141917; --fg: #e8ece9; --muted: #9aa59f; --line: #2c3530; --card: #1c2320; --accent: #7cc9a0; color-scheme: dark } }
+:root[data-theme="dark"] { --bg: #141917; --fg: #e8ece9; --muted: #9aa59f; --line: #2c3530; --card: #1c2320; --accent: #7cc9a0; color-scheme: dark }
+html, body { background: var(--bg); color: var(--fg); }
+body { font-family: var(--body); font-size: 16px; line-height: 1.5; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-block: 28px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 28px; }
+h1 { font-family: var(--display); font-weight: 700; font-size: clamp(28px, 4vw, 40px); line-height: 1.1; margin: 0; text-wrap: balance; }
+h2 { font-family: var(--display); font-weight: 700; font-size: 24px; margin: 0; display: flex; gap: 10px; align-items: baseline; }
+h2 .n { color: var(--accent); }
+.lede, .why { color: var(--muted); margin: 6px 0 0; max-width: 75ch; }
+nav.toc { display: flex; flex-wrap: wrap; gap: 8px; }
+nav.toc a { padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--fg); text-decoration: none; font-weight: 600; font-size: 14px; }
+nav.toc a:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+section.flow { display: grid; gap: 12px; scroll-margin-top: 16px; }
+.screens { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
+figure { margin: 0; display: grid; gap: 8px; align-content: start; min-width: 0; }
+figcaption { font-size: 14px; color: var(--muted); }
+figcaption b { color: var(--fg); }
+.sounds { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; display: grid; gap: 6px; }
+.sounds h3 { margin: 0; font: 700 12px/1.2 var(--body); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.sounds ul { margin: 0; padding-left: 18px; columns: 2 260px; }
+/* ---- iPad screen ---- */
+.ipad { position: relative; aspect-ratio: 4 / 3; max-width: 100%; border-radius: 14px; overflow: hidden; box-shadow: 0 0 0 6px #1b1b1d; container-type: inline-size; background: var(--sky); color: var(--ink); font-family: var(--body); margin: 6px; width: calc(100% - 12px); }
+.ipad > svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.ov { position: absolute; inset: 0; font-size: 3.4cqw; line-height: 1.25; }
+.ov > * { position: absolute; }
+.sheet { background: var(--cream); border-radius: 3cqw; box-shadow: 0 1cqw 0 rgba(74,51,38,.18); outline: .5cqw dashed rgba(201,138,75,.55); outline-offset: -1.6cqw; padding: 3.2cqw 3.6cqw; }
+.sheet h4 { margin: 0 0 1.5cqw; font: 700 4.4cqw/1.1 var(--display); }
+.sheet p { margin: 0; }
+.dim { background: rgba(40,30,20,.35); inset: 0; }
+.btn { display: inline-grid; place-items: center; border-radius: 99cqw; padding: 1.4cqw 3cqw; font-weight: 700; background: #fff; box-shadow: 0 .6cqw 0 rgba(74,51,38,.2); white-space: nowrap; }
+.btn.pri { background: var(--leaf); color: #fff; }
+.btn.red { background: var(--red); color: #fff; }
+.btn.ghost { background: transparent; box-shadow: none; outline: .4cqw solid rgba(74,51,38,.3); }
+.chip { display: inline-block; border-radius: 99cqw; padding: .8cqw 2.4cqw; background: #fff; font-weight: 700; font-size: 3cqw; box-shadow: 0 .4cqw 0 rgba(74,51,38,.15); }
+.chip.on { background: var(--ink); color: #fff; }
+.bar { left: 50%; bottom: 3cqw; transform: translateX(-50%); display: flex; gap: 1.6cqw; background: var(--cream); padding: 1.4cqw; border-radius: 99cqw; box-shadow: 0 .8cqw 0 rgba(74,51,38,.2); white-space: nowrap; font-size: 3cqw; }
+.bar span { padding: 1cqw 2.4cqw; border-radius: 99cqw; font-weight: 700; }
+.bar .hl { background: var(--ink); color: #fff; }
+.mic { width: 13cqw; height: 13cqw; border-radius: 50%; background: var(--red); display: grid; place-items: center; box-shadow: 0 0 0 2cqw rgba(255,90,78,.2); }
+.mic::before { content: ""; width: 3.2cqw; height: 5.2cqw; border-radius: 2cqw; background: #fff; }
+.mic.rec { box-shadow: 0 0 0 2cqw rgba(255,90,78,.25), 0 0 0 4cqw rgba(255,90,78,.12); }
+.wave { display: flex; gap: .7cqw; align-items: center; height: 7cqw; }
+.wave i { width: 1cqw; border-radius: 1cqw; background: var(--red); }
+.dots { top: 2.6cqw; left: 50%; transform: translateX(-50%); display: flex; gap: 1.2cqw; font-size: 2.4cqw; font-weight: 700; white-space: nowrap; }
+.dots span { padding: .5cqw 1.6cqw; border-radius: 99cqw; background: rgba(255,255,255,.7); }
+.dots .on { background: var(--ink); color: #fff; }
+.dots .done { background: var(--leaf); color: #fff; }
+.note { font-size: 2.8cqw; color: rgba(74,51,38,.75); }
+.swatches { display: flex; gap: 1.6cqw; }
+.swatches i { width: 6cqw; height: 6cqw; border-radius: 50%; box-shadow: inset 0 0 0 .5cqw rgba(255,255,255,.6); }
+.swatches i.on { outline: .6cqw solid var(--ink); outline-offset: .5cqw; }
+.finger { width: 7cqw; height: 7cqw; border-radius: 50%; background: rgba(255,255,255,.55); border: .5cqw solid rgba(74,51,38,.5); transform: translate(-50%, -50%); }
+.ring { width: 15cqw; height: 15cqw; transform: translate(-50%, -50%); }
+.row { display: flex; align-items: center; gap: 2cqw; padding: 1.1cqw 0; border-bottom: .3cqw dashed rgba(74,51,38,.18); }
+.row .k { width: 18cqw; font-weight: 700; flex: none; }
+.row .grow { flex: 1; display: flex; gap: 1.2cqw; flex-wrap: wrap; align-items: center; }
+.play { display: inline-grid; place-items: center; width: 5cqw; height: 5cqw; border-radius: 50%; background: var(--ink); color: #fff; font-size: 2.4cqw; }
+.field { background: #fff; border-radius: 1.6cqw; padding: 1.2cqw 2cqw; box-shadow: inset 0 0 0 .4cqw rgba(74,51,38,.2); font-weight: 700; }
+.bubble { background: #fff; border-radius: 99cqw; padding: 1.4cqw 3cqw 1.4cqw 1.4cqw; display: flex; gap: 1.6cqw; align-items: center; box-shadow: 0 .8cqw 0 rgba(74,51,38,.18); font-weight: 700; white-space: nowrap; }
+.av { width: 7cqw; height: 7cqw; border-radius: 50%; background: var(--red); color: #fff; display: grid; place-items: center; font: 700 3.4cqw/1 var(--display); }
+.tool { width: 7.4cqw; height: 7.4cqw; border-radius: 2.4cqw; background: var(--cream); display: grid; place-items: center; font-weight: 700; font-size: 2.4cqw; box-shadow: 0 .6cqw 0 rgba(74,51,38,.18); text-align: center; line-height: 1.05; }
+.tool.on { background: var(--ink); color: #fff; }
+.tools { display: grid; gap: 1.1cqw; }
+.wig { animation: wig .5s ease-in-out infinite alternate; transform-box: fill-box; transform-origin: 50% 100%; }
+@keyframes wig { from { transform: rotate(-3deg) } to { transform: rotate(3deg) } }
+@media (prefers-reduced-motion: reduce) { .wig { animation: none; } }
+@media (max-width: 600px) { .screens { grid-template-columns: 1fr; } }
+</style>
+
+<!-- shared felt artwork -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <filter id="felt" x="-5%" y="-5%" width="110%" height="110%">
+      <feTurbulence type="fractalNoise" baseFrequency="1.6" numOctaves="2" seed="4" result="n"/>
+      <feColorMatrix in="n" type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 .55 0" result="w"/>
+      <feComposite in="w" in2="SourceAlpha" operator="in" result="wn"/>
+      <feMerge><feMergeNode in="SourceGraphic"/><feMergeNode in="wn"/></feMerge>
+    </filter>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="2.5" stdDeviation="2" flood-color="#4a3326" flood-opacity=".25"/></filter>
+    <symbol id="farm" viewBox="0 0 400 300">
+      <rect width="400" height="300" fill="#8fd8f5"/>
+      <path d="M0 150 Q100 132 200 146 T400 140 V300 H0Z" fill="#7ccc4f" filter="url(#felt)"/>
+      <rect x="10" y="10" width="380" height="280" rx="12" fill="none" stroke="#fffaf0" stroke-width="1.6" stroke-dasharray="5 4" opacity=".8"/>
+      <g filter="url(#shadow)">
+        <circle cx="345" cy="45" r="22" fill="#ffc93c" filter="url(#felt)"/>
+        <ellipse cx="80" cy="42" rx="30" ry="12" fill="#fff" filter="url(#felt)"/>
+        <path d="M30 145 V105 L52 86 L74 105 V145Z" fill="#ff5a4e" filter="url(#felt)"/>
+        <rect x="45" y="122" width="14" height="23" fill="#fffaf0"/>
+        <rect x="283" y="110" width="7" height="40" fill="#c98a4b"/>
+        <ellipse cx="287" cy="95" rx="20" ry="26" fill="#3fb85f" filter="url(#felt)"/>
+      </g>
+      <path d="M33 143 V107 L52 90 L71 107 V143Z M285 90" fill="none" stroke="#fffaf0" stroke-width="1" stroke-dasharray="3 3" opacity=".8"/>
+    </symbol>
+    <symbol id="blank" viewBox="0 0 400 300">
+      <rect width="400" height="300" fill="#fffaf0"/>
+      <rect x="10" y="10" width="380" height="280" rx="12" fill="none" stroke="#c98a4b" stroke-width="1.4" stroke-dasharray="5 4" opacity=".6"/>
+    </symbol>
+    <symbol id="pig" viewBox="-60 -70 120 80" overflow="visible">
+      <g stroke="#4a3326" stroke-width="3" stroke-linecap="round"><path d="M-24 -10 V6 M-14 -10 V6 M16 -10 V6 M26 -10 V6"/></g>
+      <g filter="url(#shadow)">
+        <path d="M-34 -30 q-8 -6 -4 -12" fill="none" stroke="#ff8fb8" stroke-width="3"/>
+        <ellipse cx="0" cy="-26" rx="34" ry="20" fill="#ff8fb8" filter="url(#felt)"/>
+        <circle cx="32" cy="-36" r="15" fill="#ff8fb8" filter="url(#felt)"/>
+        <path d="M24 -49 l4 -10 l7 8z" fill="#ff8fb8"/>
+        <ellipse cx="44" cy="-33" rx="6" ry="5" fill="#ff6f9f"/>
+      </g>
+      <ellipse cx="0" cy="-26" rx="29" ry="15" fill="none" stroke="#fffaf0" stroke-width="1.2" stroke-dasharray="3 2.5" opacity=".85"/>
+      <circle cx="34" cy="-40" r="3.6" fill="#2b211b"/><circle cx="33" cy="-41" r=".8" fill="#e9dcc6"/><circle cx="35" cy="-39" r=".8" fill="#e9dcc6"/>
+      <path d="M36 -28 q4 3 8 0" fill="none" stroke="#2b211b" stroke-width="1.4" stroke-dasharray="2 1.5"/>
+    </symbol>
+    <symbol id="spoon" viewBox="-30 -90 60 95" overflow="visible">
+      <g filter="url(#shadow)"><rect x="-3.5" y="-42" width="7" height="44" rx="3" fill="#d3dde6" filter="url(#felt)"/><ellipse cx="0" cy="-60" rx="16" ry="21" fill="#d3dde6" filter="url(#felt)"/></g>
+      <ellipse cx="0" cy="-60" rx="11.5" ry="16" fill="none" stroke="#fffaf0" stroke-width="1.2" stroke-dasharray="3 2.5"/>
+      <circle cx="-5.5" cy="-64" r="3.2" fill="#2b211b"/><circle cx="5.5" cy="-64" r="3.2" fill="#2b211b"/>
+      <path d="M-5 -53 q5 4 10 0" fill="none" stroke="#2b211b" stroke-width="1.4" stroke-dasharray="2 1.5"/>
+    </symbol>
+    <symbol id="chick" viewBox="-30 -50 60 55" overflow="visible">
+      <g stroke="#4a3326" stroke-width="2.5" stroke-linecap="round"><path d="M-4 -10 V2 M5 -10 V2"/></g>
+      <g filter="url(#shadow)"><ellipse cx="0" cy="-22" rx="19" ry="16" fill="#fffaf0" filter="url(#felt)"/><circle cx="15" cy="-38" r="9" fill="#fffaf0" filter="url(#felt)"/><path d="M23 -40 l9 3 l-9 3z" fill="#ffc93c"/><path d="M10 -46 l2 -6 l3 5 l2 -6 l3 6z" fill="#ff5a4e"/></g>
+      <circle cx="17" cy="-40" r="2.6" fill="#2b211b"/>
+    </symbol>
+    <symbol id="badges" viewBox="0 0 60 20" overflow="visible">
+      <g filter="url(#shadow)"><circle cx="8" cy="8" r="8" fill="#fffaf0"/><circle cx="52" cy="8" r="8" fill="#ff5a4e"/></g>
+      <path d="M4.5 11.5 l1 -3 l5 -5 l2 2 l-5 5z" fill="#4a3326"/>
+      <path d="M48.5 4.5 l7 7 M55.5 4.5 l-7 7" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <header>
+    <h1>Klara's Farm UX flows</h1>
+    <p class="lede">Six parent flows, drawn as iPad screens in the Sunny felt look. Every flow starts in edit mode. Parent screens use English here as a placeholder; the parent UI language is still open.</p>
+  </header>
+
+  <nav class="toc" aria-label="Flows">
+    <a href="#flow-0">0 · Getting into edit mode</a>
+    <a href="#flow-1">1 · Add a new animal</a>
+    <a href="#flow-2">2 · Edit an animal</a>
+    <a href="#flow-3">3 · Change the scene</a>
+    <a href="#flow-4">4 · New scene</a>
+    <a href="#flow-5">5 · Add a name</a>
+    <a href="#flow-6">6 · Add a sound</a>
+  </nav>
+
+  <div class="sounds">
+    <h3>Audio feedback used throughout (iPads have no vibration)</h3>
+    <ul>
+      <li>Holding: a soft tone rises with the felt ring</li>
+      <li>Hold complete: a "pop"</li>
+      <li>Enter edit mode: three rising notes; leave: three falling notes</li>
+      <li>Record starts: a short blip; stops: a lower blip</li>
+      <li>Saved: a felt "plink" as the thing drops in</li>
+      <li>Delete: a soft "poof", only after confirming</li>
+    </ul>
+  </div>
+
+  <div id="flows"></div>
+</div>
+
+<script>
+(() => {
+"use strict";
+// Each screen: background symbol, things, and overlay HTML (positions in %).
+const use = (id, x, y, w, extra = "") => `<use href="#${id}" x="${x}" y="${y}" width="${w}" height="${w * .75}" ${extra}/>`;
+const scene = (bg, things = "", dim = false) => `<svg viewBox="0 0 400 300" aria-hidden="true">${use(bg, 0, 0, 400)}${things}${dim ? '<rect width="400" height="300" fill="#2b211b" opacity=".35"/>' : ""}</svg>`;
+const pig = (x, y, w = 110, wig = false, badges = false) => `<g${wig ? ' class="wig"' : ""}>${use("pig", x, y, w)}${badges ? `<use href="#badges" x="${x + w * .2}" y="${y - 6}" width="${w * .6}" height="${w * .2}"/>` : ""}</g>`;
+const spoon = (x, y, w = 60, wig = false, badges = false) => `<g${wig ? ' class="wig"' : ""}>${use("spoon", x, y, w)}${badges ? `<use href="#badges" x="${x}" y="${y - 6}" width="${w}" height="${w / 3}"/>` : ""}</g>`;
+const chick = (x, y, w = 60, wig = false, badges = false) => `<g${wig ? ' class="wig"' : ""}>${use("chick", x, y, w)}${badges ? `<use href="#badges" x="${x}" y="${y - 6}" width="${w}" height="${w / 3}"/>` : ""}</g>`;
+const at = (l, t, html, style = "") => `<div style="left:${l}%;top:${t}%;${style}">${html}</div>`;
+const nav = `<div style="left:2.5%;top:2.2%"><span class="chip">‹ Back</span></div><div style="right:2.5%;top:2.2%"><span class="chip">✕</span></div>`;
+const dots = (on, done = []) => nav + `<div class="dots">${["Draw", "Felt", "Eyes", "Moves", "Name", "Ask", "Sound"].map((s, i) => `<span class="${i === on ? "on" : done.includes(i) || i < on ? "done" : ""}">${s}</span>`).join("")}</div>`;
+const wave = (n = 18) => `<div class="wave">${Array.from({ length: n }, (_, i) => `<i style="height:${20 + Math.abs(Math.sin(i * 1.7)) * 80}%"></i>`).join("")}</div>`;
+const ring = (pct) => `<svg class="ring" viewBox="0 0 40 40"><circle cx="20" cy="20" r="16" fill="none" stroke="rgba(255,250,240,.6)" stroke-width="4"/><circle cx="20" cy="20" r="16" fill="none" stroke="#ff5a4e" stroke-width="4" stroke-linecap="round" stroke-dasharray="${pct} 100" pathLength="100" transform="rotate(-90 20 20)"/></svg>`;
+const bar = (hl) => `<div class="bar">${["Scenes", "Change scene", "+ Add", "Settings", "Done"].map((s) => `<span class="${s === hl ? "hl" : ""}">${s}</span>`).join("")}</div>`;
+const swatches = (on) => `<div class="swatches">${["#ff5a4e", "#ffc93c", "#ff8fb8", "#3d8bff", "#3fb85f", "#c98a4b", "#fffaf0", "#b48cff"].map((c, i) => `<i style="background:${c}" class="${i === on ? "on" : ""}"></i>`).join("")}</div>`;
+const editScene = (hl, extra = "") => scene("farm", pig(150, 150, 110, true, true) + chick(285, 175, 60, true, true) + spoon(70, 170, 46, true, true) + extra);
+
+const FLOWS = [
+  { id: 0, title: "Getting into edit mode", why: "Every parent flow starts here. It's the familiar home-screen pattern (hold, things wiggle, badges, Done) with two toddler guards: a longer hold and an adult check.",
+    screens: [
+      { svg: scene("farm", pig(150, 150) + chick(285, 175)), ov: at(30, 72, '<div class="finger"></div>') + at(30, 72, ring(70)) + at(36, 62, '<span class="chip">♪ very soft tone</span>'),
+        cap: "<b>Hold for 1.5 s.</b> Nothing shows for the first 0.5 s (a normal toddler hold sees nothing), then a felt ring fills with a very soft tone. No pop, no reward. Lifting, sliding, a second finger or a palm cancels silently. Holds don't start near the bottom or side edges, where iPad system gestures live." },
+      { svg: scene("farm", pig(150, 150) + chick(285, 175), true), ov: at(8, 10, '<div class="sheet" style="position:static;width:40cqw"><h4>Grown-ups: type 7 2 5</h4><p class="note">Keeps little fingers out of edit mode.</p></div>') + at(54, 8, `<div style="display:grid;grid-template-columns:repeat(3,9cqw);gap:1.6cqw">${[4,9,1,7,3,8,2,6,5].map((n) => `<span class="btn" style="font-size:4.6cqw;padding:1.6cqw 0">${n}</span>`).join("")}</div>`),
+        cap: "<b>Adult check.</b> A shuffled 1–9 keypad and a random 3-digit code (about 1 in 729 by mashing). Any wrong tap, a tap between buttons, or 10 s idle goes back to play silently. Only after passing does the rising chime play. Can be swapped for spoken digits or a sum in Settings." },
+      { svg: editScene(), ov: bar(""), cap: "<b>Edit mode.</b> Things stop wandering and wiggle in place; their pencil (edit) and cross (delete) badges stay still and large. The bar: Scenes, Change scene, + Add, Settings, Done. Done ends edit mode fully (the next entry needs the check again). Left alone for 60 s, it closes, and only then can it be reopened with the hold alone for a few minutes; any play tap cancels that." },
+    ] },
+  { id: 1, title: "Add a new animal", why: "A guided sequence with a step bar, Back and ✕ on every step. Each step is saved as a draft, so an interruption never loses work; ✕ offers \"Keep draft\" or \"Discard\". While any step is open the 60 s auto-close is paused. + Add is greyed out when the scene already has 4 things.",
+    screens: [
+      { svg: scene("blank", '<path d="M120 190 C110 150 150 120 200 125 C250 128 290 140 288 175 C286 205 240 212 200 210 C170 209 140 205 128 196" fill="none" stroke="#4a3326" stroke-width="4" stroke-linecap="round"/><circle cx="128" cy="196" r="9" fill="none" stroke="#ff5a4e" stroke-width="2" stroke-dasharray="3 3"/><circle cx="120" cy="190" r="9" fill="none" stroke="#ff5a4e" stroke-width="2" stroke-dasharray="3 3"/>'),
+        ov: dots(0) + at(3, 22, '<div class="tools"><span class="tool on">Pen</span><span class="tool">Undo</span><span class="tool">Clear</span></div>') + at(22, 85, '<span class="note">Small gaps close by themselves</span>') + at(80, 86, '<span class="btn pri">Next</span>'),
+        cap: "<b>Draw the outline.</b> One big shape, with a finger or a pencil. A small gap is closed for you; a big one gets both ends highlighted." },
+      { svg: scene("blank", pig(130, 120, 150)), ov: dots(1) + at(14, 82, swatches(2)) + at(80, 86, '<span class="btn pri">Next</span>'),
+        cap: "<b>Pick its felt.</b> The shape fills with fabric, stitching and a soft shadow as soon as you tap a colour. (Legs and details come from the motion style.)" },
+      { svg: scene("blank", pig(110, 100, 190)), ov: at(30, 3, '<span class="chip">Grown-up: hold here to continue</span>') + at(62, 43, '<div class="finger"></div>'),
+        cap: "<b>Klara stamps the eyes.</b> Full screen, no buttons for her to hit. Each tap stamps a button eye with a pop; taps outside the shape snap inside; a third tap moves the oldest eye. The parent takes over by holding the strip at the top for 1 s." },
+      { svg: scene("blank", pig(130, 110, 150)), ov: dots(3) + at(18, 76, '<span class="btn" style="font-size:4.4cqw;padding:2.4cqw 5cqw;background:#ffc93c">🐾 Walks</span>') + at(56, 76, '<span class="btn" style="font-size:4.4cqw;padding:2.4cqw 5cqw">〰 Floats</span>'),
+        cap: "<b>How does it move?</b> One tap and the preview starts moving. No skeleton. Swims, hops and scuttles come in a later version." },
+      { svg: scene("blank", pig(40, 120, 120)), ov: dots(4) + at(42, 16, '<div class="sheet" style="position:static;width:52cqw"><h4>What is it called?</h4><div class="field">Pig</div><p class="note" style="margin-top:1.4cqw">English ▾ · for you, never shown to Klara</p><div style="display:flex;gap:3cqw;align-items:center;margin-top:2.4cqw"><div class="mic"></div><span>Tap and say <b>"pig"</b></span></div></div>'),
+        cap: "<b>Name it.</b> Type the word (for your lists and the question scripts), then record it. Full detail in flow 5." },
+      { svg: scene("blank", pig(40, 120, 120)), ov: dots(5) + at(42, 14, '<div class="sheet" style="position:static;width:52cqw"><p class="note">Question 1 of 3 · say it like you would to Klara</p><h4 style="margin-top:1cqw">"Where is the pig?"</h4><div style="display:flex;gap:3cqw;align-items:center;margin-top:2cqw"><div class="mic"></div><span class="note">Next: "Can you find the pig?" · "Show me the pig!"</span></div><p class="note" style="margin-top:1.4cqw">✎ Change the words · they are only a cue</p></div>') + at(46, 86, '<span class="btn ghost">Skip for now</span>') + at(80, 86, '<span class="btn pri">Next</span>'),
+        cap: "<b>Ask for it (optional now).</b> The app shows what to say, filled in with the name, and you record three ways of asking. Language files can include the article (\"Wo ist der Hund?\"), and you can edit the words for this animal. Languages without a file show the English cue with \"say this in your language\". Used by Find it later." },
+      { svg: scene("blank", pig(40, 120, 120)), ov: dots(6) + at(42, 18, `<div class="sheet" style="position:static;width:52cqw"><h4>What does it say?</h4><p class="note">Optional. Make its sound!</p><div style="display:flex;gap:3cqw;align-items:center;margin-top:2cqw"><div class="mic"></div><span>"oink oink!"</span></div></div>`) + at(46, 86, '<span class="btn ghost">Skip</span>') + at(76, 86, '<span class="btn pri">Finish</span>'),
+        cap: "<b>Its sound (optional).</b> Same recorder as names. Details in flow 6." },
+      { svg: scene("farm", pig(150, 140, 110) + chick(285, 175) + '<g fill="#ff5a4e"><circle cx="150" cy="120" r="3"/><circle cx="260" cy="130" r="3" fill="#ffc93c"/><circle cx="200" cy="105" r="3" fill="#3d8bff"/><circle cx="235" cy="112" r="3"/><circle cx="170" cy="135" r="3" fill="#3fb85f"/></g>'), ov: at(36, 10, '<span class="chip">♪ plink</span>'),
+        cap: "<b>It drops into the scene</b> with a plink and felt confetti, still in edit mode, so you can add another or tap Done." },
+    ] },
+  { id: 2, title: "Edit an existing animal", why: "Everything about one animal on a single card, so there's nothing to hunt for. Changes save immediately; the card has no Save button.",
+    screens: [
+      { svg: editScene(), ov: at(41.5, 49, '<div class="finger"></div>') + bar(""), cap: "<b>Tap the pencil badge</b> on the animal (in edit mode)." },
+      { svg: scene("farm", pig(150, 150), true), ov: at(8, 6, `<div class="sheet" style="position:static;width:76cqw">
+          <div style="display:flex;gap:3cqw;align-items:center"><svg viewBox="0 0 120 80" style="width:16cqw"><use href="#pig" x="0" y="0" width="120" height="80"/></svg><h4 style="margin:0">Pig</h4><span class="chip">English</span><span class="chip">+ Language</span></div>
+          <div class="row"><span class="k">Name</span><span class="grow"><span class="play">▶</span><span class="chip">Re-record</span><span class="chip">Rename</span></span></div>
+          <div class="row"><span class="k">Questions</span><span class="grow"><span class="play">▶</span><span class="play">▶</span><span class="play">▶</span><span class="chip">Re-record</span></span></div>
+          <div class="row"><span class="k">Sound</span><span class="grow"><span class="chip">+ Add sound</span></span></div>
+          <div class="row"><span class="k">Look</span><span class="grow"><span class="chip">Felt</span><span class="chip">Eyes</span><span class="chip">Redraw</span><span class="chip">Moves: Walks</span></span></div>
+          <div style="display:flex;justify-content:space-between;margin-top:2cqw"><span class="btn ghost" style="color:#c0392b">Delete pig</span><span class="btn pri">Close</span></div></div>`),
+        cap: "<b>The animal card.</b> One tab per language (typed name, name clip, 3 questions), with + Language for the other parent. Play or re-record anything (the old clip stays until the new one is saved). Questions show 0/3 if skipped. Change felt, eyes, outline or motion." },
+      { svg: scene("farm", pig(150, 150), true), ov: at(20, 26, '<div class="sheet" style="position:static;width:60cqw"><h4>Delete the pig?</h4><p>This removes its drawing and <b>5 recordings</b>. This can\'t be undone.</p><div style="display:flex;gap:2cqw;justify-content:flex-end;margin-top:3cqw"><span class="btn">Keep it</span><span class="btn red">Delete</span></div></div>'),
+        cap: "<b>Deleting always confirms</b> and says how many recordings go with it, followed by a few seconds of Undo. The red cross badge in edit mode opens this same dialog." },
+    ] },
+  { id: 3, title: "Change the scene", why: "Scene editing is a separate mode so a stray tap can't move the barn while you're editing an animal. Animals fade out while you work.",
+    screens: [
+      { svg: scene("farm", '<g opacity=".25">' + pig(150, 150) + chick(285, 175) + '</g><g fill="none" stroke="#4a3326" stroke-width="1.6" stroke-dasharray="4 3"><rect x="24" y="80" width="56" height="70" rx="4"/><rect x="262" y="64" width="50" height="90" rx="4"/><circle cx="345" cy="45" r="28"/></g>'),
+        ov: at(2.5, 12, '<div class="tools"><span class="tool on">Shape</span><span class="tool">Yarn</span><span class="tool">Paint</span><span class="tool">Move</span><span class="tool">Delete</span><span class="tool">Undo</span></div>') + at(60, 86, '<span class="btn pri">Back to animals</span>'),
+        cap: "<b>Tap Change scene.</b> Animals fade, every scene piece gets a dashed outline, and the tool rail appears: Shape (felt piece), Yarn (lines like fences and seaweed), Paint, Move, Delete, Undo. Sky and grass colours are under Paint on the background." },
+      { svg: scene("farm", '<g opacity=".25">' + pig(150, 150) + '</g><path d="M30 145 V105 L52 86 L74 105 V145Z" fill="#3d8bff"/>'),
+        ov: at(2.5, 12, '<div class="tools"><span class="tool">Shape</span><span class="tool">Yarn</span><span class="tool on">Paint</span><span class="tool">Move</span><span class="tool">Delete</span><span class="tool">Undo</span></div>') + at(14, 23, '<div class="finger"></div>') + at(20, 8, '<div class="sheet" style="position:static;padding:2cqw">' + swatches(3) + "</div>"),
+        cap: "<b>Paint or move a piece.</b> Paint: tap a piece (or the sky or grass) and pick a felt colour. Move: drag it. Delete: tap it, then the cross. Every action can be undone." },
+      { svg: scene("farm", '<path d="M180 120 C178 90 200 70 222 80 C246 90 240 118 222 122 C205 126 190 124 180 120" fill="#3fb85f" filter="url(#felt)"/><rect x="205" y="120" width="6" height="28" fill="#c98a4b"/>'),
+        ov: at(2.5, 12, '<div class="tools"><span class="tool on">Shape</span><span class="tool">Yarn</span><span class="tool">Paint</span><span class="tool">Move</span><span class="tool">Delete</span><span class="tool">Undo</span></div>') + at(60, 86, '<span class="btn pri">Back to animals</span>'),
+        cap: "<b>Draw a new piece.</b> With Shape, whatever you draw becomes a felt piece; with Yarn, it stays a line. No guessing. \"Back to animals\" returns to edit mode." },
+    ] },
+  { id: 4, title: "Create a completely new scene", why: "A new scene starts from a backdrop, so it never looks empty, and then goes straight into the Change scene tools.",
+    screens: [
+      { svg: scene("blank"), ov: at(6, 8, '<h4 style="font:700 4.6cqw/1 var(--display);margin:0">Scenes</h4>') + at(6, 20, `<div style="display:grid;grid-template-columns:repeat(2,40cqw);gap:3cqw">${[["Farm", "#7ccc4f"], ["Sea", "#3fb6e8"], ["Kitchen", "#f0b77a"], ["+ New scene", "#fffaf0"]].map(([n, c]) => `<div style="position:relative;height:22cqw;border-radius:2.4cqw;background:${c};display:grid;place-items:center;font-weight:700;box-shadow:0 .8cqw 0 rgba(74,51,38,.18);outline:.5cqw dashed rgba(255,255,255,.7);outline-offset:-1.4cqw">${n}${n[0] === "+" ? "" : '<span style="position:absolute;right:2.4cqw;top:.6cqw;font-size:4cqw">…</span>'}</div>`).join("")}</div>`),
+        cap: "<b>Tap Scenes, then + New scene.</b> The shelf also switches between scenes; each card has a … button for rename and delete." },
+      { svg: scene("blank"), ov: at(8, 8, `<div class="sheet" style="position:static;width:76cqw"><h4>New scene</h4><div class="field">Grandma's garden</div><p class="note" style="margin:1.2cqw 0 2cqw">The name is for you; Klara never sees text.</p><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:2cqw">${[["Meadow", "#8fd8f5", "#7ccc4f"], ["Sea", "#8fd8f5", "#3fb6e8"], ["Room", "#fff1c9", "#f0b77a"], ["Blank", "#fffaf0", "#fffaf0"]].map(([n, a, b], i) => `<div style="text-align:center;font-weight:700;font-size:2.8cqw"><div style="height:12cqw;border-radius:1.6cqw;background:linear-gradient(${a} 50%, ${b} 50%);${i === 0 ? "outline:.6cqw solid #4a3326;outline-offset:.5cqw" : "box-shadow:inset 0 0 0 .4cqw rgba(74,51,38,.2)"}"></div>${n}</div>`).join("")}</div><div style="text-align:right;margin-top:2.4cqw"><span class="btn pri">Start drawing</span></div></div>`),
+        cap: "<b>Name it and pick a backdrop.</b> Meadow, sea, room or blank, in Sunny felt colours." },
+      { svg: `<svg viewBox="0 0 400 300" aria-hidden="true"><rect width="400" height="300" fill="#8fd8f5"/><path d="M0 160 H400 V300 H0Z" fill="#7ccc4f" filter="url(#felt)"/><path d="M250 160 V110 L290 80 L330 110 V160" fill="none" stroke="#4a3326" stroke-width="4" stroke-linecap="round"/></svg>`,
+        ov: at(2.5, 12, '<div class="tools"><span class="tool on">Shape</span><span class="tool">Yarn</span><span class="tool">Paint</span><span class="tool">Move</span><span class="tool">Delete</span><span class="tool">Undo</span></div>') + at(22, 8, '<span class="chip">Draw big shapes: a house, a tree, the sun</span>'),
+        cap: "<b>Draw the scene</b> with the same tools as flow 3. Big, simple shapes look best in felt." },
+      { svg: `<svg viewBox="0 0 400 300" aria-hidden="true"><rect width="400" height="300" fill="#8fd8f5"/><path d="M0 160 H400 V300 H0Z" fill="#7ccc4f" filter="url(#felt)"/><path d="M250 160 V110 L290 80 L330 110 V160Z" fill="#ffc93c" filter="url(#felt)"/><ellipse cx="90" cy="50" rx="30" ry="12" fill="#fff" filter="url(#felt)"/></svg>`,
+        ov: at(26, 40, '<div class="sheet" style="position:static;text-align:center"><h4>Add your first friend</h4><span class="btn pri">+ Add an animal or thing</span></div>'),
+        cap: "<b>An empty scene still moves</b> (clouds drift). In edit mode it offers to add the first friend (flow 1). Klara's view of the same scene shows no text, just the moving scene." },
+    ] },
+  { id: 5, title: "Add a name to an object", why: "The name is the heart of the app, so recording it gets the most care: one clear cue, automatic start and stop, and a listen step before saving. Objects and animals work the same way.",
+    screens: [
+      { svg: scene("blank", spoon(40, 120, 70)), ov: at(36, 12, '<div class="sheet" style="position:static;width:58cqw"><h4>What is it called?</h4><div class="field">Spoon</div><p class="note" style="margin-top:1.2cqw">Language: <b>English ▾</b></p><div style="display:flex;gap:3cqw;align-items:center;margin-top:2.6cqw"><div class="mic"></div><span>Say just the word, slowly and clearly: <b>"spoon"</b></span></div></div>'),
+        cap: "<b>Type it, then tap the mic.</b> The very first time, the iPad asks for microphone permission. If it's refused, the card shows how to turn it on in Settings." },
+      { svg: scene("blank", spoon(40, 120, 70)), ov: at(36, 18, `<div class="sheet" style="position:static;width:58cqw;text-align:center"><div style="display:grid;place-items:center;gap:2cqw"><div class="mic rec"></div>${wave()}<span class="note">Listening… stops by itself when you pause</span><span class="btn">■ Stop</span></div></div>`) + at(30, 6, '<span class="chip">♪ blip</span>'),
+        cap: "<b>Recording.</b> It measures the room's background noise first, then stops after a short pause below that level, or with the Stop button, or at 5 s (and says so if it cut you off). Then it trims silence and evens out the volume." },
+      { svg: scene("blank", spoon(40, 110, 70)), ov: at(36, 14, '<div class="sheet" style="position:static;width:58cqw"><h4>"Spoon"</h4><div style="display:flex;gap:2cqw;flex-wrap:wrap;margin-top:1cqw"><span class="btn">▶ Listen</span><span class="btn">Try again</span><span class="btn pri">Keep</span></div><p class="note" style="margin-top:2.4cqw">+ Record in another language (for the other parent)</p></div>'),
+        cap: "<b>Listen, then keep or redo.</b> The spoon hops while it plays, just like in play. A second parent can add the same word in their own language. Too short or silent? You get \"Try again\" and nothing is saved." },
+    ] },
+  { id: 6, title: "Add a sound (\"oink oink!\")", why: "Optional and fun. In play the animal says its name, then its sound.",
+    screens: [
+      { svg: scene("farm", pig(150, 150), true), ov: at(8, 30, '<div class="sheet" style="position:static;width:76cqw"><div class="row"><span class="k">Name</span><span class="grow"><span class="play">▶</span><span class="chip">Re-record</span></span></div><div class="row" style="background:rgba(255,201,60,.25);border-radius:1.6cqw;padding-left:1.4cqw"><span class="k">Sound</span><span class="grow"><span class="chip on">+ Add sound</span></span></div></div>') ,
+        cap: "<b>On the animal card, tap + Add sound</b> (it's also the last, skippable step when adding an animal)." },
+      { svg: scene("blank", pig(40, 120, 120)), ov: at(42, 12, `<div class="sheet" style="position:static;width:52cqw"><h4>What does the pig say?</h4><p class="note">Make its sound, as silly as you like.</p><div style="display:flex;gap:3cqw;align-items:center;margin-top:2.4cqw"><div class="mic rec"></div>${wave(12)}</div></div>`) + at(6, 22, '<div class="bubble" style="padding:1.4cqw 3cqw">oink oink!</div>'),
+        cap: "<b>Record the sound</b> with the same recorder as names: auto-stop, trim, even volume, listen, keep." },
+      { svg: scene("farm", pig(150, 140, 110) + chick(285, 175)), ov: at(40, 8, '<div class="bubble"><span class="av">M</span>♪ ♪</div>') + at(53, 58, '<div class="finger"></div>'),
+        cap: "<b>In play:</b> Klara taps the pig, it jumps and says \"Pig!\" in your voice, then \"oink oink!\". The card has a switch if you only want the name. The bubble shows only Mum's avatar and notes; Klara never sees text." },
+    ] },
+];
+
+document.getElementById("flows").innerHTML = FLOWS.map((f) => `
+  <section class="flow" id="flow-${f.id}">
+    <div><h2><span class="n">${f.id}</span>${f.title}</h2><p class="why">${f.why}</p></div>
+    <div class="screens">${f.screens.map((s, i) => `<figure><div class="ipad">${s.svg}<div class="ov">${s.ov}</div></div><figcaption>${i + 1}. ${s.cap}</figcaption></figure>`).join("")}</div>
+  </section>`).join("");
+})();
+</script>

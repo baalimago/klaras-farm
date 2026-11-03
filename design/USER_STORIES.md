@@ -1,6 +1,8 @@
 # Klara's Farm: user stories
 
-Version 3. Signed off by adversarial review after two rounds (v1: 15 required changes; v2: 2 more). See the changelog at the end.
+Version 5. v3 was signed off by adversarial review after two rounds. v4 added edit mode (E11) and scripted question recordings (US-4.8) from Lorentz's feedback; v5 applies the adversarial review of edit mode and the UX flows. See the changelog at the end.
+
+"Parent area" below means **edit mode** (E11).
 
 People:
 - **Parent**: builds places and things, records voices, controls the app. Two parents may speak different languages.
@@ -24,7 +26,8 @@ Priority: **M** = first playable version, **N** = next, **L** = later. Look is t
 - Task: produce the starter scenes and things as stroke data in the same format parents create (who draws them is an open task).
 
 **US-1.2 (M) First-run flow.** As a parent, I want a short first-run sequence, so that the app is set up properly without reading a manual.
-- Steps: big Start (unlocks audio), Add to Home Screen nudge (Safari only, dismissible), persistent-storage request, a one-line explanation of the parent gate, a one-line co-play tip ("Play together: say the names with Klara").
+- There is **no Start button**. iPads only allow sound after a user gesture, so the first tap anywhere unlocks audio, and if that tap hits a thing, it plays straight away.
+- A one-time welcome card for the parent (first launch only): Add to Home Screen nudge (Safari only), persistent-storage request, how to enter edit mode (hold for 1.5 s), and a co-play tip ("Play together: say the names with Klara"). Dismissing it starts play.
 - The microphone permission is **not** requested here; it is requested on the first Record.
 - Test: Playwright walks the flow with stubbed adapters; asserts no mic request occurs.
 
@@ -59,20 +62,23 @@ Priority: **M** = first playable version, **N** = next, **L** = later. Look is t
 - The closed outline becomes the felt shape and the tap mask. (Pure modules: gap closing, fill, mask; unit tested with fixture strokes.)
 
 **US-3.2 (M) Klara stamps the eyes.** As a parent, I want Klara to tap where the eyes go, so that she helps make it.
-- Taps outside the outline snap to the nearest point inside. Zero, one or two eyes allowed. The parent can undo or drag an eye.
+- A full-screen stamping view with no controls Klara could hit. The parent takes over by holding a strip at the top for 1 s.
+- Taps outside the outline snap to the nearest point inside. Zero, one or two eyes; a third tap moves the oldest eye. The parent can undo or drag an eye afterwards.
 
 **US-3.3 (M) Pick how it moves.** As a parent, I want one tap to choose **walks** or **floats**, so that it comes alive without rigging.
 - Walks: squash-and-stretch body and swinging yarn legs. Floats: gentle bob, covers objects and jellyfish.
 
 **US-3.4 (M) Pick a felt colour.** As a parent, I want to choose the thing's felt colour from the Sunny palette.
 
-**US-3.5 (M) Place is full.** As a parent, I want to be told when a place already has 4 things, so that Klara is never overwhelmed.
+**US-3.5 (M) Place is full.** As a parent, I want + Add greyed out (with a reason) when a place already has 4 things, before I start drawing, so that Klara is never overwhelmed.
 
-**US-3.6 (M) Delete a thing.** As a parent, I want to delete a thing with an in-app confirmation that warns its recordings will be lost.
+**US-3.6 (M) Delete a thing.** As a parent, I want to delete a thing with an in-app confirmation that warns its recordings will be lost, followed by a few seconds of Undo.
 
-**US-3.7 (N) Redraw a thing.** Keep its recordings and eyes, replace the outline.
+**US-3.10 (M) Drafts.** As a parent, I want the add-a-thing steps saved as a draft after each step, with Back and ✕ (Keep draft / Discard) on every step, so that an interruption never loses work.
 
-**US-3.8 (N) Recolour a thing.**
+**US-3.7 (M) Redraw a thing.** Keep its recordings and eyes, replace the outline.
+
+**US-3.8 (M) Recolour a thing.**
 
 **US-3.9 (N) More motion styles.** Swims (fish), hops (spoon, teapot), scuttles (crab).
 
@@ -80,11 +86,11 @@ Priority: **M** = first playable version, **N** = next, **L** = later. Look is t
 
 **US-4.1 (M) Record a name.** As a parent, I want to record a thing's name in my language, so that Klara hears my voice.
 - Mic permission is requested on the first Record only.
-- Recording is capped at 5 s. Silence is trimmed. Loudness is normalised to about −16 LUFS integrated with a −1 dBFS true-peak ceiling.
+- Recording measures the room's noise floor in the first 300 ms and stops after about 800 ms below it, or on a Stop button that is always visible, or at the 5 s cap (with a message if the cap cut it off). The start blip is not captured. Silence is trimmed. Loudness is normalised to about −16 LUFS integrated with a −1 dBFS true-peak ceiling.
 - Playback and redo before saving. The clip is stored with its MIME type and a `language` field from day one.
 - Test: the DSP module is unit tested with fixture WAVs, asserting measured loudness and peak.
 
-**US-4.2 (M) Record the sound.** As a parent, I want to record the thing's sound ("woof", "clink"), played after the name, because animal sounds are among the earliest words.
+**US-4.2 (M, optional step) Record the sound.** As a parent, I want to optionally record the thing's sound ("woof", "clink"), played after the name. The name stays the goal; the sound is a bonus, offered as the last skippable step when adding a thing and on the thing's card (see design/sketches/ux-flows.html, flow 6).
 
 **US-4.3 (M) Microphone denied.** As a parent, I want plain steps to re-enable the mic in iPad Settings if I declined, and the rest of creation keeps working.
 
@@ -92,16 +98,25 @@ Priority: **M** = first playable version, **N** = next, **L** = later. Look is t
 
 **US-4.5 (M) Broken clip.** As a parent, I want a clip that won't decode to be flagged "re-record" in the parent area, while the thing still reacts and chimes in play.
 
-**US-4.7 (M) Re-record a clip.** As a parent, I want to re-record the name or sound of an existing thing from the parent area, without losing its drawing.
+**US-4.7 (M) Re-record a clip.** As a parent, I want to re-record any clip (name, question variant, sound) of an existing thing from the parent area, without losing its drawing.
 - Same flow as US-4.1 (5 s cap, trim, normalise, playback before saving).
 - The old clip is replaced only when the new one is saved; cancelling keeps the old clip.
 - Test: stubbed recorder adapter covers save and cancel.
+
+**US-4.8 (M) Record scripted "Where is the…" variants.** As a parent, I want the app to tell me exactly what to say, so that I can record a few natural ways of asking for each thing in my language.
+- When creating a thing, the parent types its name once per language (parent-only text, never shown to Klara). The name is still recorded as its own clip (US-4.1).
+- The app then shows three scripts, one at a time, filled with that name, each with its own Record button. English example: "Where is the dog?", "Can you find the dog?", "Show me the dog!".
+- Scripts are data: one JSON file per language with three templates, a `{name}` placeholder and an optional article slot (the article is picked once when the name is typed, e.g. German der/die/das). Adding a language means adding a file.
+- The parent can edit the cue text for a thing; the text is a cue, and the parent says it naturally.
+- The language picker lists every language. If a language has no file, the cue is shown in English with "say this in your language".
+- Each clip is stored as `kind: prompt`, `take: 1–3`, with its `language`. Recording the questions can be skipped and done later; Find it (US-6.2) only asks about things that have at least one question clip.
+- Tests: template filling and the per-language fallback are pure, unit-tested functions; the record sequence runs with a stubbed recorder.
 
 **US-4.6 (N) Several takes.** Up to 3 takes per clip, played in rotation.
 
 ## E5. Play: Tap and hear
 
-**US-5.1 (M) Tap anything.** As Klara, I want every thing I tap to jump and say its name (then its sound) in a parent's voice, so that I connect the word with the thing.
+**US-5.1 (M) Tap anything.** As Klara, I want every thing I tap to jump and say its name (then its sound, if recorded) in a parent's voice, so that I connect the word with the thing.
 - Hit target is 1.3× the drawing and never smaller than 120 CSS px (about 2 cm on iPad). Overlaps: topmost wins, then nearest centre.
 - Only the primary pointer counts. Touches with a contact `width` or `height` above a threshold (palm) are ignored.
 - Mash policy: tapping the playing thing restarts it only after 300 ms; tapping a different thing stops the current clip and plays the new one; nothing queues.
@@ -111,8 +126,8 @@ Priority: **M** = first playable version, **N** = next, **L** = later. Look is t
 
 **US-5.2 (M) No dead ends, no text, no punishment.** As a parent, I want the child view to be safe for unsupervised taps.
 - The child view has zero visible text nodes (DOM test).
-- The only interactive elements are things and the parent gate (DOM query plus axe).
-- Every visual reaction returns to idle play within 3 s (fake-timer test). Audio may keep playing up to its cap: name plus sound, at most 5 s + 5 s.
+- The only interactive elements are the things and the scene; the edit-mode hold (US-11.1) lives on them, so there are no extra buttons (DOM query plus axe).
+- Every visual reaction returns to idle play within 3 s (fake-timer test). Audio may keep playing up to its cap: name plus optional sound, at most 5 s + 5 s.
 - No flashing faster than 3 Hz. No failure sounds in Tap and hear.
 - The chime sits at least 6 dB below voice clips; a limiter on the master bus prevents sudden loud sounds.
 
@@ -126,7 +141,7 @@ Priority: **M** = first playable version, **N** = next, **L** = later. Look is t
 
 ## E6. Play: Find it (18 months+)
 
-**US-6.1 (N) Record the question.** As a parent, I want to record "Where's the ___?" for each thing.
+(Question recordings moved to US-4.8, M, so they exist by the time Find it is switched on.)
 
 **US-6.2 (N) Answer the question.** As Klara, I want a parent's voice to ask for a thing and a celebration when I tap it.
 - Wrong tap: the tapped thing says its own name, then the question repeats. After 2 misses the right thing glows.
@@ -135,20 +150,18 @@ Priority: **M** = first playable version, **N** = next, **L** = later. Look is t
 
 ## E7. Safety, privacy and control
 
-**US-7.1 (M) Parent gate.** As a parent, I want to reach the parent area by holding a corner button for 3 s, so that Klara can't.
-- A progress ring fills while holding and resets on release. A second simultaneous touch cancels (palms).
-- Test: fake timers and synthetic pointers.
+**US-7.1** Replaced by edit mode, E11.
 
 **US-7.2 (M) No accidental escapes inside the app.** Zoom, text selection, long-press menus and pull-to-refresh are disabled in the child view.
 
 **US-7.3 (M) Guided Access guide.** A one-page parent guide to lock the iPad to the app.
 
-**US-7.4 (M) Privacy statement.** As a parent, I want one plain-language screen saying: everything stays on this iPad, Klara is never recorded, and the mic is used only while a parent records.
+**US-7.4 (M) Privacy statement.** As a parent, I want one plain-language screen saying: everything stays on this iPad, the app never records during play, and the mic is on only while a parent is recording (Klara may be audible in the background of those clips).
 
 **US-7.5 (M) Delete all data.** As a parent, I want "Delete all data" with confirmation, which wipes IndexedDB, caches and the service worker.
 - Test: Playwright asserts all storage is empty afterwards.
 
-**US-7.6 (M) Parent area is accessible.** Labelled controls, 44 pt targets, works with VoiceOver and zoom, passes axe.
+**US-7.6 (M) Parent area is accessible.** Labelled controls, 44 pt targets, works with VoiceOver and zoom, passes axe. Edit mode is also reachable without the hold: a keyboard shortcut on desktop and a VoiceOver "Edit" action. Badges stay still and at least 44 pt while things wiggle.
 
 **US-7.7 (M) Orientation.** The scene is landscape-first. In portrait the board is letterboxed, never cropped. Set in the web manifest; tested with Playwright viewport changes.
 
@@ -175,8 +188,9 @@ Priority: **M** = first playable version, **N** = next, **L** = later. Look is t
 
 ## E9. Languages
 
-**US-9.1 (N) Two languages.** As parents who speak different languages, we each want to record our own clips for the same thing.
-- Every clip already carries `language` (US-4.1). A setting chooses which language plays, or alternates.
+**US-9.1 (M) Two languages.** As parents who speak different languages, we each want to record our own clips for the same thing.
+- The thing's card has one tab per language (typed name, name clip, 3 questions) and + Language.
+- Every clip carries `language` (US-4.1). A setting chooses which language plays, or alternates.
 
 ## E10. Operator
 
@@ -185,6 +199,35 @@ Priority: **M** = first playable version, **N** = next, **L** = later. Look is t
 **US-10.2 (M) Health check.** `/healthz` returns 200 when the process is up. (A database check is added with US-8.4.)
 
 **SPIKE-1 (M, week 1) Postgres driver on Wasmer.** Prove a pure-Python driver (pg8000) connects with TLS to Wasmer's managed Postgres on its non-standard port. This retires the biggest backend risk before US-8.4.
+
+## E11. Edit mode (tap-and-hold)
+
+Follows the familiar home-screen pattern: hold to enter, things wiggle, badges appear, Done to leave. Two additions protect against a toddler: a longer hold than the usual 0.5 s, and an adult check (Apple's guidance for kids apps calls this a parental gate: an adult-level task, such as simple maths or a question, before parent-only actions).
+
+**US-11.1 (M) Hold to start editing.** As a parent, I want to press and hold a thing or an empty spot in the scene to start editing, so that no button is visible to Klara.
+- Hold for 1.5 s (three times the usual 0.5 s long press, because toddlers hold too). Nothing shows for the first 0.5 s; then a felt ring fills with a very soft tone. No pop and no reward at the end: the next thing is the adult check.
+- Cancels silently on: release, movement over 10 px, a second touch, a palm, `pointercancel`. Holds never start in the bottom 40 px or within 20 px of the side edges (iPad system gestures).
+- The design must not rely on the tone: iOS may only unlock audio on release, so the very first hold can be silent.
+- Web details: `touch-action:none`, `-webkit-touch-callout:none` and `user-select:none` on the board and the adult check; `contextmenu` blocked; no `<img>` elements on the board (they trigger the save-image callout).
+- Haptics: iPads have no vibration motor and Safari has no `navigator.vibrate`; Android phones get a short vibration.
+- Test: a pure gesture module (pointer events in; idle, holding, armed, cancelled out) with fake timers and synthetic pointers. Manual: check whether Safari reports touch size for the palm rule.
+
+**US-11.2 (M) Adult check.** As a parent, I want a check that Klara can't pass by mashing, so that she never lands in edit mode.
+- A shuffled 1–9 keypad and a random 3-digit code (about 1 in 729 by chance). Any wrong tap, a tap between buttons, or 10 s idle returns to play silently.
+- The rising "entered" chime plays only after passing.
+- Alternatives in Settings: spoken digits (for low vision or reading difficulties) or a simple sum. Buttons are 44 pt or larger, high contrast.
+- Test: pure module with a seeded random generator.
+
+**US-11.3 (M) Editing in place.** As a parent, I want to edit right on the scene, so that I don't navigate menus.
+- Things stop wandering and wiggle in place; still, 44 pt badges: pencil (edit card) and cross (delete, US-3.6). Play reactions are off.
+- Bar: Scenes, Change scene, + Add, Settings, Done. Holding an empty spot also adds a thing, placed where the finger was.
+- Entering plays an ascending chime and leaving a descending one.
+
+**US-11.4 (M) Edit mode always ends.** As a parent, I want edit mode to close by itself if I walk away, so that Klara is never left in it.
+- Done returns to play and ends the session: the next entry needs the adult check again.
+- After 60 s without input in the plain wiggle view, edit mode closes with the descending chime. The timer pauses while a card, a guided step, the recorder or a permission prompt is open.
+- Only after an auto-close can edit mode be reopened with the hold alone, for up to 5 minutes; any play tap cancels that.
+- Test: fake timers.
 
 ## Later (L)
 
@@ -219,6 +262,10 @@ Tap-to-sound latency under 150 ms; audio after a phone call and after screen loc
 13. Gate is a 3 s hold with a progress ring; multi-touch cancels.
 14. Privacy statement and Delete all data added.
 15. Parent-area accessibility and orientation added.
+Round 4 review (edit mode and UX flows, sign off with changes, 15 applied): no grace period after Done; no reward for holding; 1–9 keypad code; drafts, Back and ✕ on every step, auto-close paused in sheets; full-screen eye stamping; Settings in the bar; Sound step in add-a-thing; scene Undo; Shape and Yarn tools instead of guessing; editable cues with article slots; noise-floor auto-stop with a Stop button; per-language tabs (US-9.1 now M); web gesture details; accessible edit-mode entry; redraw and recolour now M; + Add disabled at 4; privacy wording fixed.
+
+Round 3 (Lorentz's feedback): no Start button, first tap unlocks audio (US-1.2); edit mode with tap-and-hold, adult check and auto-exit (E11) replaces the corner gate (US-7.1); recording the name stays the goal and the sound becomes optional N (US-4.2); scripted question variants per language are M (US-4.8).
+
 Round 2 review: added US-4.7 (re-record a clip) and defined import as replace-with-confirmation with a versioned, validated file (US-8.3); clarified the 3 s idle rule versus audio length.
 
 Also adopted from the optional list: sound recording and gentle ending moved to M, co-play tip in first run, reduce-motion setting (N), Opus-on-Safari check before restore.
