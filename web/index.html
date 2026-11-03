@@ -2,56 +2,31 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <base href="%ASSET_BASE%">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Klara's Farm">
   <meta name="theme-color" content="#8fd8f5">
+  <meta name="description" content="A felt-board word game for toddlers, played with a parent.">
   <title>Klara's Farm</title>
-  <link rel="stylesheet" href="/app.css">
-  <script type="module" src="/app.js"></script>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="modulepreload" href="js/main.js">
+  <link rel="modulepreload" href="js/farm-store.js">
+  <link rel="modulepreload" href="js/farm/intents.js">
+  <link rel="modulepreload" href="js/farm/snapshot.js">
+  <script type="module" src="js/main.js"></script>
 </head>
 <body>
-  <main class="board" aria-label="Farm. Tap the pig to hear its name.">
-   <div class="stage">
-    <svg class="scene" viewBox="0 0 400 300" aria-hidden="true">
-      <defs>
-        <filter id="felt" x="-5%" y="-5%" width="110%" height="110%">
-          <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="3" result="n"/>
-          <feColorMatrix in="n" type="saturate" values="0" result="g"/>
-          <feComponentTransfer in="g" result="g2"><feFuncA type="linear" slope="0.18"/></feComponentTransfer>
-          <feComposite in="g2" in2="SourceGraphic" operator="in" result="t"/>
-          <feMerge><feMergeNode in="SourceGraphic"/><feMergeNode in="t"/></feMerge>
-        </filter>
-        <filter id="shadow"><feDropShadow dx="0" dy="3" stdDeviation="2" flood-color="#4a3326" flood-opacity="0.25"/></filter>
-      </defs>
-      <g filter="url(#felt)">
-        <rect width="400" height="300" fill="#8fd8f5"/>
-        <circle cx="340" cy="55" r="28" fill="#ffc93c"/>
-        <path d="M0 190 Q100 160 200 185 T400 175 V300 H0Z" fill="#7ccc4f"/>
-        <rect x="40" y="120" width="70" height="70" fill="#ff5a4e"/>
-        <path d="M32 122 L75 88 L118 122Z" fill="#c98a4b"/>
-        <rect x="63" y="150" width="24" height="40" fill="#fffaf0"/>
-      </g>
-      <g class="stitch" fill="none" stroke="#fffaf0" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.7">
-        <rect x="44" y="124" width="62" height="62"/>
-        <circle cx="340" cy="55" r="23"/>
-      </g>
-    </svg>
-      <svg id="pig" class="thing" viewBox="200 170 140 100" style="left:50%;top:56.667%;width:35%;height:33.333%" role="button" tabindex="0" aria-label="Pig" data-name="Pig">
-        <g filter="url(#shadow)">
-          <g filter="url(#felt)">
-            <path d="M228 238 v20 M244 240 v20 M272 240 v20 M288 238 v20" stroke="#8c5a33" stroke-width="5" stroke-linecap="round"/>
-            <ellipse cx="258" cy="222" rx="44" ry="30" fill="#ff8fb8"/>
-            <circle cx="302" cy="208" r="22" fill="#ff8fb8"/>
-            <path d="M292 190 l6 -12 l8 10Z" fill="#ff8fb8"/>
-            <ellipse cx="318" cy="212" rx="9" ry="7" fill="#ff5a4e" opacity="0.6"/>
-          </g>
-          <ellipse cx="258" cy="222" rx="38" ry="24" fill="none" stroke="#fffaf0" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.8"/>
-          <circle cx="302" cy="203" r="4" fill="#3b2a22"/><circle cx="303" cy="202" r="1.2" fill="#fff"/>
-          <path d="M214 214 q-10 -4 -6 -12" fill="none" stroke="#8c5a33" stroke-width="3" stroke-linecap="round"/>
-        </g>
-        <rect x="200" y="170" width="140" height="100" fill="transparent"/>
-      </svg>
-   </div>
+  <!-- Child view: no text, no buttons. Everything parent-facing is inside #parent-layer. -->
+  <main id="stage" class="stage" data-mode="play">
+    <kf-board id="board"></kf-board>
   </main>
+  <div id="parent-layer" class="parent-layer"></div>
+  <noscript><p class="noscript">Klara's Farm needs JavaScript.</p></noscript>
 </body>
 </html>

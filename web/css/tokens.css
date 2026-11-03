@@ -1,0 +1,17 @@
+/* Sunny felt tokens. Keep in sync with js/farm/palette.js (the data palette). */
+:root {
+  --sky: #8fd8f5; --grass: #7ccc4f; --sun: #ffc93c; --red: #ff5a4e; --white: #fffaf0; --wood: #c98a4b;
+  --leaf: #3fb85f; --water: #3fb6e8; --sand: #ffd98a; --orange: #ff8c2b; --wall: #fff1c9; --pink: #ff8fb8;
+  --blue: #3d8bff; --yellow: #ffd23c; --brown: #8c5a33; --cream: #fff6e0; --lilac: #b48cff; --dark: #3b2a22;
+  --ink: #4a3326;
+  --ink-soft: #7a6152;
+  --paper: #fffaf0;
+  --danger: #c62f25;
+  --focus: #3d8bff;
+  --radius: 18px;
+  --radius-sm: 12px;
+  --shadow: 0 6px 18px rgb(74 51 38 / 0.22);
+  --tap: 44px;               /* minimum parent target (US-7.6) */
+  --font: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --gutter: max(16px, env(safe-area-inset-left));
+}

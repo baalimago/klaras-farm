@@ -1,0 +1,12 @@
+{
+  "name": "klaras-farm",
+  "private": true,
+  "type": "module",
+  "description": "Klara's Farm frontend tests. No build step; the app runs straight from web/.",
+  "scripts": {
+    "test": "node --test \"web/js/**/*.test.js\" \"tests/unit/**/*.test.js\"",
+    "test:browser": "node --test --test-concurrency=1 \"tests/browser/**/*.test.js\"",
+    "test:all": "npm test && npm run test:browser"
+  },
+  "engines": { "node": ">=22" }
+}

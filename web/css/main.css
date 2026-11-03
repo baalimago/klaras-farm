@@ -1,0 +1,48 @@
+/* Layer order: tokens → base → stage → parent UI → components. No build step; @import is precached. */
+@import url("tokens.css");
+@import url("parent.css");
+@import url("../js/components/kf-board/kf-board.css");
+@import url("../js/components/kf-draw-pad/kf-draw-pad.css");
+@import url("../js/components/kf-hold-ring/kf-hold-ring.css");
+@import url("../js/components/kf-adult-check/kf-adult-check.css");
+@import url("../js/components/kf-edit-layer/kf-edit-layer.css");
+@import url("../js/components/kf-recorder/kf-recorder.css");
+@import url("../js/components/kf-guided-add/kf-guided-add.css");
+@import url("../js/components/kf-thing-card/kf-thing-card.css");
+@import url("../js/components/kf-scenes/kf-scenes.css");
+@import url("../js/components/kf-scene-tools/kf-scene-tools.css");
+@import url("../js/components/kf-settings/kf-settings.css");
+@import url("../js/components/kf-welcome/kf-welcome.css");
+@import url("../js/components/kf-dialog/kf-dialog.css");
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--wall);
+  color: var(--ink);
+  font-family: var(--font);
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+/* No accidental escapes in the child view (US-7.2). Parent UI re-enables selection in inputs. */
+body {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+.stage {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+.parent-layer { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+.parent-layer > * { pointer-events: auto; }
+.noscript { position: fixed; inset: auto 0 0; text-align: center; }
+[hidden] { display: none !important; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; } }

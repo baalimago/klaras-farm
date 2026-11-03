@@ -1,0 +1,2 @@
+{ "lang": "de", "articles": ["der", "die", "das"], "templates": ["Wo ist {the} {name}?", "Kannst du {the} {name} finden?", "Zeig mir {the} {name}!"],
+  "note": "Accusative forms (den) are said naturally; the cue is only a guide." }

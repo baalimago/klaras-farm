@@ -1,12 +1,17 @@
 [project]
 name = "klaras-farm"
-version = "0.1.0"
+version = "0.2.0"
 description = "A felt-board word game for toddlers, played with a parent."
+readme = "README.md"
 requires-python = ">=3.12"
-dependencies = ["uvicorn>=0.30"]
+dependencies = ["uvicorn>=0.30", "pg8000>=1.31"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "testcontainers[postgres]>=4.8"]
+
+[tool.setuptools]
+packages = ["backend"]
+py-modules = ["main"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["backend/tests"]
