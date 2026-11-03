@@ -125,3 +125,32 @@ test("adding a second language turns on Mix languages unless a language was chos
   const two = I.updateSettings(s, { patch: { languages: ["en", "sv"], playLanguage: "en" } }, env).snapshot;
   assert.equal(I.updateSettings(two, { patch: { languages: ["en", "sv", "de"] } }, env).snapshot.settings.playLanguage, "en", "a chosen language stays");
 });
+
+test("addThing stores legs (rounded, at most 8) and defaults to none", () => {
+  const s = aSnapshot().withPlace(aPlace()).build();
+  const placeId = s.places[0].id;
+  const a = I.addThing(s, { placeId, outline: square(), color: "red" }, env()).snapshot;
+  assert.deepEqual(a.things[0].legs, []);
+  valid(a);
+  const legs = [{ x: 0.451234, y: 0.66 }, { x: 0.55, y: 0.669999 }, { x: 0.5, y: 0.65 }, { x: 0.48, y: 0.65 }];
+  const b = I.addThing(s, { placeId, outline: square(), color: "red", legs }, env()).snapshot;
+  assert.deepEqual(b.things[0].legs, [{ x: 0.451, y: 0.66 }, { x: 0.55, y: 0.67 }, { x: 0.5, y: 0.65 }, { x: 0.48, y: 0.65 }]);
+  valid(b);
+  const nine = Array.from({ length: 9 }, () => ({ x: 0.5, y: 0.65 }));
+  assert.throws(() => I.addThing(s, { placeId, outline: square(), color: "red", legs: nine }, env()), { code: "invalid" });
+  assert.throws(() => I.addThing(s, { placeId, outline: square(), color: "red", legs: [{ x: 1 }] }, env()), { code: "invalid" });
+});
+
+test("updateThing replaces legs and leaves them alone when not patched", () => {
+  const s = aSnapshot().withPlace(aPlace().withThing(aThing())).build();
+  const id = s.things[0].id;
+  const r = I.updateThing(s, { thingId: id, patch: { legs: [{ x: 0.5, y: 0.65 }] } }, env());
+  assert.deepEqual(r.snapshot.things[0].legs, [{ x: 0.5, y: 0.65 }]);
+  assert.deepEqual(r.writes[0].value.legs, [{ x: 0.5, y: 0.65 }]);
+  valid(r.snapshot);
+  const kept = I.updateThing(r.snapshot, { thingId: id, patch: { color: "blue" } }, env());
+  assert.deepEqual(kept.snapshot.things[0].legs, [{ x: 0.5, y: 0.65 }]);
+  const none = I.updateThing(r.snapshot, { thingId: id, patch: { legs: [] } }, env());
+  assert.deepEqual(none.snapshot.things[0].legs, []);
+  assert.throws(() => I.updateThing(s, { thingId: id, patch: { legs: "four" } }, env()), { code: "invalid" });
+});

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { resolveMotion, pose, newPose, restPose, legCount, STILL } from "./pose.js";
+import { resolveMotion, pose, newPose, restPose, STILL } from "./pose.js";
 import { MAX_SPEED, travelSpeed } from "./blocks.js";
 
 const preset = (id) => JSON.parse(readFileSync(new URL(`../../data/motions/${id}.json`, import.meta.url), "utf8"));
@@ -34,7 +34,7 @@ test("resolveMotion of a missing preset is the still preset", () => {
 
 test("pose writes into the same object and the same legs array", () => {
   const r = resolveMotion(preset("walk"));
-  const out = newPose(legCount(r));
+  const out = newPose(2);
   const legs = out.legs;
   for (let t = 0; t < 3; t += 0.1) assert.equal(pose(r, t, { move: 1, blinkT: -1 }, out), out);
   assert.equal(out.legs, legs);
@@ -46,10 +46,25 @@ test("move = 0 is the rest pose; move scales the motion", () => {
   const out = newPose(2);
   pose(r, 0.25, { move: 0, blinkT: -1 }, out);
   assert.deepEqual(out, restPose(newPose(2), 2));
-  const full = { ...pose(r, 0.25, { move: 1, blinkT: -1 }, newPose()) };
+  const full = pose(r, 0.25, { move: 1, blinkT: -1 }, newPose(2));
   pose(r, 0.25, { move: 0.5, blinkT: -1 }, out);
   assert.ok(Math.abs(out.dy - full.dy / 2) < 1e-12);
   assert.ok(Math.abs(out.legs[0] - full.legs[0] / 2) < 1e-12);
+});
+
+test("the thing decides the leg count: pose fills whatever legs array it is given", () => {
+  const walk = resolveMotion(preset("walk"));
+  for (const n of [0, 1, 3, 4, 8]) {
+    const out = newPose(n);
+    pose(walk, 0, { move: 1, blinkT: -1 }, out);
+    assert.equal(out.legs.length, n);
+    for (let i = 0; i < n; i++) assert.equal(r4(out.legs[i]), i % 2 ? -0.45 : 0.45, "neighbours swing opposite");
+  }
+  // a floater's legs hang still
+  const out = newPose(4);
+  pose(resolveMotion(preset("float")), 0.3, { move: 1, blinkT: -1 }, out);
+  assert.deepEqual(out.legs.map(r4), [0, 0, 0, 0]);
+  for (const id of ["walk", "float", "hop", "swim", "scuttle"]) assert.equal(preset(id).legs.count, undefined, `${id}: presets no longer carry a leg count`);
 });
 
 test("blink drives eyeOpen in any state", () => {
@@ -128,7 +143,7 @@ const GOLDEN = {
 for (const [id, rows] of Object.entries(GOLDEN)) {
   test(`golden pose table: ${id}`, () => {
     const r = resolveMotion(preset(id));
-    const out = newPose();
+    const out = newPose(rows[0][5].length);
     for (const [t, dy, rot, sx, sy, legs, eyeOpen] of rows) {
       pose(r, t, { move: 1, blinkT: -1 }, out);
       assert.deepEqual([t, r4(out.dx), r4(out.dy), r4(out.rot), r4(out.sx), r4(out.sy), out.legs.map(r4), out.eyeOpen], [t, 0, dy, rot, sx, sy, legs, eyeOpen], `${id} at t=${t}`);

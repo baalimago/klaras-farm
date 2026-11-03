@@ -1,10 +1,12 @@
 // Renderer: owns requestAnimationFrame and draws the board (ARCHITECTURE §7).
 // Slow felt work happens once (io/felt.js caches). Per frame: one background blit, then per actor a
-// contact shadow, a few yarn-leg strokes, one sprite drawImage and the button eyes; plus felt confetti
+// contact shadow, the yarn legs (one path, two strokes: shadow and ink), one sprite drawImage and the
+// button eyes; plus felt confetti
 // from a fixed pool. No shadowBlur, dashes, filters or clipping per frame; no allocation in the loop.
 // The loop stops when engine.isIdle() and wakes after engine.nextWakeMs(), or on wake().
 import { INK, hex } from "../farm/palette.js";
 import { bbox, centroid } from "../geometry/stroke.js";
+import { footY, legLength } from "../farm/legs.js";
 import {
   paintBackground, paintThingSprite, eyeSprite, groundShadowSprite, glowSprite, confettiSprites, makeCanvas, releaseCanvas,
 } from "./felt.js";
@@ -256,14 +258,15 @@ export class Renderer {
     }
   }
 
+  /** One yarn leg per hip (Thing.legs), hanging down and swinging by the pose's angle. */
   _drawLegs(c, en, legs, n) {
-    if (en.hipsN !== n) this._computeHips(en, n);
-    const hips = en.hips, L = en.legLen, U = this.U, foot = 4 * U * en.footDir;
+    if (n > en.hipsN) n = en.hipsN;
+    const hips = en.hips, lens = en.legLens, U = this.U, foot = 4 * U * en.footDir;
     c.lineCap = "round";
     c.lineJoin = "round";
     c.beginPath();
     for (let k = 0; k < n; k++) {
-      const hx = hips[k * 2], hy = hips[k * 2 + 1], a = legs[k];
+      const hx = hips[k * 2], hy = hips[k * 2 + 1], a = legs[k], L = lens[k];
       const fx = hx + Math.sin(a) * L, fy = hy + Math.cos(a) * L;
       c.moveTo(hx, hy + 2 * U);
       c.lineTo(fx, fy + 2 * U);
@@ -273,7 +276,7 @@ export class Renderer {
     c.stroke();
     c.beginPath();
     for (let k = 0; k < n; k++) {
-      const hx = hips[k * 2], hy = hips[k * 2 + 1], a = legs[k];
+      const hx = hips[k * 2], hy = hips[k * 2 + 1], a = legs[k], L = lens[k];
       const fx = hx + Math.sin(a) * L, fy = hy + Math.cos(a) * L;
       c.moveTo(hx, hy);
       c.lineTo(fx, fy);
@@ -342,39 +345,31 @@ export class Renderer {
     const eyes = new Float64Array(thing.eyes.length * 2);
     thing.eyes.forEach((e, i) => { eyes[i * 2] = (e.x - cx) * W; eyes[i * 2 + 1] = (e.y - cy) * H; });
     const eyeR = Math.max(4 * U, Math.min(10 * U, 0.085 * Math.min(b.w, b.h)));
-    const legLen = Math.max(8 * U, Math.min(34 * U, 0.35 * b.h));
     const walker = thing.motion?.preset === "walk";
     const meanEyeX = thing.eyes.length ? thing.eyes.reduce((s, e) => s + e.x, 0) / thing.eyes.length : cx;
+    // Legs: hips from the thing, left to right so neighbours swing opposite; each foot a felt-leg
+    // length below the outline edge under its hip. Computed once per sprite, never per frame.
+    const legs = Array.isArray(thing.legs) ? [...thing.legs].sort((p, q) => p.x - q.x) : [];
+    const n = legs.length;
+    const hips = new Float64Array(n * 2), legLens = new Float64Array(n);
+    const len = legLength(thing.outline);
+    let lowest = b.y + b.h;
+    for (let k = 0; k < n; k++) {
+      const l = legs[k];
+      const hy = (l.y - cy) * H, fy = (footY(thing.outline, l, len) - cy) * H;
+      hips[k * 2] = (l.x - cx) * W;
+      hips[k * 2 + 1] = hy;
+      legLens[k] = Math.max(2 * U, fy - hy);
+      if (fy > lowest) lowest = fy;
+    }
     const en = {
-      thing, sprite, rel, eyes, eyeR, legLen, walker,
-      halfW: b.w / 2, footY: b.y + b.h + (walker ? legLen : 0),
+      thing, sprite, rel, eyes, eyeR, walker,
+      halfW: b.w / 2, footY: lowest,
       footDir: meanEyeX >= cx ? 1 : -1, // toes point the way the face looks
-      hips: null, hipsN: -1,
+      hips, legLens, hipsN: n,
     };
     this.entries.set(thingId, en);
     return en;
-  }
-
-  /** Hip points along the bottom of the outline, spread across the middle of its width. */
-  _computeHips(en, n) {
-    const rel = en.rel, b = bbox(rel);
-    en.hips = new Float64Array(n * 2);
-    en.hipsN = n;
-    for (let k = 0; k < n; k++) {
-      const fx = b.x + b.w * (n === 1 ? 0.5 : 0.22 + (0.56 * k) / (n - 1));
-      let maxY = -Infinity;
-      for (let i = 0, m = rel.length; i < m; i++) {
-        const p = rel[i], q = rel[(i + 1) % m];
-        if ((p[0] <= fx && q[0] >= fx) || (q[0] <= fx && p[0] >= fx)) {
-          const t = q[0] === p[0] ? 0 : (fx - p[0]) / (q[0] - p[0]);
-          const yy = p[1] + (q[1] - p[1]) * t;
-          if (yy > maxY) maxY = yy;
-        }
-      }
-      if (!Number.isFinite(maxY)) maxY = b.y + b.h;
-      en.hips[k * 2] = fx;
-      en.hips[k * 2 + 1] = maxY - 3 * this.U;
-    }
   }
 
   _dropEntry(id) {

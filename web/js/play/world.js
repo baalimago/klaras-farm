@@ -6,16 +6,17 @@
 // Actor fields beyond the shared Actor type (types.js) are internal to play/:
 //   homeX, homeY   outline centroid where the thing was drawn
 //   ext            outline extents from the centroid {left, right, top, bottom}
-//   outline, eyes  from the thing; motion = resolved preset; nLegs
+//   outline, eyes  from the thing; motion = resolved preset; nLegs = thing.legs.length
 //   move           0..1, ramps the motion in and out (no pops)
 //   tx, ty         walk target; rest: seconds until the next walk
 //   blinkIn        seconds until the next blink; blinkT: seconds into a blink (< 0 none)
 //   stir           seconds left of a sleepy stir (tap while asleep)
-import { resolveMotion, pose, newPose, restPose, legCount } from "../motion/pose.js";
+import { resolveMotion, pose, newPose, restPose } from "../motion/pose.js";
 import { travelSpeed, REACT_S, DROP_S, WIGGLE_S, SLEEP_SETTLE_S, jump, jumpStretch, jumpSpin, drop, dropStretch, wiggle, yawn } from "../motion/blocks.js";
 import { centroid, extents, ASPECT } from "./hit.js";
 
 export const TICK = 1 / 60;
+const MAX_LEGS = 8;
 /** Top of the ground band: walkers keep their feet (outline bottom) below this line. */
 export const GROUND_TOP = 0.55;
 const MARGIN = 0.01;
@@ -77,7 +78,7 @@ function fitThing(world, a, thing, cx, cy) {
   a.eyes = (thing.eyes ?? []).length;
   const m = thing.motion ?? {};
   a.motion = resolveMotion(m.kind === undefined || m.kind === "preset" ? world.presets[m.preset] : undefined, m.params);
-  a.nLegs = legCount(a.motion);
+  a.nLegs = Array.isArray(thing.legs) ? Math.min(MAX_LEGS, thing.legs.length) : 0;
   if (a.pose.legs.length !== a.nLegs) restPose(a.pose, a.nLegs);
 }
 

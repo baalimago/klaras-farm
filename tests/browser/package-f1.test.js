@@ -95,7 +95,7 @@ const eyesInside = (page, eyes) =>
     return eyes.map((e) => g.pointInPolygon([e.x, e.y], t.outline));
   }, eyes);
 
-test("add a thing end to end: draw, felt, eyes, moves, name, one question, skip sound", async () => {
+test("add a thing end to end: draw, felt, eyes, legs, moves, name, one question, skip sound", async () => {
   const page = await farmPage({ things: 1 });
   await mount(page, "kf-guided-add");
   assert.equal(await step(page), "draw");
@@ -143,6 +143,37 @@ test("add a thing end to end: draw, felt, eyes, moves, name, one question, skip 
   assert.equal(await page.locator('[data-testid="eye-stamping"]').count(), 0);
   await page.getByRole("button", { name: "Next" }).click();
 
+  // Legs: pick the count first, then tap where each leg goes (snapped inside); a tap on a leg takes it off.
+  assert.equal(await step(page), "legs");
+  await page.getByRole("heading", { name: "How many legs?" }).waitFor();
+  assert.deepEqual(await page.locator(".kf-legs-count").allTextContents(), ["0", "1", "2", "3", "4", "6", "8"]);
+  assert.equal(await page.getByRole("button", { name: "Next" }).count(), 0, "pick a number or Skip");
+  await page.getByRole("button", { name: "3 legs" }).click();
+  await page.getByRole("heading", { name: "Tap where leg 1 goes" }).waitFor();
+  const bottom = o.b.y + o.b.h;
+  await tapBoard(page, o.cx - o.b.w * 0.25, bottom - 0.02);
+  await page.getByRole("heading", { name: "Tap where leg 2 goes" }).waitFor();
+  await tapBoard(page, o.cx, bottom + 0.05); // below the outline: snapped inside
+  await tapBoard(page, o.cx + o.b.w * 0.25, bottom - 0.02);
+  await page.getByRole("heading", { name: "3 legs" }).waitFor();
+  let legs = await page.evaluate(() => window.__el.thing.legs);
+  assert.equal(legs.length, 3);
+  assert.deepEqual(await eyesInside(page, legs), [true, true, true], "legs snapped inside the outline");
+  assert.ok(legs[1].y < bottom && legs[1].y > o.cy, "the tap below the shape lands near its bottom");
+  assert.equal(await page.getByRole("button", { name: "Next" }).isDisabled(), false);
+  // Tap leg 1 to take it off, then put it elsewhere; Undo takes the last one off.
+  await tapBoard(page, legs[0].x, legs[0].y);
+  await page.getByRole("heading", { name: "Tap where leg 3 goes" }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Next" }).isDisabled(), true);
+  await tapBoard(page, o.cx - o.b.w * 0.15, bottom - 0.03);
+  await page.getByRole("button", { name: "Undo leg" }).click();
+  await page.getByRole("heading", { name: "Tap where leg 3 goes" }).waitFor();
+  await tapBoard(page, o.cx - o.b.w * 0.2, bottom - 0.03);
+  await page.getByRole("heading", { name: "3 legs" }).waitFor();
+  legs = await page.evaluate(() => window.__el.thing.legs);
+  await page.waitForFunction(async () => (await window.__t.store.listDrafts())[0]?.thing.legs.length === 3);
+  await page.getByRole("button", { name: "Next" }).click();
+
   // Moves
   assert.equal(await step(page), "moves");
   await page.locator('[data-motion="float"]').click();
@@ -184,6 +215,8 @@ test("add a thing end to end: draw, felt, eyes, moves, name, one question, skip 
   assert.equal(out.t.motion.preset, "float");
   assert.equal(out.t.eyes.length, 2);
   assert.deepEqual(await eyesInside(page, out.t.eyes), [true, true]);
+  assert.deepEqual(out.t.legs, legs.map(({ x, y }) => ({ x: Math.round(x * 1000) / 1000, y: Math.round(y * 1000) / 1000 })));
+  assert.equal(out.t.legTarget, undefined, "the picked count is a draft detail, not part of the thing");
   assert.deepEqual(out.clips.map((c) => `${c.kind}${c.take}`).sort(), ["name1", "prompt1"]);
   assert.ok(out.clips.every((c) => c.thingId === out.t.id));
   assert.deepEqual(out.blobs, [true, true], "blobs stored");
@@ -254,7 +287,7 @@ test("+ Add is refused when the place already has 4 things", async () => {
 test("guided add records the article and edited question words in another language", async () => {
   const page = await farmPage({ languages: ["de", "en"] });
   await mount(page, "kf-guided-add");
-  await page.evaluate(() => { const el = window.__el; el.draft.thing.outline = [[0.4, 0.5], [0.6, 0.5], [0.6, 0.7], [0.4, 0.7]]; el.draft.thing.color = "red"; el.draft.thing.motion = { kind: "preset", preset: "walk", params: {} }; el._go(4); });
+  await page.evaluate(() => { const el = window.__el; el.draft.thing.outline = [[0.4, 0.5], [0.6, 0.5], [0.6, 0.7], [0.4, 0.7]]; el.draft.thing.color = "red"; el.draft.thing.motion = { kind: "preset", preset: "walk", params: {} }; el._go(5); });
   assert.equal(await step(page), "name");
   await page.locator('input[name="name"]').fill("Schwein");
   await page.getByRole("button", { name: "Next" }).click();
@@ -337,7 +370,25 @@ test("thing card: rename, recolour, motion, + Language, re-record (cancel keeps,
   await page.locator('[role="tab"][data-lang="en"]').click();
   assert.equal(await page.locator('input[name="name"]').inputValue(), "Piggy");
 
-  // Redraw keeps eyes (re-snapped inside) and clips
+  // Place legs: Cancel keeps the old legs; pick 4, tap each, Done saves them.
+  assert.deepEqual((await thing()).legs, []);
+  await page.locator('[data-action="legs"]').click();
+  await page.locator('[data-testid="leg-placing"]').waitFor();
+  await page.getByRole("button", { name: "2 legs" }).click();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  assert.equal(await page.locator(".kf-tc-overlay").count(), 0);
+  assert.deepEqual((await thing()).legs, []);
+  await page.locator('[data-action="legs"]').click();
+  await page.getByRole("button", { name: "4 legs" }).click();
+  assert.equal(await page.getByRole("button", { name: "Done" }).isDisabled(), true);
+  for (const x of [0.13, 0.17, 0.23, 0.27]) await tapBoard(page, x, 0.69);
+  await page.getByRole("heading", { name: "4 legs" }).waitFor();
+  await page.getByRole("button", { name: "Done" }).click();
+  await page.waitForFunction((id) => window.__t.store.snapshot.things.find((t) => t.id === id).legs.length === 4, thingId);
+  await page.waitForFunction(() => !document.querySelector(".kf-tc-overlay"));
+  assert.deepEqual(await eyesInside(page, (await thing()).legs), [true, true, true, true]);
+
+  // Redraw keeps eyes and legs (re-snapped inside) and clips
   const clipCount = (await clips()).length;
   await page.locator('[data-action="redraw"]').click();
   await page.locator(".kf-tc-shapes").getByText("1 shape").waitFor(); // starts from the current outline
@@ -349,6 +400,8 @@ test("thing card: rename, recolour, motion, + Language, re-record (cancel keeps,
   assert.notDeepEqual(redrawn.outline, [[0.12, 0.5], [0.28, 0.5], [0.28, 0.7], [0.12, 0.7]]);
   assert.equal(redrawn.eyes.length, 1);
   assert.deepEqual(await eyesInside(page, redrawn.eyes), [true]);
+  assert.equal(redrawn.legs.length, 4);
+  assert.deepEqual(await eyesInside(page, redrawn.legs), [true, true, true, true]);
   assert.equal((await clips()).length, clipCount);
 
   // Re-stamp eyes

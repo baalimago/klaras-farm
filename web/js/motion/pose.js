@@ -1,12 +1,11 @@
 // Presets → poses (ARCHITECTURE §6). A preset is data (web/data/motions/<id>.json); a thing's
 // motion.params are dotted overrides ("travel.speed": 0.8). pose() writes into a reusable Pose
-// so the play loop allocates nothing.
+// so the play loop allocates nothing. How many legs a thing has is the thing's (Thing.legs): the
+// caller sizes pose.legs; the preset's legs block only says how they swing.
 import { travel, bob, squash, tilt, legs, blink } from "./blocks.js";
 
 /** The preset used when a thing names one that is not loaded: stands still, blinks. */
 export const STILL = Object.freeze({ id: "still", version: 1, blink: { duration: 0.18, intervalMin: 2.5, intervalMax: 6 } });
-
-const MAX_LEGS = 8;
 
 /**
  * Applies dotted overrides to a preset. Never mutates the preset. Only finite numbers override.
@@ -25,12 +24,6 @@ export function resolveMotion(preset, params) {
   return out;
 }
 
-/** Number of legs a resolved motion draws (0 for floaters). */
-export function legCount(resolved) {
-  const n = Math.round(Number(resolved?.legs?.count) || 0);
-  return Math.max(0, Math.min(MAX_LEGS, n));
-}
-
 /** @returns {import('../types.js').Pose} */
 export function newPose(nLegs = 0) {
   return { dx: 0, dy: 0, rot: 0, sx: 1, sy: 1, legs: new Array(nLegs).fill(0), eyeOpen: 1 };
@@ -45,7 +38,7 @@ export function restPose(out, nLegs) {
 }
 
 /**
- * The pose of a resolved motion at motion time t.
+ * The pose of a resolved motion at motion time t. Writes one swing angle per entry of out.legs.
  * @param {Object} resolved   from resolveMotion
  * @param {number} t          seconds of motion time
  * @param {{move?: number, blinkT?: number}} state  move: 0 still … 1 full motion (ramps in and out); blinkT: s since blink start, < 0 none
@@ -53,7 +46,7 @@ export function restPose(out, nLegs) {
  */
 export function pose(resolved, t, state, out) {
   const m = state.move ?? 1;
-  const n = legCount(resolved);
+  const n = out.legs.length;
   restPose(out, n);
   if (m > 0) {
     out.dy = (travel(t, resolved.travel) + bob(t, resolved.bob)) * m;

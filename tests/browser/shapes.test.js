@@ -143,6 +143,7 @@ test("guided add: two overlapping shapes drawn with the pad become one outline t
   await page.waitForTimeout(400);
   await page.mouse.up();
   await page.getByRole("button", { name: "Next" }).click();
+  await page.getByRole("button", { name: "Skip", exact: true }).click(); // legs (tests/browser/legs.test.js places them)
   await page.locator('[data-motion="walk"]').click();
   await page.getByRole("button", { name: "Next" }).click();
   await page.locator('input[name="name"]').fill("Duck");

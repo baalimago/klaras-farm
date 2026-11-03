@@ -1,10 +1,15 @@
 // The snapshot as a whole: creation, validation, canonical form and migration.
 import { isColorKey } from "./palette.js";
+import { MAX_LEGS, isLeg, legacyLegCount, spreadLegs } from "./legs.js";
 
 // Format history (additive only, ARCHITECTURE §9.5):
 //   1: first release
 //   2: optional Place.findIt (Find it on for this place; absent = on (find buttons shown))
-export const FORMAT_VERSION = 2;
+//   3: Thing.legs (hips placed by the parent, 0–8); before, the motion preset implied the legs.
+//      minReaderFormat stays 1: an older app still validates and plays a format 3 file (it ignores
+//      legs and draws its preset legs, and keeps the field when it saves the thing), which is
+//      better than refusing the import on a device that has not updated yet.
+export const FORMAT_VERSION = 3;
 export const MIN_READER_FORMAT = 1;
 export const MAX_THINGS_PER_PLACE = 4;
 export const CLIP_KINDS = Object.freeze(["name", "prompt", "sound"]);
@@ -95,6 +100,7 @@ export function validateSnapshot(s, opts = {}) {
     if (!isColorKey(t.color)) return fail(`thing ${t.id}: colour`);
     if (!Array.isArray(t.eyes) || t.eyes.length > 2 || !t.eyes.every((e) => isNum(e?.x) && isNum(e?.y)))
       return fail(`thing ${t.id}: eyes`);
+    if (!Array.isArray(t.legs) || t.legs.length > MAX_LEGS || !t.legs.every(isLeg)) return fail(`thing ${t.id}: legs`);
     if (t.motion?.kind !== "preset" || !isStr(t.motion.preset) || typeof t.motion.params !== "object")
       return fail(`thing ${t.id}: motion`);
     if (!t.cues || typeof t.cues !== "object") return fail(`thing ${t.id}: cues`);
@@ -131,7 +137,22 @@ export function clipKey(c) {
 const STEPS = {
   // 1 → 2: Place.findIt is optional, so only the version moves.
   1: (s) => ({ ...s, formatVersion: 2 }),
+  // 2 → 3: legs become data. Each thing gets the legs its preset used to draw, where it drew them.
+  // Things that already carry legs keep them (the step is safe to run on mixed data).
+  2: (s) => ({ ...s, formatVersion: 3, things: (s.things ?? []).map(withLegacyLegs) }),
 };
+
+/** A thing as it looked before format 3: legs from its motion preset, spread along the bottom. */
+export function withLegacyLegs(t) {
+  if (!t || Array.isArray(t.legs)) return t;
+  const n = Array.isArray(t.outline) && t.outline.length >= 3 ? legacyLegCount(t.motion) : 0;
+  return { ...t, legs: n ? spreadLegs(t.outline, n) : [] };
+}
+
+/** The format of records read back from storage, which carry no version: things without legs are format 2. */
+export function storedFormat(things) {
+  return (things ?? []).some((t) => !Array.isArray(t?.legs)) ? 2 : FORMAT_VERSION;
+}
 
 export function migrate(s) {
   let out = s;

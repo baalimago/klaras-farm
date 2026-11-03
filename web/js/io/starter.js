@@ -39,6 +39,7 @@ export function starterSnapshot(template, env, lang = "en", appVersion = "dev") 
     names: { ...t.names },
     outline: t.outline.map(([x, y]) => [x, y]),
     eyes: t.eyes.map((e) => ({ ...e })),
+    legs: (t.legs ?? []).map((l) => ({ ...l })),
     motion: { ...t.motion, params: { ...t.motion.params } },
     cues: {},
     createdAt: now,

@@ -5,6 +5,6 @@
   "bob": { "shape": "bounce", "amp": 0, "rate": 1.5 },
   "squash": { "amp": 0.08, "rate": 1.5 },
   "tilt": { "amp": 0, "rate": 0 },
-  "legs": { "count": 0, "swing": 0, "rate": 0 },
+  "legs": { "swing": 0, "rate": 0 },
   "blink": { "duration": 0.18, "intervalMin": 2.5, "intervalMax": 6 }
 }

@@ -1,5 +1,5 @@
-// <kf-guided-add>: add a thing in seven steps (flow 1; US-3.1–3.5, 3.10, 4.1, 4.2, 4.8).
-// Draw (one or more shapes glued into one outline) → Felt → Eyes → Moves → Name → Ask → Sound, with a step bar, Back and ✕ (Keep draft / Discard)
+// <kf-guided-add>: add a thing in eight steps (flow 1; US-3.1–3.5, 3.10, 4.1, 4.2, 4.8).
+// Draw (one or more shapes glued into one outline) → Felt → Eyes → Legs → Moves → Name → Ask → Sound, with a step bar, Back and ✕ (Keep draft / Discard)
 // on every step. The draft is saved after every step and every kept recording, and an open draft for
 // the place is resumed. Props: `services`, `params = {placeId?, at?: [x, y], holdMs?}`.
 // Events: `kf-close` when done (bubbles), `kf-added {thingId}` after a thing was added.
@@ -12,6 +12,7 @@ import { loadGeometry, snapPoint } from "./geometry.js";
 import { ThingPreview, viewFor, FULL_VIEW } from "./preview.js";
 import { EyeStamper, attachEyeDrag } from "./eyes.js";
 import { ShapeDrawing } from "./drawing.js";
+import { LegPlacer } from "./legs.js";
 import { THING_COLORS, hex } from "../../farm/palette.js";
 import { cueLines } from "../../farm/scripts.js";
 
@@ -86,6 +87,8 @@ export class GuidedAddElement extends HTMLElement {
   _render() {
     this._stamper?.unmount();
     this._stamper = null;
+    this._legs?.detach();
+    this._legs = null;
     this.replaceChildren();
     const step = this.step;
     const index = this.draft.step;
@@ -118,8 +121,9 @@ export class GuidedAddElement extends HTMLElement {
     if (step === "draw") {
       // the shapes so far, merged, at the size they were drawn, in felt (tan until a felt is picked)
       const outline = this._drawing?.merged ?? [];
-      return this.preview.draw({ ...this.thing, outline: outline.length ? outline : null, eyes: [], color: this.thing.color ?? DRAW_FELT }, { backdrop: false });
+      return this.preview.draw({ ...this.thing, outline: outline.length ? outline : null, eyes: [], legs: [], color: this.thing.color ?? DRAW_FELT }, { backdrop: false });
     }
+    if (step === "legs" && this._legs) return this._legs.redraw();
     return this.preview.draw(this.thing, { backdrop: false });
   }
 
@@ -227,6 +231,7 @@ export class GuidedAddElement extends HTMLElement {
       const [cx, cy] = this.draft.at;
       const outline = this.geo.fitOutline(merged, { maxW: THING_SIZE.w, maxH: THING_SIZE.h, cx, cy }).map(([x, y]) => [x, y]);
       if (old?.length && this.thing.eyes.length) this.thing.eyes = refitEyes(this.thing.eyes, old, outline, (p, poly) => snapPoint(this.geo, p, poly));
+      if (old?.length && this.thing.legs?.length) this.thing.legs = refitEyes(this.thing.legs, old, outline, (p, poly) => snapPoint(this.geo, p, poly));
       this.thing.outline = outline;
     }
     this._redraw();
@@ -280,6 +285,29 @@ export class GuidedAddElement extends HTMLElement {
     }
   }
 
+  _step_legs(panel) {
+    const next = () => this._go(this.draft.step + 1);
+    this._legs = new LegPlacer({
+      preview: this.preview,
+      geo: this.geo,
+      thing: this.thing,
+      target: this.thing.legTarget,
+      drawOpts: { backdrop: false },
+      chime: (kind) => this.services.audio?.chime?.(kind),
+      onChange: (st) => {
+        this.thing.legs = st.legs;
+        this.thing.legTarget = st.target;
+        this.services.session?.activity?.();
+        this._save();
+      },
+      buttons: (phase) => [
+        h("button", { class: "kf-btn ghost", type: "button", text: "Skip", "data-action": "skip-legs", onclick: next }),
+        phase === "count" ? null : h("button", { class: "kf-btn primary", type: "button", text: "Next", disabled: phase === "place", onclick: next }),
+      ],
+    });
+    fill(panel, this._legs.panel());
+  }
+
   _step_moves(panel) {
     const cur = this.thing.motion?.preset;
     fill(panel,
@@ -294,7 +322,7 @@ export class GuidedAddElement extends HTMLElement {
           }),
         ),
       ),
-      h("p", { class: "kf-note", text: "Walks: squash and stretch with yarn legs. Floats: a gentle bob, good for objects." }),
+      h("p", { class: "kf-note", text: "Walks: squash and stretch, legs swing. Floats: a gentle bob, good for objects." }),
       h("div", { class: "kf-row end" }, this._nextBtn()),
     );
   }
@@ -493,6 +521,7 @@ export class GuidedAddElement extends HTMLElement {
         outline: t.outline,
         color: t.color,
         eyes: t.eyes,
+        legs: t.legs ?? [],
         motion: t.motion ?? DEFAULT_MOTION,
         cues: cleanCues(t.cues),
         clips: this.draft.clips.map(stripClip),

@@ -3,6 +3,7 @@
 // A view {vx, vy, s} maps the board square [vx, vx+s] × [vy, vy+s] (board units) onto the canvas,
 // which keeps proportions because the canvas is 4:3 like the board.
 import { hex, INK } from "../../farm/palette.js";
+import { footY, legLength } from "../../farm/legs.js";
 
 export const FULL_VIEW = Object.freeze({ vx: 0, vy: 0, s: 1 });
 
@@ -51,7 +52,13 @@ export class ThingPreview {
     return Math.max(0.008, Math.min(b.w, b.h) * 0.09);
   }
 
-  async draw(thing, { backdrop = true } = {}) {
+  /** Hit radius around a leg's hip in board-x units (for tapping a placed leg). */
+  legRadius(thing) {
+    return Math.max(0.012, this.eyeRadius(thing) * 1.4);
+  }
+
+  /** @param {{backdrop?: boolean, markLegs?: boolean}} [opts]  markLegs: ring each hip (leg placing) */
+  async draw(thing, { backdrop = true, markLegs = false } = {}) {
     const seq = ++this._seq;
     const felt = thing.outline?.length && thing.color ? await loadFelt() : null;
     if (seq !== this._seq) return; // a newer draw started
@@ -75,6 +82,25 @@ export class ThingPreview {
     const outline = thing.outline;
     if (!outline?.length) return;
 
+    // Legs hang straight down behind the body, as on the board.
+    const legs = thing.legs ?? [];
+    const U = H / s / 600;
+    if (legs.length) {
+      const len = legLength(outline), toe = 4 * U;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      for (const l of legs) {
+        const fy = Y(footY(outline, l, len));
+        ctx.moveTo(X(l.x), Y(l.y));
+        ctx.lineTo(X(l.x), fy);
+        ctx.lineTo(X(l.x) + toe, fy);
+      }
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = Math.max(2, 4 * U);
+      ctx.stroke();
+    }
+
     let painted = false;
     if (felt?.paintThingSprite) {
       try {
@@ -97,6 +123,23 @@ export class ThingPreview {
       if (thing.color) ctx.setLineDash([6 * dpr, 5 * dpr]);
       ctx.stroke();
       ctx.setLineDash([]);
+    }
+    if (markLegs) {
+      const lr = (this.legRadius(thing) / s) * W * 0.6;
+      ctx.lineWidth = Math.max(2, lr * 0.25);
+      legs.forEach((l, i) => {
+        ctx.beginPath();
+        ctx.arc(X(l.x), Y(l.y), lr, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(255,255,255,0.85)";
+        ctx.fill();
+        ctx.strokeStyle = INK;
+        ctx.stroke();
+        ctx.fillStyle = INK;
+        ctx.font = `700 ${Math.round(lr * 1.2)}px system-ui, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(String(i + 1), X(l.x), Y(l.y) + lr * 0.05);
+      });
     }
     const er = (this.eyeRadius(thing) / s) * W;
     for (const e of thing.eyes ?? []) {

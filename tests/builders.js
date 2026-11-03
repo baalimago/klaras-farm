@@ -32,6 +32,7 @@ export function aClip(fields = {}) {
 export function aThing(fields = {}) {
   const t = {
     id: next("thing"), placeId: "", names: { en: "Pig" }, outline: square(), color: "pink", eyes: [{ x: 0.55, y: 0.55 }],
+    legs: [{ x: 0.45, y: 0.59 }, { x: 0.55, y: 0.59 }],
     motion: { kind: "preset", preset: "walk", params: {} }, cues: {}, createdAt: T0, updatedAt: T0, ...fields,
   };
   const clips = [];
@@ -64,7 +65,7 @@ export function aSnapshot(fields = {}) {
     build() {
       const built = places.map((b) => b.build());
       return {
-        formatVersion: 2, minReaderFormat: 1, appVersion: "test", exportedAt: T0, deviceId: "device-test",
+        formatVersion: 3, minReaderFormat: 1, appVersion: "test", exportedAt: T0, deviceId: "device-test",
         settings: { languages: ["en"], playLanguage: "en", sleepMinutes: 8, gateKind: "keypad", reduceMotion: false, currentPlaceId: built[0]?.place.id ?? null, welcomed: true, updatedAt: T0 },
         places: built.map((x) => x.place),
         things: built.flatMap((x) => x.things),
