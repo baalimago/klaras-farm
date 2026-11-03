@@ -1,0 +1,29 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install
+        run: |
+          pip install -e ".[dev]"
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Unit tests (Node, single process)
+        run: npm test
+      - name: Backend unit and e2e tests (real Postgres via testcontainers, temp volume)
+        run: python -m pytest -q
+      - name: Browser tests (Chromium against the real Python app)
+        run: npm run test:browser
