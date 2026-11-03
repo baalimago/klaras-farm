@@ -1,1 +1,22 @@
-/* kf-draw-pad */
+/* kf-draw-pad: a transparent drawing overlay. Over the board when it has services.board, else fills its box. */
+kf-draw-pad {
+  display: block;
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  cursor: crosshair;
+}
+kf-draw-pad[data-overlay] {
+  position: fixed;
+  inset: auto;
+  z-index: 5;
+}
+kf-draw-pad canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
