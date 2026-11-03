@@ -1,0 +1,10 @@
+{
+  "id": "float",
+  "version": 1,
+  "travel": { "mode": "water", "speed": 0.5, "restMin": 3, "restMax": 8, "distMin": 0.06, "distMax": 0.18, "rangeY": 0.08 },
+  "bob": { "shape": "sine", "amp": 0.008, "rate": 0.5 },
+  "squash": { "amp": 0.03, "rate": 0.5 },
+  "tilt": { "amp": 0.08, "rate": 0.5 },
+  "legs": { "count": 0, "swing": 0, "rate": 0 },
+  "blink": { "duration": 0.18, "intervalMin": 2.5, "intervalMax": 6 }
+}
