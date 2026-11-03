@@ -1,1 +1,8 @@
-/* kf-welcome */
+/* <kf-welcome>: the one-time first-run card. */
+kf-welcome { position: absolute; inset: 0; display: block; z-index: 20; }
+.kf-welcome-scrim { position: absolute; inset: 0; background: rgb(74 51 38 / 0.3); }
+.kf-welcome h2 { font-size: 1.6rem; }
+.kf-welcome-tips { margin: 0 0 14px; padding: 0; list-style: none; display: grid; gap: 10px; }
+.kf-welcome-tips li { padding: 10px 14px; background: var(--cream); border-radius: var(--radius-sm); line-height: 1.4; }
+.kf-welcome-tips .kf-welcome-home { background: #e3f0ff; }
+.kf-welcome-start { min-width: 180px; }
