@@ -1,0 +1,10 @@
+{
+  "id": "scuttle",
+  "version": 1,
+  "travel": { "mode": "ground", "speed": 0.6, "restMin": 3, "restMax": 9, "distMin": 0.06, "distMax": 0.18, "rangeY": 0.02 },
+  "bob": { "shape": "bounce", "amp": 0.003, "rate": 3 },
+  "squash": { "amp": 0.02, "rate": 3 },
+  "tilt": { "amp": 0, "rate": 0 },
+  "legs": { "count": 6, "swing": 0.35, "rate": 3 },
+  "blink": { "duration": 0.18, "intervalMin": 2.5, "intervalMax": 6 }
+}

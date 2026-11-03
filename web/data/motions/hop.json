@@ -1,0 +1,10 @@
+{
+  "id": "hop",
+  "version": 1,
+  "travel": { "mode": "hop", "speed": 0.8, "height": 0.03, "rate": 1.5, "restMin": 4, "restMax": 10, "distMin": 0.08, "distMax": 0.2, "rangeY": 0.03 },
+  "bob": { "shape": "bounce", "amp": 0, "rate": 1.5 },
+  "squash": { "amp": 0.08, "rate": 1.5 },
+  "tilt": { "amp": 0, "rate": 0 },
+  "legs": { "count": 0, "swing": 0, "rate": 0 },
+  "blink": { "duration": 0.18, "intervalMin": 2.5, "intervalMax": 6 }
+}
