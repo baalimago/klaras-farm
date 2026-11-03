@@ -27,248 +27,214 @@ th { font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(-
 </style>
 <div class="wrap">
 <h1>Klara's Farm architecture</h1>
-<p>Status: proposal v1. Builds on <code>DESIGN.md</code>, <code>USER_STORIES.md</code> and the approved UX in <code>sketches/ux-flows.html</code>.</p>
-<h2>1. Principles</h2>
+<p>Status: <strong>v2</strong>, revised after review by five adversarial reviewers (QA lead, product manager, iPad web-platform specialist, simplicity skeptic, data and release engineer). All five said "approve with changes"; the changes are applied below and summarised in section 16. Builds on <code>DESIGN.md</code>, <code>USER_STORIES.md</code> and the approved UX in <code>sketches/ux-flows.html</code>.</p>
+<h2>1. Goals and principles</h2>
+<p>The overriding goal: <strong>small, frequent iterations with no risk of regression.</strong> Every choice below is judged by "can one developer ship a small change on a Friday and sleep well?"</p>
 <ol>
-<li><strong>Local-first.</strong> The iPad holds the only copy of the family's data in v1. The app works offline and never waits on the network. "Local storage" here means the browser's <strong>IndexedDB</strong>: <code>localStorage</code> is limited to about 5 MB of strings, which can't hold voice recordings.</li>
-<li><strong>Separation by domain.</strong> Code is grouped by what it is about (library, voice, play, editing, portability), not by technical type. Each domain has a pure core and talks to the outside world only through ports.</li>
-<li><strong>Functional core, imperative shell.</strong> Domain logic is plain functions over plain data: no DOM, no IndexedDB, no <code>Date.now()</code>, no <code>Math.random()</code>. Everything with side effects lives in adapters at the edge and is injected.</li>
-<li><strong>One writer per piece of state.</strong> Every slice of state has exactly one owner (a store or an engine). Everyone else reads it, or asks the owner to change it.</li>
-<li><strong>The export is the model.</strong> The persisted data, the export file and the future server backup are the same versioned document. Nothing about the data lives only in code or only in the database.</li>
-<li><strong>Test-first at every layer.</strong> Pure modules get small single-process unit tests; adapters get contract tests; cross-process behaviour gets the e2e suite with real Postgres (testcontainers) and temp-dir volumes.</li>
+<li><strong>Local-first.</strong> The iPad holds the family's data. The app works offline and never waits on the network. Storage is the browser's <strong>IndexedDB</strong> (<code>localStorage</code> is limited to about 5 MB of strings and can't hold voice clips).</li>
+<li><strong>Separation by domain, kept small.</strong> Code is grouped by what it's about, in six pure domain folders. Only one thing (the repository) needs a formal port.</li>
+<li><strong>Functional core, imperative shell.</strong> Domain code is pure functions over plain data. Time, randomness and IDs are passed in as arguments. A lint rule bans <code>Date.now</code>, <code>Math.random</code>, <code>crypto.randomUUID</code>, <code>setTimeout</code> and <code>requestAnimationFrame</code> outside <code>io/</code> and <code>main.js</code>.</li>
+<li><strong>One document of state, one writer.</strong> All persisted state is one in-memory <code>Snapshot</code> owned by <code>FarmStore</code>. Every change is a pure function <code>(snapshot, args, env) → { snapshot, writes }</code>, awaited to disk before the UI says "done".</li>
+<li><strong>The export is the model.</strong> IndexedDB contents, the export file and the future server backup are the same versioned document.</li>
+<li><strong>Data is never lost or rolled back.</strong> Data formats only grow (additive changes). Old exports import forever, proven by frozen fixtures in CI.</li>
+<li><strong>Every gate is automated except what only a real iPad can prove</strong>, and those items are an explicit, short, path-triggered checklist.</li>
 </ol>
 <h2>2. System context</h2>
 <div class="diagram"><pre class="mermaid">flowchart LR
-  subgraph iPad[&quot;iPad (Safari, installed to Home Screen)&quot;]
-    UI[&quot;Vanilla JS app&lt;br/&gt;(custom elements + canvas)&quot;]
-    SW[&quot;Service worker&lt;br/&gt;(app-shell cache)&quot;]
-    IDB[(&quot;IndexedDB&lt;br/&gt;library, clips, blobs,&lt;br/&gt;settings, drafts&quot;)]
+  subgraph iPad[&quot;iPad (Home Screen app)&quot;]
+    UI[&quot;Vanilla JS app&lt;br/&gt;custom elements + canvas&quot;]
+    SW[&quot;Service worker&lt;br/&gt;versioned precache&quot;]
+    IDB[(&quot;IndexedDB&lt;br/&gt;snapshot, blobs, drafts, usage&quot;)]
     UI --- IDB
     UI --- SW
   end
   subgraph Edge[&quot;Wasmer Edge&quot;]
-    PY[&quot;Python app&lt;br/&gt;static files + /healthz&lt;br/&gt;(later: /api/backup)&quot;]
+    PY[&quot;Python app&lt;br/&gt;/v/&amp;lt;hash&amp;gt;/ static, sw.js, /healthz&lt;br/&gt;(later /api/v1/backup)&quot;]
     PG[(&quot;Postgres&lt;br/&gt;(later: encrypted backups)&quot;)]
-    VOL[(&quot;Volume&lt;br/&gt;(later: blob staging)&quot;)]
     PY --- PG
-    PY --- VOL
   end
-  SW -- &quot;first load, updates&quot; --&gt; PY
-  UI -. &quot;N: encrypted backup/restore&quot; .-&gt; PY</pre></div>
+  SW -- &quot;install and updates&quot; --&gt; PY
+  UI -. &quot;later: encrypted backup&quot; .-&gt; PY</pre></div>
 <ul>
-<li><strong>v1 (M):</strong> the Python app serves the static frontend and <code>/healthz</code>. The frontend never calls an API.</li>
-<li><strong>Later (US-8.4):</strong> <code>/api/backup</code> receives the same snapshot document, encrypted on the device. Postgres stores it, keyed by family and content hash.</li>
+<li><strong>Now:</strong> the Python app serves the frontend and <code>/healthz</code>. The frontend never calls an API.</li>
+<li><strong>Later (US-8.4):</strong> <code>/api/v1/backup</code> stores client-encrypted blobs and manifests in Postgres (section 13).</li>
 </ul>
 <h2>3. Domains</h2>
 <div class="tablewrap"><table>
 <thead>
 <tr>
-<th>Domain</th>
-<th>Owns</th>
-<th>Pure core (examples)</th>
-<th>Persisted?</th>
+<th>Folder</th>
+<th>What it covers</th>
+<th>Examples of pure functions</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>Library</strong></td>
-<td>Places, scene pieces, things</td>
-<td>create/rename/delete place, add thing (cap of 4), validate entities</td>
-<td>yes</td>
+<td><code>farm/</code></td>
+<td>Places, scene pieces, things, clips, settings, and the snapshot as a whole (validate, migrate, canonicalise)</td>
+<td><code>addThing</code>, <code>deleteThing</code> (also removes its clips), <code>saveClip</code>, <code>validateSnapshot</code>, <code>migrate</code>, <code>canonicalJson</code>, <code>fillScript</code></td>
 </tr>
 <tr>
-<td><strong>Geometry</strong></td>
-<td>nothing (stateless)</td>
-<td>simplify stroke, close gap, polygon fill/mask, hit test, eye snapping</td>
-<td>no</td>
+<td><code>geometry/</code></td>
+<td>Strokes and shapes</td>
+<td><code>simplify</code>, <code>closeGap</code>, <code>fillMask</code>, <code>hitTest</code>, <code>snapInside</code></td>
 </tr>
 <tr>
-<td><strong>Voice</strong></td>
-<td>Clips and their blobs; script templates</td>
-<td>clip rules (5 s cap, kinds, takes), fill a template with name and article, language fallback</td>
-<td>yes</td>
+<td><code>motion/</code></td>
+<td>How things move (section 6)</td>
+<td><code>resolveMotion(preset, params)</code>, <code>pose(motion, t)</code></td>
 </tr>
 <tr>
-<td><strong>Audio processing</strong></td>
-<td>nothing (stateless)</td>
-<td>noise floor, silence trim, loudness normalise (LUFS), peak limit</td>
-<td>no</td>
+<td><code>play/</code></td>
+<td>The live simulation</td>
+<td><code>step(world, dt, input)</code>, mash policy, reactions, sleep timer, Find it</td>
 </tr>
 <tr>
-<td><strong>Play</strong></td>
-<td>The live simulation: positions, reactions, current question</td>
-<td>wander/steering, mash policy, reaction timing, Find it logic, sleep timer</td>
-<td>no (ephemeral)</td>
+<td><code>edit/</code></td>
+<td>Edit-mode access and navigation</td>
+<td><code>holdRecogniser</code>, <code>adultCheck</code>, <code>nextSession(state, event, now)</code></td>
 </tr>
 <tr>
-<td><strong>Editing</strong></td>
-<td>Mode (play, holding, gate, edit, scene edit, guided add, card), drafts</td>
-<td>hold-gesture recogniser, adult check, auto-close rules, guided-step machine</td>
-<td>drafts only</td>
-</tr>
-<tr>
-<td><strong>Settings</strong></td>
-<td>Family preferences</td>
-<td>defaults, validation</td>
-<td>yes</td>
-</tr>
-<tr>
-<td><strong>Portability</strong></td>
-<td>Nothing at runtime</td>
-<td>snapshot build, validate, migrate between versions, import (replace)</td>
-<td>produces files</td>
+<td><code>dsp/</code></td>
+<td>Audio analysis</td>
+<td><code>noiseFloor</code>, <code>shouldStop</code>, <code>trimPoints</code>, <code>loudness</code>, <code>gainFor</code></td>
 </tr>
 </tbody>
 </table></div>
-<p>Dependencies point one way: <strong>UI → stores/engines → domain cores</strong>, and <strong>stores → ports ← adapters</strong>. A domain core never imports another domain's store, only its types or pure functions (Library may use Geometry; Play reads Library and Voice data passed in).</p>
-<h2>4. Layers</h2>
+<p>Rules: a domain folder imports only other domain folders and <code>types.js</code>. Nothing in them touches the DOM, IndexedDB, audio or browser globals. <code>tests/boundaries.test.js</code> parses imports and enforces this.</p>
+<h2>4. Runtime pieces</h2>
 <div class="diagram"><pre class="mermaid">flowchart TB
-  subgraph UI[&quot;UI layer (custom elements)&quot;]
-    board[&quot;kf-board&lt;br/&gt;(canvas play + edit)&quot;]
-    bar[&quot;kf-edit-bar&quot;]
-    card[&quot;kf-thing-card&quot;]
-    rec[&quot;kf-recorder&quot;]
-    gate[&quot;kf-adult-check&quot;]
-    guided[&quot;kf-guided-add&quot;]
-    tools[&quot;kf-scene-tools&quot;]
-    shelf[&quot;kf-scene-shelf&quot;]
+  subgraph UI[&quot;UI (custom elements)&quot;]
+    board[&quot;kf-board&lt;br/&gt;canvas, pointer input&quot;]
+    panels[&quot;kf-edit-bar, kf-thing-card,&lt;br/&gt;kf-recorder, kf-adult-check,&lt;br/&gt;kf-guided-add, kf-scene-tools&quot;]
   end
-  subgraph State[&quot;State owners&quot;]
-    LS[&quot;LibraryStore&quot;]
-    VS[&quot;VoiceStore&quot;]
-    SS[&quot;SettingsStore&quot;]
-    ES[&quot;EditSession&quot;]
-    PE[&quot;PlayEngine&quot;]
-    AE[&quot;AudioEngine&quot;]
+  subgraph Owners[&quot;State owners (one writer each)&quot;]
+    FS[&quot;FarmStore&lt;br/&gt;Snapshot (persisted)&quot;]
+    SE[&quot;Session&lt;br/&gt;mode, panel, timers&quot;]
+    PE[&quot;PlayEngine&lt;br/&gt;world (ephemeral)&quot;]
   end
-  subgraph Domain[&quot;Pure domain cores&quot;]
-    dlib[&quot;library/*&quot;]
-    dgeo[&quot;geometry/*&quot;]
-    dvoice[&quot;voice/*&quot;]
-    ddsp[&quot;dsp/*&quot;]
-    dplay[&quot;play/*&quot;]
-    dedit[&quot;edit/*&quot;]
-    dport[&quot;portability/*&quot;]
+  subgraph Shell[&quot;Imperative shell (io/)&quot;]
+    RE[&quot;Renderer&lt;br/&gt;owns the rAF loop&quot;]
+    AE[&quot;AudioEngine&lt;br/&gt;AudioContext, buffers&quot;]
+    REPO[&quot;Repository&lt;br/&gt;IndexedDB or memory&quot;]
+    MIC[&quot;Mic&quot;]
   end
-  subgraph Ports[&quot;Ports (JSDoc interfaces)&quot;]
-    pRepo[&quot;Repository&quot;]
-    pBlob[&quot;BlobStore&quot;]
-    pAudio[&quot;AudioOut&quot;]
-    pMic[&quot;MicRecorder&quot;]
-    pSys[&quot;Clock, Random,&lt;br/&gt;WakeLock, StoragePersist&quot;]
+  subgraph Pure[&quot;Pure domain folders&quot;]
+    D[&quot;farm · geometry · motion · play · edit · dsp&quot;]
   end
-  subgraph Adapters[&quot;Adapters (side effects)&quot;]
-    aIDB[&quot;IndexedDB&quot;]
-    aWA[&quot;Web Audio&quot;]
-    aMR[&quot;MediaRecorder&quot;]
-    aBr[&quot;Browser APIs&quot;]
-    aFake[&quot;In-memory fakes&lt;br/&gt;(tests)&quot;]
-  end
-  UI --&gt; State
-  State --&gt; Domain
-  State --&gt; Ports
-  Adapters -. implement .-&gt; Ports</pre></div>
-<p>The import-boundary test (section 9) enforces these arrows.</p>
+  UI --&gt; Owners
+  Owners --&gt; Pure
+  FS --&gt; REPO
+  RE --&gt; PE
+  PE --&gt; AE
+  panels --&gt; MIC</pre></div>
+<ul>
+<li><strong>FarmStore</strong> (<code>EventTarget</code>): holds the <code>Snapshot</code>. Intents call a pure <code>farm/</code> function, <code>await repo.write(writes)</code> in one transaction, then swap in the new snapshot and emit <code>change</code>. If the write fails, nothing changes and the intent rejects with a <code>FarmError</code>.</li>
+<li><strong>Session</strong> (<code>EventTarget</code>): <code>{ mode: 'play' | 'gate' | 'edit', panel: null | 'card' | 'guided' | 'scene' | 'shelf', lastActivityAt, graceUntil }</code>, driven by the pure <code>edit/nextSession</code>.</li>
+<li><strong>PlayEngine</strong>: holds the ephemeral world (positions, reactions, current question). <code>step(world, dt, input)</code> is pure, with a fixed 1/60 s timestep and an accumulator, so physics runs the same at 30 or 60 fps (Low Power Mode caps the frame rate at 30). It reads the snapshot but never writes it.</li>
+<li><strong>Renderer</strong>: the only owner of <code>requestAnimationFrame</code>. Each frame: accumulate time, call <code>PlayEngine.step</code>, draw. It stops the loop when the page is hidden, when things sleep, or when nothing moves.</li>
+<li><strong>AudioEngine</strong>: owns the <code>AudioContext</code>, the decoded-buffer cache and the master limiter. Plays clips by id with each clip's trim and gain.</li>
+<li><strong>Repository</strong>: the only port. An IndexedDB implementation and an in-memory fake pass the same contract test suite.</li>
+</ul>
 <h2>5. State ownership</h2>
-<p>Each box owns its state. Solid arrows are the only allowed writes; dashed arrows are reads or subscriptions.</p>
 <div class="diagram"><pre class="mermaid">flowchart LR
-  subgraph Persisted[&quot;Persisted (IndexedDB, exported)&quot;]
-    LS[&quot;LibraryStore&lt;br/&gt;places, pieces, things&quot;]
-    VS[&quot;VoiceStore&lt;br/&gt;clips + blob refs&quot;]
-    SS[&quot;SettingsStore&lt;br/&gt;preferences&quot;]
+  subgraph Persisted[&quot;Persisted, exported&quot;]
+    FS[&quot;FarmStore&lt;br/&gt;Snapshot: places, pieces, things,&lt;br/&gt;clips, settings&quot;]
   end
-  subgraph Session[&quot;Session (memory; drafts persisted)&quot;]
-    ES[&quot;EditSession&lt;br/&gt;mode, gate state,&lt;br/&gt;active draft&quot;]
+  subgraph SessionState[&quot;Memory (drafts persisted)&quot;]
+    SE[&quot;Session&lt;br/&gt;mode, panel, timers&quot;]
   end
-  subgraph Runtime[&quot;Runtime (memory only, rebuilt any time)&quot;]
-    PE[&quot;PlayEngine&lt;br/&gt;positions, reactions,&lt;br/&gt;current question&quot;]
-    AE[&quot;AudioEngine&lt;br/&gt;decoded buffers cache,&lt;br/&gt;master bus&quot;]
+  subgraph Runtime[&quot;Memory only, rebuilt any time&quot;]
+    PE[&quot;PlayEngine&lt;br/&gt;positions, reactions, question&quot;]
+    AE[&quot;AudioEngine&lt;br/&gt;decoded buffers&quot;]
+    RC[&quot;Renderer caches&lt;br/&gt;background + thing sprites&quot;]
   end
-  Persist[&quot;PersistenceService&lt;br/&gt;(write-through, debounced)&quot;]
-  IDB[(&quot;IndexedDB&quot;)]
+  REPO[(&quot;IndexedDB&quot;)]
 
-  card[&quot;kf-thing-card&quot;] -- &quot;intent: rename, recolour,&lt;br/&gt;redraw, delete&quot; --&gt; LS
-  guided[&quot;kf-guided-add&quot;] -- &quot;intent: save draft step&quot; --&gt; ES
-  ES -- &quot;commit draft as thing&quot; --&gt; LS
-  rec[&quot;kf-recorder&quot;] -- &quot;intent: save clip&quot; --&gt; VS
-  tools[&quot;kf-scene-tools&quot;] -- &quot;intent: add/paint/move piece&quot; --&gt; LS
-  board[&quot;kf-board&quot;] -- &quot;intent: hold, tap&quot; --&gt; ES
-  board -- &quot;intent: tap at x,y&quot; --&gt; PE
-  settings[&quot;kf-settings&quot;] -- &quot;intent: change&quot; --&gt; SS
-
-  LS -. &quot;change&quot; .-&gt; PE
-  VS -. &quot;change&quot; .-&gt; AE
-  SS -. &quot;change&quot; .-&gt; PE
-  ES -. &quot;mode&quot; .-&gt; PE
-  PE -- &quot;play clip id&quot; --&gt; AE
-  LS -. &quot;change&quot; .-&gt; Persist
-  VS -. &quot;change&quot; .-&gt; Persist
-  SS -. &quot;change&quot; .-&gt; Persist
-  ES -. &quot;draft change&quot; .-&gt; Persist
-  Persist --&gt; IDB</pre></div>
-<p>Rules:
-- <strong>Stores</strong> (<code>LibraryStore</code>, <code>VoiceStore</code>, <code>SettingsStore</code>, <code>EditSession</code>) are <code>EventTarget</code> subclasses, following the vanilla-web conventions. Elements call store methods (intents) and re-render on <code>change</code>. A store method validates with the pure core, applies an immutable update, and emits one <code>change</code> event with what changed.
-- <strong>PlayEngine</strong> owns the simulation and runs the <code>requestAnimationFrame</code> loop. It reads library, voice and settings data but never writes them, and is fully rebuildable from them. That's why nothing in play is persisted.
-- <strong>AudioEngine</strong> owns the <code>AudioContext</code>, the decoded-buffer cache and the master limiter. It only plays clips by id; it doesn't know what a thing is.
-- <strong>PersistenceService</strong> subscribes to persisted stores and writes changes through the <code>Repository</code> port (debounced, in one IndexedDB transaction per change set). Stores never touch IndexedDB directly.
-- <strong>Boot:</strong> the repository hydrates the stores, and then the PlayEngine and AudioEngine are constructed from them. A failed hydration shows the storage error state from US-8.2.</p>
-<h2>6. Modes (EditSession)</h2>
-<div class="diagram"><pre class="mermaid">stateDiagram-v2
-  [*] --&gt; Play
-  Play --&gt; Holding: pointer down (not near edges)
-  Holding --&gt; Play: release / move &gt; 10px / 2nd touch / cancel
-  Holding --&gt; Gate: held 1.5 s
-  Gate --&gt; Play: wrong digit / tap between keys / 10 s idle
-  Gate --&gt; Edit: correct code (rising chime)
-  Play --&gt; Edit: hold within 5 min of auto-close (no gate)
-  Edit --&gt; Play: Done (gate needed next time)
-  Edit --&gt; Play: 60 s idle (auto-close)
-  Edit --&gt; Card: pencil badge
-  Card --&gt; Edit: Close
-  Edit --&gt; GuidedAdd: + Add / hold empty spot
-  GuidedAdd --&gt; Edit: Finish / ✕ (keep draft or discard)
-  Edit --&gt; SceneEdit: Change scene
-  SceneEdit --&gt; Edit: Back to animals
-  Edit --&gt; Shelf: Scenes
-  Shelf --&gt; Edit: pick scene
-  note right of Edit: The 60 s idle timer runs only in Edit,&lt;br/&gt;not in Card, GuidedAdd, SceneEdit or Shelf</pre></div>
-<p>The machine is a pure function <code>next(state, event, now) → state</code>, fed by the hold-gesture recogniser and the UI. All timing comes from an injected clock, so every arrow above is one unit test.</p>
-<h2>7. Data model</h2>
-<h3>7.1 Entities</h3>
+  card[&quot;kf-thing-card&quot;] -- &quot;renameThing, recolourThing,&lt;br/&gt;redrawThing, deleteThing&quot; --&gt; FS
+  guided[&quot;kf-guided-add&quot;] -- &quot;saveDraft, commitDraft&quot; --&gt; FS
+  rec[&quot;kf-recorder&quot;] -- &quot;saveClip (awaited)&quot; --&gt; FS
+  tools[&quot;kf-scene-tools&quot;] -- &quot;addPiece, paintPiece, movePiece&quot; --&gt; FS
+  board[&quot;kf-board&quot;] -- &quot;pointer events&quot; --&gt; SE
+  board -- &quot;tap(x, y)&quot; --&gt; PE
+  FS -- &quot;await write (one transaction)&quot; --&gt; REPO
+  FS -. &quot;change&quot; .-&gt; PE
+  FS -. &quot;change&quot; .-&gt; AE
+  FS -. &quot;change&quot; .-&gt; RC
+  SE -. &quot;mode&quot; .-&gt; PE
+  PE -- &quot;play(clipId)&quot; --&gt; AE</pre></div>
+<p>Conventions (so every module is built the same way):
+- <strong>Intents</strong> are async verb-noun methods (<code>renameThing</code>) that resolve after the write commits and reject with <code>FarmError { code }</code>.
+- <strong>Pure validators</strong> return <code>{ ok: true } | { ok: false, error }</code> and never throw.
+- <strong>Change events</strong>: <code>new CustomEvent('change', { detail: { kind: 'thing-renamed', ids: [...] } })</code>, with past-tense kinds.
+- <strong>Env</strong>: <code>{ now, rng, newId, deviceId }</code> is passed into pure functions. Tests pass fixed values.
+- <strong>Boot</strong>: open the repository, hydrate and migrate the snapshot, build the PlayEngine, AudioEngine and Renderer from it. A <code>VersionError</code> from IndexedDB means "update needed" (section 10), never "storage error".</p>
+<h2>6. Motion as data</h2>
+<p>Motion is data played by a small set of tested building blocks, so animations can be tuned without code changes.</p>
+<ul>
+<li><strong>Building blocks</strong> (<code>motion/</code>), each a pure function of time and parameters:</li>
+<li><code>travel</code>: ground, water or hop</li>
+<li><code>bob</code></li>
+<li><code>squash</code></li>
+<li><code>tilt</code></li>
+<li><code>legs</code>: swinging sticks</li>
+<li><code>wave</code>: a body wave or wavy tentacles</li>
+<li><code>blink</code></li>
+<li><strong>Presets</strong> are shipped data, <code>web/data/motions/&lt;id&gt;.json</code>, for example:
+  <code>json
+  { "id": "walk", "version": 1, "travel": { "mode": "ground", "speed": 0.6 },
+    "legs": { "swing": 0.45, "rate": 2 }, "bob": { "amp": 2.5, "rate": 2 }, "squash": { "amp": 0.08 } }</code></li>
+<li><strong>Each thing stores</strong> <code>motion: { preset: "walk", params: { "travel.speed": 0.8, "bob.amp": 3.5 } }</code>. Parameters override the preset, so a slower, bouncier pig is two numbers. Sliders in edit mode can come later at no data cost.</li>
+<li><strong>Later, custom motion</strong> fits the same field: <code>motion: { kind: "keyframes", tracks: { x: [...], y: [...], tilt: [...] } }</code>. For example, the parent drags the animal around and the path is recorded as its dance. <code>kind</code> defaults to <code>"preset"</code>.</li>
+<li><code>pose(motion, t)</code> returns a transform (position offset, rotation, scale, leg angles) that the Renderer applies to the cached sprite. Motion never changes the drawing data.</li>
+<li>Tests: each building block is unit tested; each preset gets a golden pose table (poses at fixed times) so a tweak is a visible, reviewed diff.</li>
+</ul>
+<h2>7. Rendering (iPad performance)</h2>
+<ul>
+<li><strong>Target device</strong>: the oldest iPad in the family, to be confirmed. Until then, assume an A12-class iPad on iPadOS 17 or later. Budgets on that device: under 6 ms CPU per frame with 4 things, tap to sound under 100 ms, offline cold start under 2 s, under 150 MB memory.</li>
+<li><strong>Background cache</strong>: scene, felt texture, grain and stitched border are painted once into an offscreen canvas. It's rebuilt only on resize, place change or scene edit.</li>
+<li><strong>Thing sprites</strong>: each thing's felt parts (fill, texture, inset stitch, shadow) are pre-rendered once, at the device pixel ratio, into sprites: body, head, and limbs as separate small sprites. Per frame, only <code>drawImage</code> with transforms runs. <code>shadowBlur</code>, dashed strokes and clipping (all slow on WebKit) never run per frame.</li>
+<li><strong>Coordinates</strong>: the board is fixed at <strong>4:3</strong>, and all stored geometry is normalised to it (0–1 on both axes). In portrait the board is letterboxed.</li>
+<li><strong>Memory</strong>: canvases that are no longer used are released (<code>width = 0</code>), because iOS has a hard limit on total canvas memory. No OffscreenCanvas or workers.</li>
+<li>Adaptive pixel ratio (1.5 on slow devices) is a flag (section 11), driven by a frame-time monitor.</li>
+</ul>
+<h2>8. Audio and recording (iPad realities)</h2>
+<ul>
+<li><strong>Unlock and resume</strong>: <code>AudioContext.resume()</code> is called synchronously inside the gesture handler on <code>pointerdown</code> and <code>pointerup</code>. The <code>suspended</code> and WebKit's <code>interrupted</code> states are handled; the next tap resumes and plays.</li>
+<li><strong>Audio session</strong>: <code>navigator.audioSession.type = "playback"</code> during play, so the mute switch doesn't silence the voices. It switches to <code>"play-and-record"</code> only while recording, and back afterwards.</li>
+<li><strong>Buffers</strong>: all clips of the current place are decoded when the place loads (needed for the latency budget). An LRU cache has a byte budget, since decoded audio is about 190 KB per second. <code>decodeAudioData</code> receives a copy, because it detaches its input.</li>
+<li><strong>Recording</strong>:</li>
+<li><code>getUserMedia</code> runs with auto gain control, noise suppression and echo cancellation all off.</li>
+<li>An <code>AnalyserNode</code> drives the level meter and auto-stop (noise floor in the first 300 ms, stop after about 800 ms below it, Stop button, 5 s cap from the recorder's <code>start</code> event).</li>
+<li><code>MediaRecorder</code> has no <code>timeslice</code>. The actual <code>recorder.mimeType</code> is read after start, and the tracks are stopped afterwards.</li>
+<li><strong>Non-destructive processing</strong>: the recorded bytes are stored untouched. The final blob is decoded once to compute <code>trimStartMs</code>, <code>trimEndMs</code>, <code>gainDb</code> (peak-normalised first, LUFS later behind a flag) and <code>durationMs</code>. Playback applies them via buffer offsets and a <code>GainNode</code>.</li>
+<li><strong>Codecs</strong>: Safari records AAC in MP4; Chrome records Opus in WebM. A capability test checks whether this device can decode each clip. Clips it can't decode are flagged "re-record" (US-4.5).</li>
+</ul>
+<h2>9. Data model</h2>
+<h3>9.1 Snapshot (format version 1)</h3>
 <div class="diagram"><pre class="mermaid">erDiagram
   SNAPSHOT ||--o{ PLACE : contains
   SNAPSHOT ||--|| SETTINGS : contains
-  SNAPSHOT ||--o{ BLOB : contains
-  PLACE ||--o{ SCENE_PIECE : has
   PLACE ||--o{ THING : has
   THING ||--o{ CLIP : has
-  CLIP }o--|| BLOB : &quot;audio (by sha256)&quot;
-  THING ||--o{ CUE_OVERRIDE : &quot;per language&quot;
-
+  CLIP }o--|| BLOB : &quot;audio by sha256&quot;
   SNAPSHOT {
     int formatVersion
+    int minReaderFormat
     string appVersion
     string exportedAt
+    string deviceId
   }
   PLACE {
     uuid id
     string name
-    string backdropPreset
+    string backdrop
     string skyColor
     string groundColor
+    json pieces
     json thingOrder
-    int rev
     string createdAt
     string updatedAt
-  }
-  SCENE_PIECE {
-    uuid id
-    uuid placeId
-    string kind
-    json stroke
-    string color
-    int z
-    int rev
   }
   THING {
     uuid id
@@ -277,8 +243,8 @@ th { font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(-
     json outline
     string color
     json eyes
-    string motion
-    int rev
+    json motion
+    json cues
     string createdAt
     string updatedAt
   }
@@ -288,22 +254,19 @@ th { font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(-
     string language
     string kind
     int take
-    string blobHash
+    string blobSha256
     string mime
     int durationMs
-    float lufs
+    int trimStartMs
+    int trimEndMs
+    float gainDb
     string createdAt
   }
   BLOB {
     string sha256
     string mime
     int size
-  }
-  CUE_OVERRIDE {
-    uuid thingId
-    string language
-    json lines
-    string article
+    string createdAt
   }
   SETTINGS {
     json languages
@@ -311,30 +274,39 @@ th { font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(-
     int sleepMinutes
     string gateKind
     bool reduceMotion
-    json findItByPlace
     uuid currentPlaceId
+    string updatedAt
   }</pre></div>
-<h3>7.2 Decisions that keep it exportable and future-proof</h3>
+<p>Field notes:
+- <code>PLACE.pieces</code> is an ordered array of <code>{ id, kind: 'shape' | 'yarn', stroke, color }</code>. Array order is drawing order.
+- <code>THING.names</code> maps language to the typed name. <code>THING.cues</code> maps language to <code>{ lines?, article? }</code> (the parent's edits to the "Where is the…" scripts).
+- <code>THING.motion</code> is <code>{ kind: 'preset', preset, params }</code> (section 6).
+- <code>CLIP.kind</code> is <code>name</code>, <code>prompt</code> or <code>sound</code>. Uniqueness: <code>(thingId, language, kind, take)</code>.</p>
+<h3>9.2 Decisions (and which ones are one-way doors)</h3>
+<p><strong>One-way doors</strong>, frozen in M1 with golden-fixture tests:
+- The snapshot shape and <code>formatVersion</code>/<code>minReaderFormat</code> semantics.
+- IndexedDB store names and keys.
+- The clip uniqueness key.
+- Palette keys.
+- UUID IDs generated on the device.
+- The 4:3 normalised coordinate system.
+- Blobs addressed by SHA-256.
+- The export container (zip, below).</p>
+<p>Everything else is a two-way door and gets light ceremony: renderer, DSP, motion presets, elements, Python framework.</p>
 <ul>
-<li><strong>IDs are client-generated UUIDs</strong> (<code>crypto.randomUUID()</code>). Nothing depends on a database to assign IDs, so export, import and a later server sync can't collide.</li>
-<li><strong>Geometry is stored, never pixels.</strong> Strokes are arrays of points normalised to the board (0–1 on both axes, 3 decimals) after simplification. Felt rendering, the tap mask and thumbnails are all derived, so a palette or renderer change never needs a data migration.</li>
-<li><strong>Colours are palette keys</strong> (<code>"red"</code>, <code>"sky"</code>), not hex. Sunny is one palette; changing or adding palettes changes nothing in the data.</li>
-<li><strong>Audio is content-addressed.</strong> A clip points at a blob by its SHA-256. Blobs live in their own store, are deduplicated, and are the unit of upload later (idempotent by hash). Each clip keeps its <code>mime</code> (AAC/MP4 on Safari, Opus/WebM on Chrome), duration and measured loudness.</li>
-<li><strong>Languages are BCP 47 tags</strong> (<code>"sv"</code>, <code>"en-GB"</code>). Every clip has one from day one. <code>Thing.names</code> is a map <code>language → typed name</code>. The play language rule lives in Settings.</li>
-<li><strong>Clip kinds</strong> are <code>name</code>, <code>prompt</code> (the "Where is the…" variants, takes 1–3) and <code>sound</code>. Uniqueness: <code>(thingId, language, kind, take)</code>.</li>
-<li><strong>Ordering is explicit</strong> (<code>Place.thingOrder</code>, <code>ScenePiece.z</code>), never implied by insertion order.</li>
-<li><strong>Every mutable entity has <code>rev</code></strong> (incremented on change) and <code>updatedAt</code>. That's enough for "keep the newer one" when merge or sync arrive, with no schema change.</li>
-<li><strong>Script templates are shipped data, not user data:</strong> <code>data/scripts/&lt;lang&gt;.json</code> holds <code>{ language, lines: ["Where is the {name}?", …], articles?: […] }</code>. Only per-thing edits (<code>CUE_OVERRIDE</code>) are user data.</li>
-<li><strong>Drafts</strong> are stored in their own IndexedDB store as <code>{ id, step, partialThing }</code>. They are excluded from exports.</li>
+<li><strong>IDs</strong>: <code>crypto.randomUUID()</code> via <code>env.newId</code>, so export, import and a later backup never collide.</li>
+<li><strong>Geometry</strong>: simplified points on the 4:3 board, 3 decimals. Felt, masks and thumbnails are derived.</li>
+<li><strong>Colours</strong> are palette keys (<code>"red"</code>, <code>"sky"</code>), so palettes can change without migrating data.</li>
+<li><strong>Languages</strong> are BCP 47 tags (<code>"sv"</code>, <code>"en"</code>). Every clip has one from day one.</li>
+<li><strong>Sync is not promised by format 1.</strong> <code>updatedAt</code> is for display. Merge or sync will need format 2 (<code>rev</code>, <code>deviceId</code> per write, tombstones), which <code>migrate()</code> exists for. This avoids pretending that clocks on two iPads agree.</li>
+<li><strong>Script templates and motion presets</strong> are shipped data, not user data.</li>
 </ul>
-<h3>7.3 IndexedDB layout</h3>
-<p>One database <code>klaras-farm</code>, versioned with IndexedDB's own <code>onupgradeneeded</code>:</p>
+<h3>9.3 IndexedDB layout</h3>
 <div class="tablewrap"><table>
 <thead>
 <tr>
-<th>Object store</th>
+<th>Store</th>
 <th>Key</th>
-<th>Indexes</th>
 <th>Notes</th>
 </tr>
 </thead>
@@ -342,228 +314,368 @@ th { font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(-
 <tr>
 <td><code>places</code></td>
 <td><code>id</code></td>
-<td>—</td>
-<td>includes nothing but place fields</td>
-</tr>
-<tr>
-<td><code>pieces</code></td>
-<td><code>id</code></td>
-<td><code>placeId</code></td>
-<td>scene pieces</td>
+<td>pieces embedded</td>
 </tr>
 <tr>
 <td><code>things</code></td>
 <td><code>id</code></td>
-<td><code>placeId</code></td>
-<td></td>
+<td>index <code>placeId</code></td>
 </tr>
 <tr>
 <td><code>clips</code></td>
 <td><code>id</code></td>
-<td><code>thingId</code>, <code>[thingId, language, kind, take]</code> (unique)</td>
-<td>metadata only</td>
+<td>index <code>thingId</code>; unique index <code>[thingId, language, kind, take]</code></td>
 </tr>
 <tr>
 <td><code>blobs</code></td>
 <td><code>sha256</code></td>
-<td>—</td>
-<td><code>{ sha256, mime, size, bytes: Blob }</code></td>
+<td><code>{ sha256, mime, size, createdAt, bytes: ArrayBuffer }</code>. Stored as an ArrayBuffer, not a Blob (WebKit has had Blob-in-IndexedDB bugs)</td>
 </tr>
 <tr>
 <td><code>settings</code></td>
 <td><code>"settings"</code></td>
-<td>—</td>
 <td>single record</td>
 </tr>
 <tr>
 <td><code>drafts</code></td>
 <td><code>id</code></td>
-<td>—</td>
-<td>not exported</td>
+<td>not exported; may reference blobs</td>
+</tr>
+<tr>
+<td><code>usage</code></td>
+<td>day</td>
+<td>local counters, never sent anywhere</td>
 </tr>
 <tr>
 <td><code>meta</code></td>
 <td>key</td>
-<td>—</td>
-<td><code>formatVersion</code>, install id</td>
+<td><code>formatVersion</code>, <code>deviceId</code>, <code>lastWriterAppVersion</code>, <code>lastExportAt</code></td>
 </tr>
 </tbody>
 </table></div>
-<p>Deleting a thing deletes its clips in the same transaction; orphaned blobs are swept on the next boot (a pure "which hashes are unreferenced" function).</p>
-<h3>7.4 Export format</h3>
-<p>A single <code>.klarasfarm</code> file: JSON with a <code>formatVersion</code>, the entities above, and blobs as base64. For a realistic family (around 10 places, 40 things, 200 short clips at 10–50 KB) this is a few MB, which is fine for the share sheet. If it grows, version 2 can switch to a zip without changing the entities.</p>
-<pre><code class="language-json">{
-  &quot;formatVersion&quot;: 1,
-  &quot;appVersion&quot;: &quot;0.1.0&quot;,
-  &quot;exportedAt&quot;: &quot;2026-11-03T13:00:00Z&quot;,
-  &quot;settings&quot;: { &quot;languages&quot;: [&quot;sv&quot;, &quot;en&quot;], &quot;playLanguage&quot;: &quot;alternate&quot;, &quot;...&quot;: &quot;...&quot; },
-  &quot;places&quot;: [{ &quot;id&quot;: &quot;…&quot;, &quot;name&quot;: &quot;Farm&quot;, &quot;backdropPreset&quot;: &quot;meadow&quot;, &quot;thingOrder&quot;: [&quot;…&quot;], &quot;rev&quot;: 3 }],
-  &quot;pieces&quot;: [{ &quot;id&quot;: &quot;…&quot;, &quot;placeId&quot;: &quot;…&quot;, &quot;kind&quot;: &quot;shape&quot;, &quot;stroke&quot;: [[0.12, 0.41], [0.13, 0.40]], &quot;color&quot;: &quot;red&quot;, &quot;z&quot;: 2 }],
-  &quot;things&quot;: [{ &quot;id&quot;: &quot;…&quot;, &quot;placeId&quot;: &quot;…&quot;, &quot;names&quot;: { &quot;sv&quot;: &quot;gris&quot;, &quot;en&quot;: &quot;pig&quot; }, &quot;outline&quot;: [[0.4, 0.6]], &quot;color&quot;: &quot;pink&quot;, &quot;eyes&quot;: [[0.52, 0.48]], &quot;motion&quot;: &quot;walk&quot; }],
-  &quot;clips&quot;: [{ &quot;id&quot;: &quot;…&quot;, &quot;thingId&quot;: &quot;…&quot;, &quot;language&quot;: &quot;sv&quot;, &quot;kind&quot;: &quot;name&quot;, &quot;take&quot;: 1, &quot;blobHash&quot;: &quot;9f2c…&quot;, &quot;mime&quot;: &quot;audio/mp4&quot;, &quot;durationMs&quot;: 820, &quot;lufs&quot;: -16.1 }],
-  &quot;blobs&quot;: { &quot;9f2c…&quot;: { &quot;mime&quot;: &quot;audio/mp4&quot;, &quot;base64&quot;: &quot;…&quot; } }
-}
-</code></pre>
-<p>Import is <strong>validate → migrate → replace</strong> (US-8.3): a pure <code>validate(snapshot)</code> rejects corrupt or newer files without touching storage; <code>migrate(snapshot)</code> steps <code>formatVersion</code> up one version at a time; then one transaction clears and writes every store. The later server backup stores exactly this document, encrypted on the device.</p>
-<h2>8. Key sequences</h2>
-<h3>Tap and hear</h3>
-<div class="diagram"><pre class="mermaid">sequenceDiagram
-  participant K as Klara
-  participant B as kf-board
-  participant ES as EditSession
-  participant PE as PlayEngine
-  participant AE as AudioEngine
-  K-&gt;&gt;B: pointerdown (x, y)
-  B-&gt;&gt;ES: hold started?
-  ES--&gt;&gt;B: Play mode, start hold timer (no visuals for 0.5 s)
-  B-&gt;&gt;PE: tap(x, y, pointerType, contact size)
-  PE-&gt;&gt;PE: palm check, hitTest (geometry), mash policy
-  PE-&gt;&gt;AE: play(clipIds for thing: name, then sound)
-  AE-&gt;&gt;AE: resume context if suspended, start buffers
-  PE--&gt;&gt;B: reaction state (jump, confetti)
-  K-&gt;&gt;B: pointerup (before 1.5 s)
-  B-&gt;&gt;ES: cancel hold</pre></div>
-<h3>Record a name</h3>
-<div class="diagram"><pre class="mermaid">sequenceDiagram
-  participant P as Parent
-  participant R as kf-recorder
-  participant M as MicRecorder (adapter)
-  participant D as dsp (pure)
-  participant VS as VoiceStore
-  participant Repo as Repository
-  P-&gt;&gt;R: tap mic
-  R-&gt;&gt;M: start() (permission prompt on first use)
-  M--&gt;&gt;R: PCM frames (for level + noise floor)
-  R-&gt;&gt;D: shouldStop(levels, noiseFloor, elapsed)
-  D--&gt;&gt;R: stop after pause / Stop / 5 s cap
-  R-&gt;&gt;M: stop()
-  M--&gt;&gt;R: encoded blob (AAC or Opus) + PCM
-  R-&gt;&gt;D: trim + measure loudness + gain
-  P-&gt;&gt;R: Listen, then Keep
-  R-&gt;&gt;VS: saveClip(thingId, language, kind, take, blob)
-  VS-&gt;&gt;VS: hash blob (SHA-256), replace old clip only now
-  VS--&gt;&gt;Repo: via PersistenceService (one transaction)</pre></div>
-<h3>Export and import</h3>
-<div class="diagram"><pre class="mermaid">flowchart LR
-  A[&quot;Stores (in memory)&quot;] --&gt; B[&quot;portability.buildSnapshot()&lt;br/&gt;(pure)&quot;]
-  C[&quot;BlobStore&quot;] --&gt; B
-  B --&gt; D[&quot;JSON file&lt;br/&gt;.klarasfarm&quot;] --&gt; E[&quot;Share sheet / Files&quot;]
-  F[&quot;Chosen file&quot;] --&gt; G[&quot;validate()&lt;br/&gt;(pure)&quot;]
-  G -- invalid or newer --&gt; H[&quot;Parent message,&lt;br/&gt;nothing changed&quot;]
-  G -- ok --&gt; I[&quot;migrate()&lt;br/&gt;(pure)&quot;] --&gt; J[&quot;Confirm: replaces N places,&lt;br/&gt;M things, K recordings&quot;] --&gt; K[&quot;Repository.replaceAll()&lt;br/&gt;(one transaction)&quot;] --&gt; L[&quot;Stores re-hydrate&quot;]</pre></div>
-<h2>9. Code layout</h2>
-<pre><code>klaras-farm/
-├── app.yaml                     Wasmer Edge app (python, static, healthz)
-├── backend/
-│   ├── kf/
-│   │   ├── config.py            reads env once → typed Settings
-│   │   ├── app.py               ASGI app factory: routes + static files
-│   │   ├── health.py            /healthz (process up)
-│   │   └── backup/              (later, US-8.4)
-│   │       ├── domain.py        snapshot envelope rules (pure)
-│   │       ├── repository.py    port: BackupRepository
-│   │       ├── postgres.py      adapter (pg8000, TLS, DB_* env)
-│   │       └── volume.py        adapter (temp dir in tests, /data on Edge)
-│   ├── migrations/0001_*.sql
-│   └── tests/
-│       ├── unit/                one file per module, no I/O
-│       └── e2e/                 testcontainers Postgres + temp-dir volume
-├── web/                         served as static files
-│   ├── index.html               one document: play + edit (justified below)
-│   ├── manifest.webmanifest  sw.js
-│   ├── css/  main.css tokens.css (Sunny palette) …
-│   ├── data/scripts/en.json sv.json …
-│   └── js/
-│       ├── main.js              composition root: builds adapters, stores, engines
-│       ├── domain/
-│       │   ├── geometry/        simplify.js close-gap.js fill.js hit-test.js snap.js
-│       │   ├── library/         place.js thing.js piece.js rules.js
-│       │   ├── voice/           clip.js scripts.js language.js
-│       │   ├── dsp/             noise-floor.js trim.js loudness.js
-│       │   ├── play/            wander.js mash.js reaction.js find-it.js sleep.js
-│       │   ├── edit/            hold-gesture.js adult-check.js session.js guided.js
-│       │   └── portability/     snapshot.js validate.js migrate.js
-│       ├── stores/              library-store.js voice-store.js settings-store.js edit-session.js
-│       ├── engines/             play-engine.js audio-engine.js persistence-service.js
-│       ├── ports/               repository.js blob-store.js audio-out.js mic.js system.js (JSDoc types)
-│       ├── adapters/            idb/ webaudio/ media-recorder/ browser/ fake/
-│       ├── render/              felt.js palette.js (canvas drawing, no state)
-│       └── components/&lt;tag&gt;/    Tag.js tag.js tag.css tag.test.js
-└── tests/
-    ├── boundaries.test.js       import rules (below)
-    └── e2e/                     Playwright specs, driven by the Python e2e harness
+<p>IndexedDB rules:
+- <strong>Async work before the transaction.</strong> Hashing (<code>crypto.subtle.digest</code>) and <code>blob.arrayBuffer()</code> run <em>before</em> the transaction opens; awaiting anything else inside a transaction makes Safari commit it early.
+- <strong>Write once and wait.</strong> One transaction per intent, <code>durability: 'strict'</code>, awaited. The UI shows "Kept" only after commit. There's no debounced background saving, because iOS kills Home Screen apps without warning.
+- <strong>Other tabs and versions.</strong> <code>onversionchange</code> closes the database; <code>onblocked</code> shows "close other Klara's Farm windows".
+- <strong>Orphaned blobs.</strong> These are swept at boot only if hydration and migration had no errors. The sweep runs in one readwrite transaction over <code>clips</code>, <code>drafts</code> and <code>blobs</code>, counts drafts as references, and deletes only blobs older than 24 h.
+- <strong>Storage is per app.</strong> The Home Screen app's storage is separate from Safari's. The first run detects <code>display-mode: standalone</code> and asks for Add to Home Screen <em>before</em> any content is created.</p>
+<h3>9.4 Export file</h3>
+<p>A <strong>zip</strong> (stored, not compressed, since the audio is already compressed), written and read with the small vendored <code>fflate</code> module:</p>
+<pre><code>klaras-farm-2026-11-03.zip
+├── manifest.json        snapshot: formatVersion, minReaderFormat, settings, places, things, clips
+└── blobs/&lt;sha256&gt;       raw audio bytes, one file per blob
 </code></pre>
 <ul>
-<li><strong>One HTML document.</strong> The vanilla-web skill defaults to many documents, but allows a single document when state spans sections. Here play and edit share one live board and one <code>EditSession</code>, so one document is the right call.</li>
-<li><strong>Composition root.</strong> <code>main.js</code> is the only file that knows concrete adapters. Tests build the same graph with fakes.</li>
-<li><strong>Import boundaries</strong> (checked by <code>tests/boundaries.test.js</code>, which parses imports):</li>
-<li><code>domain/**</code> imports only <code>domain/**</code> (and nothing from the DOM or browser globals).</li>
-<li><code>stores/**</code> and <code>engines/**</code> import <code>domain/**</code> and <code>ports/**</code>, never <code>adapters/**</code> or <code>components/**</code>.</li>
-<li><code>components/**</code> import stores and engines through properties set by <code>main.js</code>, never adapters.</li>
-<li>Python: <code>kf/backup/domain.py</code> imports no I/O modules.</li>
+<li><strong>Why zip and not JSON with base64:</strong> base64 adds a third to the size, and parsing one giant string needs several copies in memory on an iPad. Zip streams, and future versions never need to keep a base64 reader around.</li>
+<li><strong>Export:</strong></li>
+<li>The file is pre-built when the export screen opens, so the share call doesn't lose the user gesture.</li>
+<li><code>navigator.share({ files })</code> is used after checking <code>canShare</code>.</li>
+<li><code>&lt;a download&gt;</code> is never used in the Home Screen app, because it can navigate away.</li>
+<li><strong>Import is validate → migrate → back up → replace → verify:</strong></li>
+<li><code>validateSnapshot</code> checks the schema, rejects newer files whose <code>minReaderFormat</code> exceeds what this app supports, recomputes every blob's SHA-256, checks every <code>clip.blobSha256</code> resolves, and rejects duplicate clip keys.</li>
+<li><code>migrate</code> steps the format up one version at a time.</li>
+<li>An automatic pre-import export of the current data is written to <code>meta</code> and offered as "Undo import" until the next boot.</li>
+<li>One transaction replaces everything.</li>
+<li>The stores re-hydrate from what was read back, not from memory.</li>
+<li><strong>Starter content</strong> (Farm, Sea, Kitchen) ships as a bundled export file imported on first run, so portability is exercised from day one.</li>
 </ul>
-<h2>10. Backend on Wasmer Edge</h2>
-<ul>
-<li><strong>v1 (M):</strong> a small Python ASGI app serving <code>web/</code> with correct MIME types and cache headers (immutable hashed assets, no-cache <code>index.html</code> and <code>sw.js</code>) and <code>/healthz</code>. The framework choice (plain ASGI vs. Starlette) is settled in SPIKE-1 together with the Postgres driver.</li>
-<li><strong>app.yaml:</strong> <code>kind: wasmer.io/App.v0</code>, <code>capabilities.database.engine: postgres</code> (never omitted; an omitted engine means MySQL) and one database region, added when backup lands; <code>instaboot</code> on <code>/</code> to hide cold starts; a volume declared only when it's needed.</li>
-<li><strong>Later (US-8.4):</strong> <code>PUT /api/backup/{familyId}/{sha256}</code> stores the encrypted snapshot (idempotent by hash), <code>GET</code> returns the latest. The server can't read contents. Blobs go in Postgres rather than the volume, because volume writes take seconds to appear on other instances.</li>
-</ul>
-<h2>11. Testing strategy</h2>
+<h3>9.5 Versions and compatibility</h3>
+<p>There are three version numbers, and one rule for how they relate:</p>
 <div class="tablewrap"><table>
 <thead>
 <tr>
-<th>Layer</th>
-<th>Test type</th>
-<th>Runs in</th>
-<th>Examples</th>
+<th>Version</th>
+<th>Changes when</th>
+<th>Rule</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>domain/**</code> (JS)</td>
-<td>unit, test-first</td>
-<td>Node's built-in test runner, single process</td>
-<td>close-gap fixtures, hit test with overlaps, mash policy, hold recogniser with fake clock, adult check with seeded random, template fill + fallback, validate/migrate snapshots, LUFS on fixture WAVs</td>
+<td>IndexedDB version</td>
+<td>stores or indexes change</td>
+<td>additive only; never delete or rename a store in place</td>
 </tr>
 <tr>
-<td><code>stores/**</code>, <code>engines/**</code></td>
-<td>unit with fakes</td>
-<td>Node, single process</td>
-<td>store emits one <code>change</code> per intent; PersistenceService batches writes; PlayEngine pauses on finger down</td>
+<td><code>formatVersion</code> / <code>minReaderFormat</code></td>
+<td>snapshot shape changes</td>
+<td>adding optional fields bumps <code>formatVersion</code> only; <code>minReaderFormat</code> rises only for changes old apps can't read</td>
 </tr>
 <tr>
-<td><code>adapters/**</code></td>
-<td>contract tests</td>
-<td>real browser (Playwright: WebKit, Chromium, Firefox)</td>
-<td>IndexedDB repository passes the same contract suite as the in-memory fake; Web Audio resume after forced <code>suspend()</code></td>
-</tr>
-<tr>
-<td><code>components/**</code></td>
-<td>element tests</td>
-<td>real browser</td>
-<td><code>tag.test.js</code> per element, including a delayed-module pre-upgrade test</td>
-</tr>
-<tr>
-<td>Python <code>kf/**</code></td>
-<td>unit</td>
-<td>pytest, single process</td>
-<td>config parsing, routes, snapshot envelope rules</td>
-</tr>
-<tr>
-<td>Whole system</td>
-<td>e2e, cross-process</td>
-<td>pytest harness spawning the Python app as a subprocess, a <strong>testcontainers Postgres</strong>, a <strong>temp dir as the volume</strong>, and Playwright browsers</td>
-<td>see below</td>
+<td>Server schema (later)</td>
+<td>backup tables change</td>
+<td>expand, then contract, one release apart</td>
 </tr>
 </tbody>
 </table></div>
-<p><strong>E2E suite</strong> (several assertions per suite, one environment per suite):
-- <em>v1:</em> the harness starts Postgres and a temp volume from day one, spawns the app against them, and checks that <code>/healthz</code> responds and static assets have the right headers. In the browser it adds a thing and records with Chromium's fake microphone, reloads and asserts persistence, then exports in one browser context and imports in a second, separate one and asserts byte-identical data. Starting Postgres now, even though v1 barely uses it, proves the harness and the pg8000 TLS path early (SPIKE-1).
-- <em>With backup (US-8.4):</em> back up from browser A, restore in browser B with a pairing code, restart the app process between the two, run two app processes against the same Postgres and volume, and re-upload the same hash (idempotent).</p>
-<h2>12. Open decisions</h2>
 <ul>
+<li><strong>Client data never rolls back.</strong> An app rollback must still read data written by the newer version (N−1 compatibility).</li>
+<li><strong>A newer database is not an error.</strong> If an older cached app meets a newer database (<code>VersionError</code>), it fetches the update and reloads.</li>
+<li><strong>Destructive migrations make a safety copy first.</strong> Before any destructive IndexedDB upgrade, the app writes an automatic export.</li>
+</ul>
+<h2>10. Delivery: assets, service worker, updates</h2>
+<p>There is no build step. Instead:
+- <strong>Hashed paths without a bundler.</strong> At startup the Python app hashes <code>web/</code>. It serves the assets under <code>/v/&lt;hash&gt;/…</code> (relative ES module imports keep working inside that prefix) and renders <code>sw.js</code> with that version and the precache list. <code>index.html</code> and <code>sw.js</code> are never cached. The last few <code>/v/&lt;hash&gt;/</code> sets stay servable.
+- <strong>Fast first load.</strong> <code>index.html</code> has <code>modulepreload</code> links for the boot module graph.
+- <strong>Service worker update policy:</strong>
+  - Everything is precached and served cache-first.
+  - The new worker installs in the background and <strong>never calls <code>skipWaiting</code> on its own</strong>. It takes over on the next cold launch, or when a parent taps "Update ready" in edit mode. It never activates mid-play or mid-recording.
+  - Caches are versioned and replaced as one unit, so old and new assets never mix.
+- <code>/healthz</code> returns the git SHA and the asset hash, which deploy smoke tests use.</p>
+<h2>11. Flags and learning</h2>
+<ul>
+<li><strong>Flags</strong> (<code>flags.js</code>): pure defaults, overridable from a hidden parent screen or <code>?flag=name:value</code>. They are read only in <code>main.js</code> and never exported. Candidates:</li>
+<li>hold duration</li>
+<li>gate kind</li>
+<li>motion speed</li>
+<li>auto-stop recording</li>
+<li>LUFS normalisation</li>
+<li>adaptive pixel ratio</li>
+<li>sleep timer</li>
+<li>Say it!</li>
+</ul>
+<p>Each flag is removed within two milestones of its decision.
+- <strong>Usage counters</strong> (the <code>usage</code> store) are local only and never sent:
+  - sessions and their length
+  - taps per thing
+  - taps that hit nothing
+  - holds abandoned at the adult check
+  - step where guided add was left
+  - recording retakes</p>
+<p>A "This week" card in Settings shows them, with a "Copy feedback" button. This tells us, for example, whether Klara triggers the hold gate by accident.</p>
+<h2>12. Backend on Wasmer Edge</h2>
+<ul>
+<li><strong>Now:</strong> one <code>backend/app.py</code> (ASGI, about 60 lines, framework settled in SPIKE-1) that serves <code>/v/&lt;hash&gt;/</code> with correct MIME and cache headers, renders <code>sw.js</code>, and serves <code>/healthz</code>, plus its tests. Config is read <strong>lazily per request</strong>, never at import time, so instaboot snapshots never freeze environment values or open sockets.</li>
+<li><strong>app.yaml:</strong> <code>kind: wasmer.io/App.v0</code>, <code>instaboot</code> on <code>/</code>. When backup lands: <code>capabilities.database.engine: postgres</code> (never omitted; omitted means MySQL, and the engine can't change later) in one database region. No volume until something needs one.</li>
+<li><strong>Guard test</strong> on <code>app.yaml</code> fails if a volume is renamed or removed (that deletes its data), if <code>engine: postgres</code> disappears, or if the region changes.</li>
+</ul>
+<h2>13. Later: encrypted backup (US-8.4), designed now so it doesn't change the model</h2>
+<ul>
+<li><strong>Keys:</strong></li>
+<li>A random 256-bit family key, using AES-GCM via WebCrypto, with the envelope header as additional authenticated data.</li>
+<li>The key is wrapped by a recovery code (printed, or as a QR code) and optionally a passphrase (PBKDF2-SHA256, 600k+ iterations, parameters stored).</li>
+<li>The envelope (<code>alg</code>, <code>kdf</code>, <code>params</code>, <code>v</code>) is versioned separately from <code>formatVersion</code>.</li>
+<li><strong>Upload unit:</strong> each blob is encrypted and uploaded separately, keyed by HMAC(family key, sha256), so the server can't tell two families' identical clips apart. The manifest is a small encrypted document.</li>
+<li><strong>Server-side identity and retention:</strong></li>
+<li><code>familyId</code> is random, with a write/delete token stored hashed.</li>
+<li>Retention keeps the last 5 manifests plus 4 weekly ones; unreferenced blobs are garbage-collected.</li>
+<li><strong>What still leaks</strong> (documented for parents): sizes (padded to buckets), timing, IP address, backup count. Without the recovery code or a device, the data is gone. Deleting a family deletes its rows, and destroying the key makes any residual copies unreadable.</li>
+<li><strong>Server migrations:</strong></li>
+<li>A <code>schema_migrations</code> table, taken under <code>pg_advisory_lock</code>.</li>
+<li>Run as a pipeline step, never on instance boot.</li>
+<li>Expand/contract only, so the previous activated app version still works.</li>
+<li><strong>Database access:</strong> pg8000 over TLS (<code>sslmode=require</code> semantics) on the injected <code>DB_*</code> variables, with one connection per request.</li>
+</ul>
+<h2>14. Code layout</h2>
+<pre><code>klaras-farm/
+├── app.yaml
+├── backend/
+│   ├── app.py                   static /v/&lt;hash&gt;/, sw.js render, /healthz
+│   └── tests/
+│       ├── test_app.py          unit, single process
+│       └── e2e/                 pytest + pytest-playwright; testcontainers Postgres; temp-dir volume
+├── web/
+│   ├── index.html               one document: play + edit
+│   ├── sw.template.js  manifest.webmanifest
+│   ├── css/                     main.css (layer order), tokens.css (Sunny palette), …
+│   ├── data/                    scripts/&lt;lang&gt;.json, motions/&lt;id&gt;.json, starter.zip
+│   ├── vendor/fflate.js         pinned, MIT
+│   └── js/
+│       ├── main.js              composition root (only place that knows io/ and flags)
+│       ├── types.js             JSDoc typedefs: Snapshot, Place, Thing, Clip, Motion, …
+│       ├── flags.js
+│       ├── farm/ geometry/ motion/ play/ edit/ dsp/     pure, unit-tested in Node
+│       ├── farm-store.js  session.js  play-engine.js
+│       ├── io/                  idb-repo.js memory-repo.js renderer.js audio.js mic.js wake.js share.js
+│       └── components/&lt;tag&gt;/    &lt;Tag&gt;Element.js define.js &lt;tag&gt;.css &lt;tag&gt;.test.js
+└── tests/
+    ├── boundaries.test.js       import rules + banned globals outside io/
+    ├── builders.js              aPlace().withThing(aThing().withClip(…)) → valid entities and snapshots
+    ├── contracts/repository.contract.js   runs against memory-repo (Node) and idb-repo (browsers)
+    ├── fixtures/exports/v1/…    frozen export files (never edited; CI checks their hashes)
+    ├── fixtures/idb/…           scripts that seed every past IndexedDB version
+    ├── fixtures/audio/…         real iPad AAC/MP4 and Chrome Opus/WebM recordings
+    └── visual/                  pixel baselines for the felt renderer
+</code></pre>
+<p>The registration file is <code>define.js</code>, not <code>tag.js</code>, because <code>Tag.js</code> and <code>tag.js</code> collide on case-insensitive file systems (macOS).</p>
+<h2>15. Quality system: how we iterate without regressions</h2>
+<h3>15.1 Test layers</h3>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>What</th>
+<th>Where it runs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pure domain</td>
+<td>unit tests written first; property tests for geometry and <code>migrate</code>; golden pose tables for motion presets; 90% branch coverage on <code>farm/</code> <code>geometry/</code> <code>motion/</code> <code>play/</code> <code>edit/</code> <code>dsp/</code></td>
+<td>Node built-in runner, single process, under 10 s</td>
+</tr>
+<tr>
+<td>Stores</td>
+<td>intents with the memory repo and fixed env: one <code>change</code> per intent; failed write leaves state unchanged</td>
+<td>Node, single process</td>
+</tr>
+<tr>
+<td>Repository contract</td>
+<td>one suite, run on the memory repo (Node) and the IndexedDB repo (WebKit, Chromium, Firefox), including fault injection: quota exceeded on the nth write, abort mid-replace</td>
+<td>Node + browsers</td>
+</tr>
+<tr>
+<td>Migrations</td>
+<td>every frozen export fixture → validate → migrate → replace in real IndexedDB → equals its expected canonical snapshot; every seeded past IndexedDB version opens and keeps its data; <code>blocked</code>/<code>versionchange</code> paths</td>
+<td>browsers</td>
+</tr>
+<tr>
+<td>Elements</td>
+<td><code>&lt;tag&gt;.test.js</code> per element, including a delayed-module pre-upgrade test</td>
+<td><code>@playwright/test</code> in three engines</td>
+</tr>
+<tr>
+<td>Visual</td>
+<td>felt renderer baselines (each shape × palette, eyes, a scene; hit mask matches drawn outline)</td>
+<td>one pinned Chromium in Docker; <code>--update-baselines</code> diffs reviewed in the PR</td>
+</tr>
+<tr>
+<td>Backend</td>
+<td><code>app.py</code> routes, headers, sw.js rendering, lazy config, <code>app.yaml</code> guard</td>
+<td>pytest, single process</td>
+</tr>
+<tr>
+<td>E2E (cross-process)</td>
+<td>about 6 specs, several assertions each</td>
+<td>pytest + pytest-playwright</td>
+</tr>
+</tbody>
+</table></div>
+<h3>15.2 E2E suite</h3>
+<p>The harness is shared by all specs:
+- Ports are assigned by the OS.
+- The Python app runs as a subprocess with a <strong>temp dir as its volume</strong>.
+- Readiness is checked by polling <code>/healthz</code> with a deadline (no sleeps).
+- A <strong>session-scoped testcontainers Postgres</strong> is started lazily for the specs that request it.
+- Logs and Playwright traces are kept on failure.
+- State is seeded by importing a builder-made snapshot (not by clicking).
+- A test-only <code>persistence.flush()</code> hook exists only with <code>?e2e=1</code>, and a test proves the shipped page doesn't expose it.
+- <strong>No automatic retries:</strong> a flaky test is quarantined within 24 hours, with a ticket.</p>
+<p>Specs:
+1. <strong>Smoke:</strong> Postgres container up and migration <code>0001</code> applied (satisfies the fixed requirement and keeps SPIKE-1's TLS path proven); <code>/healthz</code> shows the SHA; MIME and cache headers; <code>sw.js</code> version.
+2. <strong>Persistence:</strong> add a thing, record a name (Chromium fake microphone), reload, the data is still there.
+3. <strong>Portability:</strong> export in browser context A, import in a separate context B, then compare canonical snapshots (sorted keys, entities sorted by id, <code>exportedAt</code> excluded).
+4. <strong>Update:</strong> install v1, deploy v2 into the same server process; the old page keeps working with no mixed assets, and v2 takes over on the next launch.
+5. <strong>Offline:</strong> load after install with the server stopped.
+6. <strong>(Later) Backup:</strong> back up from A, restart the app process, restore in B, run two app processes against one Postgres, and confirm re-upload is idempotent.</p>
+<h3>15.3 CI gates and budgets</h3>
+<div class="diagram"><pre class="mermaid">flowchart LR
+  A[&quot;pre-push&lt;br/&gt;lint + types + domain + stores&lt;br/&gt;+ boundaries · &amp;lt;10 s&quot;] --&gt; B[&quot;PR&lt;br/&gt;browser contracts + elements (3 engines)&lt;br/&gt;+ migrations + visual · &amp;lt;4 min&quot;]
+  B --&gt; C[&quot;PR&lt;br/&gt;e2e (pytest + Postgres + temp volume)&lt;br/&gt;· &amp;lt;5 min&quot;]
+  C --&gt; D[&quot;main&lt;br/&gt;wasmer deploy --no-default&quot;]
+  D --&gt; E[&quot;smoke against version URL&lt;br/&gt;healthz SHA, assets, sw.js&quot;]
+  E --&gt; F[&quot;activate&quot;]
+  F --&gt; G[&quot;smoke again&quot;]
+  G -- fail --&gt; H[&quot;activate previous dav_ id&lt;br/&gt;(recorded before deploy)&quot;]</pre></div>
+<ul>
+<li>Types: JSDoc in <code>types.js</code>, checked by <code>tsc --noEmit --checkJs</code> (no build output).</li>
+<li>Lint: ESLint with <code>@eslint/js</code> plus the banned-globals rule; Prettier.</li>
+<li>The WebKit tap-to-sound latency is tracked as the median of 20 runs, not a hard gate (shared CI runners vary).</li>
+<li>Nightly: mutation testing on the pure folders, the full browser matrix, and the SPIKE-1 TLS check against Wasmer's managed Postgres.</li>
+</ul>
+<h3>15.4 What only a real iPad can prove</h3>
+<p>Linux WebKit in CI isn't iOS. It doesn't cover AAC recording, the audio session and mute switch, Home Screen storage, the share sheet, or gestures at the screen edges. These live in <code>tests/manual-ipad.md</code>. The checklist takes 15 minutes or less, and each item lists the paths that trigger it (for example <code>io/audio.js</code>, <code>io/mic.js</code>, <code>sw.template.js</code>). CI labels a PR "iPad check needed" only when one of those paths changes. Each run is logged per release.</p>
+<h3>15.5 Definition of done</h3>
+<p>A failing test first; all gates green; if the data shape changed, a new format version, a migration step and a new frozen fixture; triggered iPad checks run; flags cleaned up on schedule.</p>
+<h2>16. Milestones (each goes on the family iPad and gets a demo)</h2>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th></th>
+<th>Milestone</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>M0</td>
+<td>Walking skeleton</td>
+<td>Python on Wasmer serves <code>/v/&lt;hash&gt;/</code> and <code>sw.js</code>; one preset place, one built-in thing; tap makes it jump and play a bundled clip; installs to the Home Screen; e2e harness green (smoke spec with Postgres + temp volume)</td>
+</tr>
+<tr>
+<td>M1</td>
+<td>Parent's voice, safely kept</td>
+<td>temporary hidden gate to record a name on starter things; IndexedDB with persistence request; export/import (zip) with the format frozen and fixture v1 committed</td>
+</tr>
+<tr>
+<td>M2</td>
+<td>Draw a thing</td>
+<td>outline, auto-close and fill, felt sprites, colour, walk preset, cap of 4</td>
+</tr>
+<tr>
+<td>M3</td>
+<td>Alive</td>
+<td>eye stamping, float preset, blink and wander, wake lock, audio recovery, usage counters</td>
+</tr>
+<tr>
+<td>M4</td>
+<td>Real edit mode</td>
+<td>hold, adult check, auto-close; the thing card (re-record, redraw, recolour, rename, delete + Undo); flags screen</td>
+</tr>
+<tr>
+<td>M5</td>
+<td>Places and questions</td>
+<td>starter Farm/Sea/Kitchen as bundled import; create and switch places; backdrops and scene strokes; scripted "Where is the…" recordings</td>
+</tr>
+<tr>
+<td>M6</td>
+<td>Finish the gift</td>
+<td>second language, sleep timer, privacy screen, delete all data, Guided Access guide, "Update ready" flow</td>
+</tr>
+<tr>
+<td>M7</td>
+<td>Next level</td>
+<td>Find it game, motion sliders, encrypted backup</td>
+</tr>
+</tbody>
+</table></div>
+<h2>17. What the review changed</h2>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Reviewer</th>
+<th>Main changes adopted</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Simplicity skeptic</td>
+<td>One <code>FarmStore</code> over one snapshot instead of three stores; no PersistenceService (awaited writes); only the repository is a port, with time/random/IDs passed as arguments; six domain folders; flattened session <code>{mode, panel}</code>; pieces embedded in places; conventions for intents, errors and events; <code>define.js</code> naming; one-file backend</td>
+</tr>
+<tr>
+<td>QA lead</td>
+<td>Frozen export fixtures and IndexedDB upgrade tests; canonical comparison; builders; contract suite with fault injection; visual baselines in pinned Chromium; service worker update e2e; e2e harness rules and no retries; CI stages with time budgets; banned globals; path-triggered iPad checklist; definition of done</td>
+</tr>
+<tr>
+<td>iPad web specialist</td>
+<td>Rendering section (cached background, pre-rendered sprites, fixed timestep, Renderer owns rAF); ArrayBuffer blobs and async-before-transaction; Home Screen storage separation; AnalyserNode recording and non-destructive trim/gain; audio session and interruption handling; share-sheet details; asset hashing by the Python app</td>
+</tr>
+<tr>
+<td>Data and release engineer</td>
+<td>Version and compatibility policy (additive only, N−1, <code>minReaderFormat</code>); safe import (hash checks, pre-import backup, verify after write); safe orphan sweep; zip export; no false sync promise; backup crypto design; server migration rules; deploy pipeline with canary, smoke tests and rollback; lazy config for instaboot; <code>app.yaml</code> guard</td>
+</tr>
+<tr>
+<td>Product manager</td>
+<td>Milestones M0–M7 with a walking skeleton first; one-way vs two-way doors; flags; local usage counters; update-ready flow; starter content as a bundled export; performance budgets on a named target iPad</td>
+</tr>
+</tbody>
+</table></div>
+<p>Where reviewers disagreed:
+- <strong>Postgres in the PR gate.</strong> The QA lead and the skeptic wanted it nightly only; the fixed requirement wins. It stays in the smoke spec as a lazy, session-scoped container, so other specs don't pay for it.
+- <strong>Scripted questions.</strong> The product manager suggested postponing them because Find it targets 18 months+. They stay, since Lorentz asked for them, but land in M5 rather than earlier.</p>
+<h2>18. Open decisions</h2>
+<ul>
+<li>Which iPad (model and iPadOS version) Klara will use. This sets the performance budgets and the minimum OS.</li>
 <li>Plain ASGI or Starlette (SPIKE-1).</li>
-<li>Whether to encrypt local IndexedDB data at rest (not needed for v1; backup is encrypted regardless).</li>
-<li>Parent UI language and which script languages ship first.</li>
+<li>Parent UI language and the first script languages.</li>
 </ul>
 </div>

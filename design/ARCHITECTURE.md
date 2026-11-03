@@ -1,223 +1,201 @@
 # Klara's Farm: architecture and software design
 
-Status: proposal v1. Builds on `DESIGN.md`, `USER_STORIES.md` and the approved UX in `sketches/ux-flows.html`.
+Status: **v2**, revised after review by five adversarial reviewers (QA lead, product manager, iPad web-platform specialist, simplicity skeptic, data and release engineer). All five said "approve with changes"; the changes are applied below and summarised in section 16. Builds on `DESIGN.md`, `USER_STORIES.md` and the approved UX in `sketches/ux-flows.html`.
 
-## 1. Principles
+## 1. Goals and principles
 
-1. **Local-first.** The iPad holds the only copy of the family's data in v1. The app works offline and never waits on the network. "Local storage" here means the browser's **IndexedDB**: `localStorage` is limited to about 5 MB of strings, which can't hold voice recordings.
-2. **Separation by domain.** Code is grouped by what it is about (library, voice, play, editing, portability), not by technical type. Each domain has a pure core and talks to the outside world only through ports.
-3. **Functional core, imperative shell.** Domain logic is plain functions over plain data: no DOM, no IndexedDB, no `Date.now()`, no `Math.random()`. Everything with side effects lives in adapters at the edge and is injected.
-4. **One writer per piece of state.** Every slice of state has exactly one owner (a store or an engine). Everyone else reads it, or asks the owner to change it.
-5. **The export is the model.** The persisted data, the export file and the future server backup are the same versioned document. Nothing about the data lives only in code or only in the database.
-6. **Test-first at every layer.** Pure modules get small single-process unit tests; adapters get contract tests; cross-process behaviour gets the e2e suite with real Postgres (testcontainers) and temp-dir volumes.
+The overriding goal: **small, frequent iterations with no risk of regression.** Every choice below is judged by "can one developer ship a small change on a Friday and sleep well?"
+
+1. **Local-first.** The iPad holds the family's data. The app works offline and never waits on the network. Storage is the browser's **IndexedDB** (`localStorage` is limited to about 5 MB of strings and can't hold voice clips).
+2. **Separation by domain, kept small.** Code is grouped by what it's about, in six pure domain folders. Only one thing (the repository) needs a formal port.
+3. **Functional core, imperative shell.** Domain code is pure functions over plain data. Time, randomness and IDs are passed in as arguments. A lint rule bans `Date.now`, `Math.random`, `crypto.randomUUID`, `setTimeout` and `requestAnimationFrame` outside `io/` and `main.js`.
+4. **One document of state, one writer.** All persisted state is one in-memory `Snapshot` owned by `FarmStore`. Every change is a pure function `(snapshot, args, env) → { snapshot, writes }`, awaited to disk before the UI says "done".
+5. **The export is the model.** IndexedDB contents, the export file and the future server backup are the same versioned document.
+6. **Data is never lost or rolled back.** Data formats only grow (additive changes). Old exports import forever, proven by frozen fixtures in CI.
+7. **Every gate is automated except what only a real iPad can prove**, and those items are an explicit, short, path-triggered checklist.
 
 ## 2. System context
 
 ```mermaid
 flowchart LR
-  subgraph iPad["iPad (Safari, installed to Home Screen)"]
-    UI["Vanilla JS app<br/>(custom elements + canvas)"]
-    SW["Service worker<br/>(app-shell cache)"]
-    IDB[("IndexedDB<br/>library, clips, blobs,<br/>settings, drafts")]
+  subgraph iPad["iPad (Home Screen app)"]
+    UI["Vanilla JS app<br/>custom elements + canvas"]
+    SW["Service worker<br/>versioned precache"]
+    IDB[("IndexedDB<br/>snapshot, blobs, drafts, usage")]
     UI --- IDB
     UI --- SW
   end
   subgraph Edge["Wasmer Edge"]
-    PY["Python app<br/>static files + /healthz<br/>(later: /api/backup)"]
+    PY["Python app<br/>/v/&lt;hash&gt;/ static, sw.js, /healthz<br/>(later /api/v1/backup)"]
     PG[("Postgres<br/>(later: encrypted backups)")]
-    VOL[("Volume<br/>(later: blob staging)")]
     PY --- PG
-    PY --- VOL
   end
-  SW -- "first load, updates" --> PY
-  UI -. "N: encrypted backup/restore" .-> PY
+  SW -- "install and updates" --> PY
+  UI -. "later: encrypted backup" .-> PY
 ```
 
-- **v1 (M):** the Python app serves the static frontend and `/healthz`. The frontend never calls an API.
-- **Later (US-8.4):** `/api/backup` receives the same snapshot document, encrypted on the device. Postgres stores it, keyed by family and content hash.
+- **Now:** the Python app serves the frontend and `/healthz`. The frontend never calls an API.
+- **Later (US-8.4):** `/api/v1/backup` stores client-encrypted blobs and manifests in Postgres (section 13).
 
 ## 3. Domains
 
-| Domain | Owns | Pure core (examples) | Persisted? |
-|---|---|---|---|
-| **Library** | Places, scene pieces, things | create/rename/delete place, add thing (cap of 4), validate entities | yes |
-| **Geometry** | nothing (stateless) | simplify stroke, close gap, polygon fill/mask, hit test, eye snapping | no |
-| **Voice** | Clips and their blobs; script templates | clip rules (5 s cap, kinds, takes), fill a template with name and article, language fallback | yes |
-| **Audio processing** | nothing (stateless) | noise floor, silence trim, loudness normalise (LUFS), peak limit | no |
-| **Play** | The live simulation: positions, reactions, current question | wander/steering, mash policy, reaction timing, Find it logic, sleep timer | no (ephemeral) |
-| **Editing** | Mode (play, holding, gate, edit, scene edit, guided add, card), drafts | hold-gesture recogniser, adult check, auto-close rules, guided-step machine | drafts only |
-| **Settings** | Family preferences | defaults, validation | yes |
-| **Portability** | Nothing at runtime | snapshot build, validate, migrate between versions, import (replace) | produces files |
+| Folder | What it covers | Examples of pure functions |
+|---|---|---|
+| `farm/` | Places, scene pieces, things, clips, settings, and the snapshot as a whole (validate, migrate, canonicalise) | `addThing`, `deleteThing` (also removes its clips), `saveClip`, `validateSnapshot`, `migrate`, `canonicalJson`, `fillScript` |
+| `geometry/` | Strokes and shapes | `simplify`, `closeGap`, `fillMask`, `hitTest`, `snapInside` |
+| `motion/` | How things move (section 6) | `resolveMotion(preset, params)`, `pose(motion, t)` |
+| `play/` | The live simulation | `step(world, dt, input)`, mash policy, reactions, sleep timer, Find it |
+| `edit/` | Edit-mode access and navigation | `holdRecogniser`, `adultCheck`, `nextSession(state, event, now)` |
+| `dsp/` | Audio analysis | `noiseFloor`, `shouldStop`, `trimPoints`, `loudness`, `gainFor` |
 
-Dependencies point one way: **UI → stores/engines → domain cores**, and **stores → ports ← adapters**. A domain core never imports another domain's store, only its types or pure functions (Library may use Geometry; Play reads Library and Voice data passed in).
+Rules: a domain folder imports only other domain folders and `types.js`. Nothing in them touches the DOM, IndexedDB, audio or browser globals. `tests/boundaries.test.js` parses imports and enforces this.
 
-## 4. Layers
+## 4. Runtime pieces
 
 ```mermaid
 flowchart TB
-  subgraph UI["UI layer (custom elements)"]
-    board["kf-board<br/>(canvas play + edit)"]
-    bar["kf-edit-bar"]
-    card["kf-thing-card"]
-    rec["kf-recorder"]
-    gate["kf-adult-check"]
-    guided["kf-guided-add"]
-    tools["kf-scene-tools"]
-    shelf["kf-scene-shelf"]
+  subgraph UI["UI (custom elements)"]
+    board["kf-board<br/>canvas, pointer input"]
+    panels["kf-edit-bar, kf-thing-card,<br/>kf-recorder, kf-adult-check,<br/>kf-guided-add, kf-scene-tools"]
   end
-  subgraph State["State owners"]
-    LS["LibraryStore"]
-    VS["VoiceStore"]
-    SS["SettingsStore"]
-    ES["EditSession"]
-    PE["PlayEngine"]
-    AE["AudioEngine"]
+  subgraph Owners["State owners (one writer each)"]
+    FS["FarmStore<br/>Snapshot (persisted)"]
+    SE["Session<br/>mode, panel, timers"]
+    PE["PlayEngine<br/>world (ephemeral)"]
   end
-  subgraph Domain["Pure domain cores"]
-    dlib["library/*"]
-    dgeo["geometry/*"]
-    dvoice["voice/*"]
-    ddsp["dsp/*"]
-    dplay["play/*"]
-    dedit["edit/*"]
-    dport["portability/*"]
+  subgraph Shell["Imperative shell (io/)"]
+    RE["Renderer<br/>owns the rAF loop"]
+    AE["AudioEngine<br/>AudioContext, buffers"]
+    REPO["Repository<br/>IndexedDB or memory"]
+    MIC["Mic"]
   end
-  subgraph Ports["Ports (JSDoc interfaces)"]
-    pRepo["Repository"]
-    pBlob["BlobStore"]
-    pAudio["AudioOut"]
-    pMic["MicRecorder"]
-    pSys["Clock, Random,<br/>WakeLock, StoragePersist"]
+  subgraph Pure["Pure domain folders"]
+    D["farm · geometry · motion · play · edit · dsp"]
   end
-  subgraph Adapters["Adapters (side effects)"]
-    aIDB["IndexedDB"]
-    aWA["Web Audio"]
-    aMR["MediaRecorder"]
-    aBr["Browser APIs"]
-    aFake["In-memory fakes<br/>(tests)"]
-  end
-  UI --> State
-  State --> Domain
-  State --> Ports
-  Adapters -. implement .-> Ports
+  UI --> Owners
+  Owners --> Pure
+  FS --> REPO
+  RE --> PE
+  PE --> AE
+  panels --> MIC
 ```
 
-The import-boundary test (section 9) enforces these arrows.
+- **FarmStore** (`EventTarget`): holds the `Snapshot`. Intents call a pure `farm/` function, `await repo.write(writes)` in one transaction, then swap in the new snapshot and emit `change`. If the write fails, nothing changes and the intent rejects with a `FarmError`.
+- **Session** (`EventTarget`): `{ mode: 'play' | 'gate' | 'edit', panel: null | 'card' | 'guided' | 'scene' | 'shelf', lastActivityAt, graceUntil }`, driven by the pure `edit/nextSession`.
+- **PlayEngine**: holds the ephemeral world (positions, reactions, current question). `step(world, dt, input)` is pure, with a fixed 1/60 s timestep and an accumulator, so physics runs the same at 30 or 60 fps (Low Power Mode caps the frame rate at 30). It reads the snapshot but never writes it.
+- **Renderer**: the only owner of `requestAnimationFrame`. Each frame: accumulate time, call `PlayEngine.step`, draw. It stops the loop when the page is hidden, when things sleep, or when nothing moves.
+- **AudioEngine**: owns the `AudioContext`, the decoded-buffer cache and the master limiter. Plays clips by id with each clip's trim and gain.
+- **Repository**: the only port. An IndexedDB implementation and an in-memory fake pass the same contract test suite.
 
 ## 5. State ownership
 
-Each box owns its state. Solid arrows are the only allowed writes; dashed arrows are reads or subscriptions.
-
 ```mermaid
 flowchart LR
-  subgraph Persisted["Persisted (IndexedDB, exported)"]
-    LS["LibraryStore<br/>places, pieces, things"]
-    VS["VoiceStore<br/>clips + blob refs"]
-    SS["SettingsStore<br/>preferences"]
+  subgraph Persisted["Persisted, exported"]
+    FS["FarmStore<br/>Snapshot: places, pieces, things,<br/>clips, settings"]
   end
-  subgraph Session["Session (memory; drafts persisted)"]
-    ES["EditSession<br/>mode, gate state,<br/>active draft"]
+  subgraph SessionState["Memory (drafts persisted)"]
+    SE["Session<br/>mode, panel, timers"]
   end
-  subgraph Runtime["Runtime (memory only, rebuilt any time)"]
-    PE["PlayEngine<br/>positions, reactions,<br/>current question"]
-    AE["AudioEngine<br/>decoded buffers cache,<br/>master bus"]
+  subgraph Runtime["Memory only, rebuilt any time"]
+    PE["PlayEngine<br/>positions, reactions, question"]
+    AE["AudioEngine<br/>decoded buffers"]
+    RC["Renderer caches<br/>background + thing sprites"]
   end
-  Persist["PersistenceService<br/>(write-through, debounced)"]
-  IDB[("IndexedDB")]
+  REPO[("IndexedDB")]
 
-  card["kf-thing-card"] -- "intent: rename, recolour,<br/>redraw, delete" --> LS
-  guided["kf-guided-add"] -- "intent: save draft step" --> ES
-  ES -- "commit draft as thing" --> LS
-  rec["kf-recorder"] -- "intent: save clip" --> VS
-  tools["kf-scene-tools"] -- "intent: add/paint/move piece" --> LS
-  board["kf-board"] -- "intent: hold, tap" --> ES
-  board -- "intent: tap at x,y" --> PE
-  settings["kf-settings"] -- "intent: change" --> SS
-
-  LS -. "change" .-> PE
-  VS -. "change" .-> AE
-  SS -. "change" .-> PE
-  ES -. "mode" .-> PE
-  PE -- "play clip id" --> AE
-  LS -. "change" .-> Persist
-  VS -. "change" .-> Persist
-  SS -. "change" .-> Persist
-  ES -. "draft change" .-> Persist
-  Persist --> IDB
+  card["kf-thing-card"] -- "renameThing, recolourThing,<br/>redrawThing, deleteThing" --> FS
+  guided["kf-guided-add"] -- "saveDraft, commitDraft" --> FS
+  rec["kf-recorder"] -- "saveClip (awaited)" --> FS
+  tools["kf-scene-tools"] -- "addPiece, paintPiece, movePiece" --> FS
+  board["kf-board"] -- "pointer events" --> SE
+  board -- "tap(x, y)" --> PE
+  FS -- "await write (one transaction)" --> REPO
+  FS -. "change" .-> PE
+  FS -. "change" .-> AE
+  FS -. "change" .-> RC
+  SE -. "mode" .-> PE
+  PE -- "play(clipId)" --> AE
 ```
 
-Rules:
-- **Stores** (`LibraryStore`, `VoiceStore`, `SettingsStore`, `EditSession`) are `EventTarget` subclasses, following the vanilla-web conventions. Elements call store methods (intents) and re-render on `change`. A store method validates with the pure core, applies an immutable update, and emits one `change` event with what changed.
-- **PlayEngine** owns the simulation and runs the `requestAnimationFrame` loop. It reads library, voice and settings data but never writes them, and is fully rebuildable from them. That's why nothing in play is persisted.
-- **AudioEngine** owns the `AudioContext`, the decoded-buffer cache and the master limiter. It only plays clips by id; it doesn't know what a thing is.
-- **PersistenceService** subscribes to persisted stores and writes changes through the `Repository` port (debounced, in one IndexedDB transaction per change set). Stores never touch IndexedDB directly.
-- **Boot:** the repository hydrates the stores, and then the PlayEngine and AudioEngine are constructed from them. A failed hydration shows the storage error state from US-8.2.
+Conventions (so every module is built the same way):
+- **Intents** are async verb-noun methods (`renameThing`) that resolve after the write commits and reject with `FarmError { code }`.
+- **Pure validators** return `{ ok: true } | { ok: false, error }` and never throw.
+- **Change events**: `new CustomEvent('change', { detail: { kind: 'thing-renamed', ids: [...] } })`, with past-tense kinds.
+- **Env**: `{ now, rng, newId, deviceId }` is passed into pure functions. Tests pass fixed values.
+- **Boot**: open the repository, hydrate and migrate the snapshot, build the PlayEngine, AudioEngine and Renderer from it. A `VersionError` from IndexedDB means "update needed" (section 10), never "storage error".
 
-## 6. Modes (EditSession)
+## 6. Motion as data
 
-```mermaid
-stateDiagram-v2
-  [*] --> Play
-  Play --> Holding: pointer down (not near edges)
-  Holding --> Play: release / move > 10px / 2nd touch / cancel
-  Holding --> Gate: held 1.5 s
-  Gate --> Play: wrong digit / tap between keys / 10 s idle
-  Gate --> Edit: correct code (rising chime)
-  Play --> Edit: hold within 5 min of auto-close (no gate)
-  Edit --> Play: Done (gate needed next time)
-  Edit --> Play: 60 s idle (auto-close)
-  Edit --> Card: pencil badge
-  Card --> Edit: Close
-  Edit --> GuidedAdd: + Add / hold empty spot
-  GuidedAdd --> Edit: Finish / ✕ (keep draft or discard)
-  Edit --> SceneEdit: Change scene
-  SceneEdit --> Edit: Back to animals
-  Edit --> Shelf: Scenes
-  Shelf --> Edit: pick scene
-  note right of Edit: The 60 s idle timer runs only in Edit,<br/>not in Card, GuidedAdd, SceneEdit or Shelf
-```
+Motion is data played by a small set of tested building blocks, so animations can be tuned without code changes.
 
-The machine is a pure function `next(state, event, now) → state`, fed by the hold-gesture recogniser and the UI. All timing comes from an injected clock, so every arrow above is one unit test.
+- **Building blocks** (`motion/`), each a pure function of time and parameters:
+  - `travel`: ground, water or hop
+  - `bob`
+  - `squash`
+  - `tilt`
+  - `legs`: swinging sticks
+  - `wave`: a body wave or wavy tentacles
+  - `blink`
+- **Presets** are shipped data, `web/data/motions/<id>.json`, for example:
+  ```json
+  { "id": "walk", "version": 1, "travel": { "mode": "ground", "speed": 0.6 },
+    "legs": { "swing": 0.45, "rate": 2 }, "bob": { "amp": 2.5, "rate": 2 }, "squash": { "amp": 0.08 } }
+  ```
+- **Each thing stores** `motion: { preset: "walk", params: { "travel.speed": 0.8, "bob.amp": 3.5 } }`. Parameters override the preset, so a slower, bouncier pig is two numbers. Sliders in edit mode can come later at no data cost.
+- **Later, custom motion** fits the same field: `motion: { kind: "keyframes", tracks: { x: [...], y: [...], tilt: [...] } }`. For example, the parent drags the animal around and the path is recorded as its dance. `kind` defaults to `"preset"`.
+- `pose(motion, t)` returns a transform (position offset, rotation, scale, leg angles) that the Renderer applies to the cached sprite. Motion never changes the drawing data.
+- Tests: each building block is unit tested; each preset gets a golden pose table (poses at fixed times) so a tweak is a visible, reviewed diff.
 
-## 7. Data model
+## 7. Rendering (iPad performance)
 
-### 7.1 Entities
+- **Target device**: the oldest iPad in the family, to be confirmed. Until then, assume an A12-class iPad on iPadOS 17 or later. Budgets on that device: under 6 ms CPU per frame with 4 things, tap to sound under 100 ms, offline cold start under 2 s, under 150 MB memory.
+- **Background cache**: scene, felt texture, grain and stitched border are painted once into an offscreen canvas. It's rebuilt only on resize, place change or scene edit.
+- **Thing sprites**: each thing's felt parts (fill, texture, inset stitch, shadow) are pre-rendered once, at the device pixel ratio, into sprites: body, head, and limbs as separate small sprites. Per frame, only `drawImage` with transforms runs. `shadowBlur`, dashed strokes and clipping (all slow on WebKit) never run per frame.
+- **Coordinates**: the board is fixed at **4:3**, and all stored geometry is normalised to it (0–1 on both axes). In portrait the board is letterboxed.
+- **Memory**: canvases that are no longer used are released (`width = 0`), because iOS has a hard limit on total canvas memory. No OffscreenCanvas or workers.
+- Adaptive pixel ratio (1.5 on slow devices) is a flag (section 11), driven by a frame-time monitor.
+
+## 8. Audio and recording (iPad realities)
+
+- **Unlock and resume**: `AudioContext.resume()` is called synchronously inside the gesture handler on `pointerdown` and `pointerup`. The `suspended` and WebKit's `interrupted` states are handled; the next tap resumes and plays.
+- **Audio session**: `navigator.audioSession.type = "playback"` during play, so the mute switch doesn't silence the voices. It switches to `"play-and-record"` only while recording, and back afterwards.
+- **Buffers**: all clips of the current place are decoded when the place loads (needed for the latency budget). An LRU cache has a byte budget, since decoded audio is about 190 KB per second. `decodeAudioData` receives a copy, because it detaches its input.
+- **Recording**:
+  - `getUserMedia` runs with auto gain control, noise suppression and echo cancellation all off.
+  - An `AnalyserNode` drives the level meter and auto-stop (noise floor in the first 300 ms, stop after about 800 ms below it, Stop button, 5 s cap from the recorder's `start` event).
+  - `MediaRecorder` has no `timeslice`. The actual `recorder.mimeType` is read after start, and the tracks are stopped afterwards.
+- **Non-destructive processing**: the recorded bytes are stored untouched. The final blob is decoded once to compute `trimStartMs`, `trimEndMs`, `gainDb` (peak-normalised first, LUFS later behind a flag) and `durationMs`. Playback applies them via buffer offsets and a `GainNode`.
+- **Codecs**: Safari records AAC in MP4; Chrome records Opus in WebM. A capability test checks whether this device can decode each clip. Clips it can't decode are flagged "re-record" (US-4.5).
+
+## 9. Data model
+
+### 9.1 Snapshot (format version 1)
 
 ```mermaid
 erDiagram
   SNAPSHOT ||--o{ PLACE : contains
   SNAPSHOT ||--|| SETTINGS : contains
-  SNAPSHOT ||--o{ BLOB : contains
-  PLACE ||--o{ SCENE_PIECE : has
   PLACE ||--o{ THING : has
   THING ||--o{ CLIP : has
-  CLIP }o--|| BLOB : "audio (by sha256)"
-  THING ||--o{ CUE_OVERRIDE : "per language"
-
+  CLIP }o--|| BLOB : "audio by sha256"
   SNAPSHOT {
     int formatVersion
+    int minReaderFormat
     string appVersion
     string exportedAt
+    string deviceId
   }
   PLACE {
     uuid id
     string name
-    string backdropPreset
+    string backdrop
     string skyColor
     string groundColor
+    json pieces
     json thingOrder
-    int rev
     string createdAt
     string updatedAt
-  }
-  SCENE_PIECE {
-    uuid id
-    uuid placeId
-    string kind
-    json stroke
-    string color
-    int z
-    int rev
   }
   THING {
     uuid id
@@ -226,8 +204,8 @@ erDiagram
     json outline
     string color
     json eyes
-    string motion
-    int rev
+    json motion
+    json cues
     string createdAt
     string updatedAt
   }
@@ -237,22 +215,19 @@ erDiagram
     string language
     string kind
     int take
-    string blobHash
+    string blobSha256
     string mime
     int durationMs
-    float lufs
+    int trimStartMs
+    int trimEndMs
+    float gainDb
     string createdAt
   }
   BLOB {
     string sha256
     string mime
     int size
-  }
-  CUE_OVERRIDE {
-    uuid thingId
-    string language
-    json lines
-    string article
+    string createdAt
   }
   SETTINGS {
     json languages
@@ -260,196 +235,278 @@ erDiagram
     int sleepMinutes
     string gateKind
     bool reduceMotion
-    json findItByPlace
     uuid currentPlaceId
+    string updatedAt
   }
 ```
 
-### 7.2 Decisions that keep it exportable and future-proof
+Field notes:
+- `PLACE.pieces` is an ordered array of `{ id, kind: 'shape' | 'yarn', stroke, color }`. Array order is drawing order.
+- `THING.names` maps language to the typed name. `THING.cues` maps language to `{ lines?, article? }` (the parent's edits to the "Where is the…" scripts).
+- `THING.motion` is `{ kind: 'preset', preset, params }` (section 6).
+- `CLIP.kind` is `name`, `prompt` or `sound`. Uniqueness: `(thingId, language, kind, take)`.
 
-- **IDs are client-generated UUIDs** (`crypto.randomUUID()`). Nothing depends on a database to assign IDs, so export, import and a later server sync can't collide.
-- **Geometry is stored, never pixels.** Strokes are arrays of points normalised to the board (0–1 on both axes, 3 decimals) after simplification. Felt rendering, the tap mask and thumbnails are all derived, so a palette or renderer change never needs a data migration.
-- **Colours are palette keys** (`"red"`, `"sky"`), not hex. Sunny is one palette; changing or adding palettes changes nothing in the data.
-- **Audio is content-addressed.** A clip points at a blob by its SHA-256. Blobs live in their own store, are deduplicated, and are the unit of upload later (idempotent by hash). Each clip keeps its `mime` (AAC/MP4 on Safari, Opus/WebM on Chrome), duration and measured loudness.
-- **Languages are BCP 47 tags** (`"sv"`, `"en-GB"`). Every clip has one from day one. `Thing.names` is a map `language → typed name`. The play language rule lives in Settings.
-- **Clip kinds** are `name`, `prompt` (the "Where is the…" variants, takes 1–3) and `sound`. Uniqueness: `(thingId, language, kind, take)`.
-- **Ordering is explicit** (`Place.thingOrder`, `ScenePiece.z`), never implied by insertion order.
-- **Every mutable entity has `rev`** (incremented on change) and `updatedAt`. That's enough for "keep the newer one" when merge or sync arrive, with no schema change.
-- **Script templates are shipped data, not user data:** `data/scripts/<lang>.json` holds `{ language, lines: ["Where is the {name}?", …], articles?: […] }`. Only per-thing edits (`CUE_OVERRIDE`) are user data.
-- **Drafts** are stored in their own IndexedDB store as `{ id, step, partialThing }`. They are excluded from exports.
+### 9.2 Decisions (and which ones are one-way doors)
 
-### 7.3 IndexedDB layout
+**One-way doors**, frozen in M1 with golden-fixture tests:
+- The snapshot shape and `formatVersion`/`minReaderFormat` semantics.
+- IndexedDB store names and keys.
+- The clip uniqueness key.
+- Palette keys.
+- UUID IDs generated on the device.
+- The 4:3 normalised coordinate system.
+- Blobs addressed by SHA-256.
+- The export container (zip, below).
 
-One database `klaras-farm`, versioned with IndexedDB's own `onupgradeneeded`:
+Everything else is a two-way door and gets light ceremony: renderer, DSP, motion presets, elements, Python framework.
 
-| Object store | Key | Indexes | Notes |
-|---|---|---|---|
-| `places` | `id` | — | includes nothing but place fields |
-| `pieces` | `id` | `placeId` | scene pieces |
-| `things` | `id` | `placeId` | |
-| `clips` | `id` | `thingId`, `[thingId, language, kind, take]` (unique) | metadata only |
-| `blobs` | `sha256` | — | `{ sha256, mime, size, bytes: Blob }` |
-| `settings` | `"settings"` | — | single record |
-| `drafts` | `id` | — | not exported |
-| `meta` | key | — | `formatVersion`, install id |
+- **IDs**: `crypto.randomUUID()` via `env.newId`, so export, import and a later backup never collide.
+- **Geometry**: simplified points on the 4:3 board, 3 decimals. Felt, masks and thumbnails are derived.
+- **Colours** are palette keys (`"red"`, `"sky"`), so palettes can change without migrating data.
+- **Languages** are BCP 47 tags (`"sv"`, `"en"`). Every clip has one from day one.
+- **Sync is not promised by format 1.** `updatedAt` is for display. Merge or sync will need format 2 (`rev`, `deviceId` per write, tombstones), which `migrate()` exists for. This avoids pretending that clocks on two iPads agree.
+- **Script templates and motion presets** are shipped data, not user data.
 
-Deleting a thing deletes its clips in the same transaction; orphaned blobs are swept on the next boot (a pure "which hashes are unreferenced" function).
+### 9.3 IndexedDB layout
 
-### 7.4 Export format
+| Store | Key | Notes |
+|---|---|---|
+| `places` | `id` | pieces embedded |
+| `things` | `id` | index `placeId` |
+| `clips` | `id` | index `thingId`; unique index `[thingId, language, kind, take]` |
+| `blobs` | `sha256` | `{ sha256, mime, size, createdAt, bytes: ArrayBuffer }`. Stored as an ArrayBuffer, not a Blob (WebKit has had Blob-in-IndexedDB bugs) |
+| `settings` | `"settings"` | single record |
+| `drafts` | `id` | not exported; may reference blobs |
+| `usage` | day | local counters, never sent anywhere |
+| `meta` | key | `formatVersion`, `deviceId`, `lastWriterAppVersion`, `lastExportAt` |
 
-A single `.klarasfarm` file: JSON with a `formatVersion`, the entities above, and blobs as base64. For a realistic family (around 10 places, 40 things, 200 short clips at 10–50 KB) this is a few MB, which is fine for the share sheet. If it grows, version 2 can switch to a zip without changing the entities.
+IndexedDB rules:
+- **Async work before the transaction.** Hashing (`crypto.subtle.digest`) and `blob.arrayBuffer()` run *before* the transaction opens; awaiting anything else inside a transaction makes Safari commit it early.
+- **Write once and wait.** One transaction per intent, `durability: 'strict'`, awaited. The UI shows "Kept" only after commit. There's no debounced background saving, because iOS kills Home Screen apps without warning.
+- **Other tabs and versions.** `onversionchange` closes the database; `onblocked` shows "close other Klara's Farm windows".
+- **Orphaned blobs.** These are swept at boot only if hydration and migration had no errors. The sweep runs in one readwrite transaction over `clips`, `drafts` and `blobs`, counts drafts as references, and deletes only blobs older than 24 h.
+- **Storage is per app.** The Home Screen app's storage is separate from Safari's. The first run detects `display-mode: standalone` and asks for Add to Home Screen *before* any content is created.
 
-```json
-{
-  "formatVersion": 1,
-  "appVersion": "0.1.0",
-  "exportedAt": "2026-11-03T13:00:00Z",
-  "settings": { "languages": ["sv", "en"], "playLanguage": "alternate", "...": "..." },
-  "places": [{ "id": "…", "name": "Farm", "backdropPreset": "meadow", "thingOrder": ["…"], "rev": 3 }],
-  "pieces": [{ "id": "…", "placeId": "…", "kind": "shape", "stroke": [[0.12, 0.41], [0.13, 0.40]], "color": "red", "z": 2 }],
-  "things": [{ "id": "…", "placeId": "…", "names": { "sv": "gris", "en": "pig" }, "outline": [[0.4, 0.6]], "color": "pink", "eyes": [[0.52, 0.48]], "motion": "walk" }],
-  "clips": [{ "id": "…", "thingId": "…", "language": "sv", "kind": "name", "take": 1, "blobHash": "9f2c…", "mime": "audio/mp4", "durationMs": 820, "lufs": -16.1 }],
-  "blobs": { "9f2c…": { "mime": "audio/mp4", "base64": "…" } }
-}
+### 9.4 Export file
+
+A **zip** (stored, not compressed, since the audio is already compressed), written and read with the small vendored `fflate` module:
+
+```
+klaras-farm-2026-11-03.zip
+├── manifest.json        snapshot: formatVersion, minReaderFormat, settings, places, things, clips
+└── blobs/<sha256>       raw audio bytes, one file per blob
 ```
 
-Import is **validate → migrate → replace** (US-8.3): a pure `validate(snapshot)` rejects corrupt or newer files without touching storage; `migrate(snapshot)` steps `formatVersion` up one version at a time; then one transaction clears and writes every store. The later server backup stores exactly this document, encrypted on the device.
+- **Why zip and not JSON with base64:** base64 adds a third to the size, and parsing one giant string needs several copies in memory on an iPad. Zip streams, and future versions never need to keep a base64 reader around.
+- **Export:**
+  - The file is pre-built when the export screen opens, so the share call doesn't lose the user gesture.
+  - `navigator.share({ files })` is used after checking `canShare`.
+  - `<a download>` is never used in the Home Screen app, because it can navigate away.
+- **Import is validate → migrate → back up → replace → verify:**
+  1. `validateSnapshot` checks the schema, rejects newer files whose `minReaderFormat` exceeds what this app supports, recomputes every blob's SHA-256, checks every `clip.blobSha256` resolves, and rejects duplicate clip keys.
+  2. `migrate` steps the format up one version at a time.
+  3. An automatic pre-import export of the current data is written to `meta` and offered as "Undo import" until the next boot.
+  4. One transaction replaces everything.
+  5. The stores re-hydrate from what was read back, not from memory.
+- **Starter content** (Farm, Sea, Kitchen) ships as a bundled export file imported on first run, so portability is exercised from day one.
 
-## 8. Key sequences
+### 9.5 Versions and compatibility
 
-### Tap and hear
+There are three version numbers, and one rule for how they relate:
 
-```mermaid
-sequenceDiagram
-  participant K as Klara
-  participant B as kf-board
-  participant ES as EditSession
-  participant PE as PlayEngine
-  participant AE as AudioEngine
-  K->>B: pointerdown (x, y)
-  B->>ES: hold started?
-  ES-->>B: Play mode, start hold timer (no visuals for 0.5 s)
-  B->>PE: tap(x, y, pointerType, contact size)
-  PE->>PE: palm check, hitTest (geometry), mash policy
-  PE->>AE: play(clipIds for thing: name, then sound)
-  AE->>AE: resume context if suspended, start buffers
-  PE-->>B: reaction state (jump, confetti)
-  K->>B: pointerup (before 1.5 s)
-  B->>ES: cancel hold
-```
+| Version | Changes when | Rule |
+|---|---|---|
+| IndexedDB version | stores or indexes change | additive only; never delete or rename a store in place |
+| `formatVersion` / `minReaderFormat` | snapshot shape changes | adding optional fields bumps `formatVersion` only; `minReaderFormat` rises only for changes old apps can't read |
+| Server schema (later) | backup tables change | expand, then contract, one release apart |
 
-### Record a name
+- **Client data never rolls back.** An app rollback must still read data written by the newer version (N−1 compatibility).
+- **A newer database is not an error.** If an older cached app meets a newer database (`VersionError`), it fetches the update and reloads.
+- **Destructive migrations make a safety copy first.** Before any destructive IndexedDB upgrade, the app writes an automatic export.
 
-```mermaid
-sequenceDiagram
-  participant P as Parent
-  participant R as kf-recorder
-  participant M as MicRecorder (adapter)
-  participant D as dsp (pure)
-  participant VS as VoiceStore
-  participant Repo as Repository
-  P->>R: tap mic
-  R->>M: start() (permission prompt on first use)
-  M-->>R: PCM frames (for level + noise floor)
-  R->>D: shouldStop(levels, noiseFloor, elapsed)
-  D-->>R: stop after pause / Stop / 5 s cap
-  R->>M: stop()
-  M-->>R: encoded blob (AAC or Opus) + PCM
-  R->>D: trim + measure loudness + gain
-  P->>R: Listen, then Keep
-  R->>VS: saveClip(thingId, language, kind, take, blob)
-  VS->>VS: hash blob (SHA-256), replace old clip only now
-  VS-->>Repo: via PersistenceService (one transaction)
-```
+## 10. Delivery: assets, service worker, updates
 
-### Export and import
+There is no build step. Instead:
+- **Hashed paths without a bundler.** At startup the Python app hashes `web/`. It serves the assets under `/v/<hash>/…` (relative ES module imports keep working inside that prefix) and renders `sw.js` with that version and the precache list. `index.html` and `sw.js` are never cached. The last few `/v/<hash>/` sets stay servable.
+- **Fast first load.** `index.html` has `modulepreload` links for the boot module graph.
+- **Service worker update policy:**
+  - Everything is precached and served cache-first.
+  - The new worker installs in the background and **never calls `skipWaiting` on its own**. It takes over on the next cold launch, or when a parent taps "Update ready" in edit mode. It never activates mid-play or mid-recording.
+  - Caches are versioned and replaced as one unit, so old and new assets never mix.
+- `/healthz` returns the git SHA and the asset hash, which deploy smoke tests use.
 
-```mermaid
-flowchart LR
-  A["Stores (in memory)"] --> B["portability.buildSnapshot()<br/>(pure)"]
-  C["BlobStore"] --> B
-  B --> D["JSON file<br/>.klarasfarm"] --> E["Share sheet / Files"]
-  F["Chosen file"] --> G["validate()<br/>(pure)"]
-  G -- invalid or newer --> H["Parent message,<br/>nothing changed"]
-  G -- ok --> I["migrate()<br/>(pure)"] --> J["Confirm: replaces N places,<br/>M things, K recordings"] --> K["Repository.replaceAll()<br/>(one transaction)"] --> L["Stores re-hydrate"]
-```
+## 11. Flags and learning
 
-## 9. Code layout
+- **Flags** (`flags.js`): pure defaults, overridable from a hidden parent screen or `?flag=name:value`. They are read only in `main.js` and never exported. Candidates:
+  - hold duration
+  - gate kind
+  - motion speed
+  - auto-stop recording
+  - LUFS normalisation
+  - adaptive pixel ratio
+  - sleep timer
+  - Say it!
+
+  Each flag is removed within two milestones of its decision.
+- **Usage counters** (the `usage` store) are local only and never sent:
+  - sessions and their length
+  - taps per thing
+  - taps that hit nothing
+  - holds abandoned at the adult check
+  - step where guided add was left
+  - recording retakes
+
+  A "This week" card in Settings shows them, with a "Copy feedback" button. This tells us, for example, whether Klara triggers the hold gate by accident.
+
+## 12. Backend on Wasmer Edge
+
+- **Now:** one `backend/app.py` (ASGI, about 60 lines, framework settled in SPIKE-1) that serves `/v/<hash>/` with correct MIME and cache headers, renders `sw.js`, and serves `/healthz`, plus its tests. Config is read **lazily per request**, never at import time, so instaboot snapshots never freeze environment values or open sockets.
+- **app.yaml:** `kind: wasmer.io/App.v0`, `instaboot` on `/`. When backup lands: `capabilities.database.engine: postgres` (never omitted; omitted means MySQL, and the engine can't change later) in one database region. No volume until something needs one.
+- **Guard test** on `app.yaml` fails if a volume is renamed or removed (that deletes its data), if `engine: postgres` disappears, or if the region changes.
+
+## 13. Later: encrypted backup (US-8.4), designed now so it doesn't change the model
+
+- **Keys:**
+  - A random 256-bit family key, using AES-GCM via WebCrypto, with the envelope header as additional authenticated data.
+  - The key is wrapped by a recovery code (printed, or as a QR code) and optionally a passphrase (PBKDF2-SHA256, 600k+ iterations, parameters stored).
+  - The envelope (`alg`, `kdf`, `params`, `v`) is versioned separately from `formatVersion`.
+- **Upload unit:** each blob is encrypted and uploaded separately, keyed by HMAC(family key, sha256), so the server can't tell two families' identical clips apart. The manifest is a small encrypted document.
+- **Server-side identity and retention:**
+  - `familyId` is random, with a write/delete token stored hashed.
+  - Retention keeps the last 5 manifests plus 4 weekly ones; unreferenced blobs are garbage-collected.
+- **What still leaks** (documented for parents): sizes (padded to buckets), timing, IP address, backup count. Without the recovery code or a device, the data is gone. Deleting a family deletes its rows, and destroying the key makes any residual copies unreadable.
+- **Server migrations:**
+  - A `schema_migrations` table, taken under `pg_advisory_lock`.
+  - Run as a pipeline step, never on instance boot.
+  - Expand/contract only, so the previous activated app version still works.
+- **Database access:** pg8000 over TLS (`sslmode=require` semantics) on the injected `DB_*` variables, with one connection per request.
+
+## 14. Code layout
 
 ```
 klaras-farm/
-├── app.yaml                     Wasmer Edge app (python, static, healthz)
+├── app.yaml
 ├── backend/
-│   ├── kf/
-│   │   ├── config.py            reads env once → typed Settings
-│   │   ├── app.py               ASGI app factory: routes + static files
-│   │   ├── health.py            /healthz (process up)
-│   │   └── backup/              (later, US-8.4)
-│   │       ├── domain.py        snapshot envelope rules (pure)
-│   │       ├── repository.py    port: BackupRepository
-│   │       ├── postgres.py      adapter (pg8000, TLS, DB_* env)
-│   │       └── volume.py        adapter (temp dir in tests, /data on Edge)
-│   ├── migrations/0001_*.sql
+│   ├── app.py                   static /v/<hash>/, sw.js render, /healthz
 │   └── tests/
-│       ├── unit/                one file per module, no I/O
-│       └── e2e/                 testcontainers Postgres + temp-dir volume
-├── web/                         served as static files
-│   ├── index.html               one document: play + edit (justified below)
-│   ├── manifest.webmanifest  sw.js
-│   ├── css/  main.css tokens.css (Sunny palette) …
-│   ├── data/scripts/en.json sv.json …
+│       ├── test_app.py          unit, single process
+│       └── e2e/                 pytest + pytest-playwright; testcontainers Postgres; temp-dir volume
+├── web/
+│   ├── index.html               one document: play + edit
+│   ├── sw.template.js  manifest.webmanifest
+│   ├── css/                     main.css (layer order), tokens.css (Sunny palette), …
+│   ├── data/                    scripts/<lang>.json, motions/<id>.json, starter.zip
+│   ├── vendor/fflate.js         pinned, MIT
 │   └── js/
-│       ├── main.js              composition root: builds adapters, stores, engines
-│       ├── domain/
-│       │   ├── geometry/        simplify.js close-gap.js fill.js hit-test.js snap.js
-│       │   ├── library/         place.js thing.js piece.js rules.js
-│       │   ├── voice/           clip.js scripts.js language.js
-│       │   ├── dsp/             noise-floor.js trim.js loudness.js
-│       │   ├── play/            wander.js mash.js reaction.js find-it.js sleep.js
-│       │   ├── edit/            hold-gesture.js adult-check.js session.js guided.js
-│       │   └── portability/     snapshot.js validate.js migrate.js
-│       ├── stores/              library-store.js voice-store.js settings-store.js edit-session.js
-│       ├── engines/             play-engine.js audio-engine.js persistence-service.js
-│       ├── ports/               repository.js blob-store.js audio-out.js mic.js system.js (JSDoc types)
-│       ├── adapters/            idb/ webaudio/ media-recorder/ browser/ fake/
-│       ├── render/              felt.js palette.js (canvas drawing, no state)
-│       └── components/<tag>/    Tag.js tag.js tag.css tag.test.js
+│       ├── main.js              composition root (only place that knows io/ and flags)
+│       ├── types.js             JSDoc typedefs: Snapshot, Place, Thing, Clip, Motion, …
+│       ├── flags.js
+│       ├── farm/ geometry/ motion/ play/ edit/ dsp/     pure, unit-tested in Node
+│       ├── farm-store.js  session.js  play-engine.js
+│       ├── io/                  idb-repo.js memory-repo.js renderer.js audio.js mic.js wake.js share.js
+│       └── components/<tag>/    <Tag>Element.js define.js <tag>.css <tag>.test.js
 └── tests/
-    ├── boundaries.test.js       import rules (below)
-    └── e2e/                     Playwright specs, driven by the Python e2e harness
+    ├── boundaries.test.js       import rules + banned globals outside io/
+    ├── builders.js              aPlace().withThing(aThing().withClip(…)) → valid entities and snapshots
+    ├── contracts/repository.contract.js   runs against memory-repo (Node) and idb-repo (browsers)
+    ├── fixtures/exports/v1/…    frozen export files (never edited; CI checks their hashes)
+    ├── fixtures/idb/…           scripts that seed every past IndexedDB version
+    ├── fixtures/audio/…         real iPad AAC/MP4 and Chrome Opus/WebM recordings
+    └── visual/                  pixel baselines for the felt renderer
 ```
 
-- **One HTML document.** The vanilla-web skill defaults to many documents, but allows a single document when state spans sections. Here play and edit share one live board and one `EditSession`, so one document is the right call.
-- **Composition root.** `main.js` is the only file that knows concrete adapters. Tests build the same graph with fakes.
-- **Import boundaries** (checked by `tests/boundaries.test.js`, which parses imports):
-  - `domain/**` imports only `domain/**` (and nothing from the DOM or browser globals).
-  - `stores/**` and `engines/**` import `domain/**` and `ports/**`, never `adapters/**` or `components/**`.
-  - `components/**` import stores and engines through properties set by `main.js`, never adapters.
-  - Python: `kf/backup/domain.py` imports no I/O modules.
+The registration file is `define.js`, not `tag.js`, because `Tag.js` and `tag.js` collide on case-insensitive file systems (macOS).
 
-## 10. Backend on Wasmer Edge
+## 15. Quality system: how we iterate without regressions
 
-- **v1 (M):** a small Python ASGI app serving `web/` with correct MIME types and cache headers (immutable hashed assets, no-cache `index.html` and `sw.js`) and `/healthz`. The framework choice (plain ASGI vs. Starlette) is settled in SPIKE-1 together with the Postgres driver.
-- **app.yaml:** `kind: wasmer.io/App.v0`, `capabilities.database.engine: postgres` (never omitted; an omitted engine means MySQL) and one database region, added when backup lands; `instaboot` on `/` to hide cold starts; a volume declared only when it's needed.
-- **Later (US-8.4):** `PUT /api/backup/{familyId}/{sha256}` stores the encrypted snapshot (idempotent by hash), `GET` returns the latest. The server can't read contents. Blobs go in Postgres rather than the volume, because volume writes take seconds to appear on other instances.
+### 15.1 Test layers
 
-## 11. Testing strategy
+| Layer | What | Where it runs |
+|---|---|---|
+| Pure domain | unit tests written first; property tests for geometry and `migrate`; golden pose tables for motion presets; 90% branch coverage on `farm/` `geometry/` `motion/` `play/` `edit/` `dsp/` | Node built-in runner, single process, under 10 s |
+| Stores | intents with the memory repo and fixed env: one `change` per intent; failed write leaves state unchanged | Node, single process |
+| Repository contract | one suite, run on the memory repo (Node) and the IndexedDB repo (WebKit, Chromium, Firefox), including fault injection: quota exceeded on the nth write, abort mid-replace | Node + browsers |
+| Migrations | every frozen export fixture → validate → migrate → replace in real IndexedDB → equals its expected canonical snapshot; every seeded past IndexedDB version opens and keeps its data; `blocked`/`versionchange` paths | browsers |
+| Elements | `<tag>.test.js` per element, including a delayed-module pre-upgrade test | `@playwright/test` in three engines |
+| Visual | felt renderer baselines (each shape × palette, eyes, a scene; hit mask matches drawn outline) | one pinned Chromium in Docker; `--update-baselines` diffs reviewed in the PR |
+| Backend | `app.py` routes, headers, sw.js rendering, lazy config, `app.yaml` guard | pytest, single process |
+| E2E (cross-process) | about 6 specs, several assertions each | pytest + pytest-playwright |
 
-| Layer | Test type | Runs in | Examples |
-|---|---|---|---|
-| `domain/**` (JS) | unit, test-first | Node's built-in test runner, single process | close-gap fixtures, hit test with overlaps, mash policy, hold recogniser with fake clock, adult check with seeded random, template fill + fallback, validate/migrate snapshots, LUFS on fixture WAVs |
-| `stores/**`, `engines/**` | unit with fakes | Node, single process | store emits one `change` per intent; PersistenceService batches writes; PlayEngine pauses on finger down |
-| `adapters/**` | contract tests | real browser (Playwright: WebKit, Chromium, Firefox) | IndexedDB repository passes the same contract suite as the in-memory fake; Web Audio resume after forced `suspend()` |
-| `components/**` | element tests | real browser | `tag.test.js` per element, including a delayed-module pre-upgrade test |
-| Python `kf/**` | unit | pytest, single process | config parsing, routes, snapshot envelope rules |
-| Whole system | e2e, cross-process | pytest harness spawning the Python app as a subprocess, a **testcontainers Postgres**, a **temp dir as the volume**, and Playwright browsers | see below |
+### 15.2 E2E suite
 
-**E2E suite** (several assertions per suite, one environment per suite):
-- *v1:* the harness starts Postgres and a temp volume from day one, spawns the app against them, and checks that `/healthz` responds and static assets have the right headers. In the browser it adds a thing and records with Chromium's fake microphone, reloads and asserts persistence, then exports in one browser context and imports in a second, separate one and asserts byte-identical data. Starting Postgres now, even though v1 barely uses it, proves the harness and the pg8000 TLS path early (SPIKE-1).
-- *With backup (US-8.4):* back up from browser A, restore in browser B with a pairing code, restart the app process between the two, run two app processes against the same Postgres and volume, and re-upload the same hash (idempotent).
+The harness is shared by all specs:
+- Ports are assigned by the OS.
+- The Python app runs as a subprocess with a **temp dir as its volume**.
+- Readiness is checked by polling `/healthz` with a deadline (no sleeps).
+- A **session-scoped testcontainers Postgres** is started lazily for the specs that request it.
+- Logs and Playwright traces are kept on failure.
+- State is seeded by importing a builder-made snapshot (not by clicking).
+- A test-only `persistence.flush()` hook exists only with `?e2e=1`, and a test proves the shipped page doesn't expose it.
+- **No automatic retries:** a flaky test is quarantined within 24 hours, with a ticket.
 
-## 12. Open decisions
+Specs:
+1. **Smoke:** Postgres container up and migration `0001` applied (satisfies the fixed requirement and keeps SPIKE-1's TLS path proven); `/healthz` shows the SHA; MIME and cache headers; `sw.js` version.
+2. **Persistence:** add a thing, record a name (Chromium fake microphone), reload, the data is still there.
+3. **Portability:** export in browser context A, import in a separate context B, then compare canonical snapshots (sorted keys, entities sorted by id, `exportedAt` excluded).
+4. **Update:** install v1, deploy v2 into the same server process; the old page keeps working with no mixed assets, and v2 takes over on the next launch.
+5. **Offline:** load after install with the server stopped.
+6. **(Later) Backup:** back up from A, restart the app process, restore in B, run two app processes against one Postgres, and confirm re-upload is idempotent.
 
+### 15.3 CI gates and budgets
+
+```mermaid
+flowchart LR
+  A["pre-push<br/>lint + types + domain + stores<br/>+ boundaries · &lt;10 s"] --> B["PR<br/>browser contracts + elements (3 engines)<br/>+ migrations + visual · &lt;4 min"]
+  B --> C["PR<br/>e2e (pytest + Postgres + temp volume)<br/>· &lt;5 min"]
+  C --> D["main<br/>wasmer deploy --no-default"]
+  D --> E["smoke against version URL<br/>healthz SHA, assets, sw.js"]
+  E --> F["activate"]
+  F --> G["smoke again"]
+  G -- fail --> H["activate previous dav_ id<br/>(recorded before deploy)"]
+```
+
+- Types: JSDoc in `types.js`, checked by `tsc --noEmit --checkJs` (no build output).
+- Lint: ESLint with `@eslint/js` plus the banned-globals rule; Prettier.
+- The WebKit tap-to-sound latency is tracked as the median of 20 runs, not a hard gate (shared CI runners vary).
+- Nightly: mutation testing on the pure folders, the full browser matrix, and the SPIKE-1 TLS check against Wasmer's managed Postgres.
+
+### 15.4 What only a real iPad can prove
+
+Linux WebKit in CI isn't iOS. It doesn't cover AAC recording, the audio session and mute switch, Home Screen storage, the share sheet, or gestures at the screen edges. These live in `tests/manual-ipad.md`. The checklist takes 15 minutes or less, and each item lists the paths that trigger it (for example `io/audio.js`, `io/mic.js`, `sw.template.js`). CI labels a PR "iPad check needed" only when one of those paths changes. Each run is logged per release.
+
+### 15.5 Definition of done
+
+A failing test first; all gates green; if the data shape changed, a new format version, a migration step and a new frozen fixture; triggered iPad checks run; flags cleaned up on schedule.
+
+## 16. Milestones (each goes on the family iPad and gets a demo)
+
+| | Milestone | Contents |
+|---|---|---|
+| M0 | Walking skeleton | Python on Wasmer serves `/v/<hash>/` and `sw.js`; one preset place, one built-in thing; tap makes it jump and play a bundled clip; installs to the Home Screen; e2e harness green (smoke spec with Postgres + temp volume) |
+| M1 | Parent's voice, safely kept | temporary hidden gate to record a name on starter things; IndexedDB with persistence request; export/import (zip) with the format frozen and fixture v1 committed |
+| M2 | Draw a thing | outline, auto-close and fill, felt sprites, colour, walk preset, cap of 4 |
+| M3 | Alive | eye stamping, float preset, blink and wander, wake lock, audio recovery, usage counters |
+| M4 | Real edit mode | hold, adult check, auto-close; the thing card (re-record, redraw, recolour, rename, delete + Undo); flags screen |
+| M5 | Places and questions | starter Farm/Sea/Kitchen as bundled import; create and switch places; backdrops and scene strokes; scripted "Where is the…" recordings |
+| M6 | Finish the gift | second language, sleep timer, privacy screen, delete all data, Guided Access guide, "Update ready" flow |
+| M7 | Next level | Find it game, motion sliders, encrypted backup |
+
+## 17. What the review changed
+
+| Reviewer | Main changes adopted |
+|---|---|
+| Simplicity skeptic | One `FarmStore` over one snapshot instead of three stores; no PersistenceService (awaited writes); only the repository is a port, with time/random/IDs passed as arguments; six domain folders; flattened session `{mode, panel}`; pieces embedded in places; conventions for intents, errors and events; `define.js` naming; one-file backend |
+| QA lead | Frozen export fixtures and IndexedDB upgrade tests; canonical comparison; builders; contract suite with fault injection; visual baselines in pinned Chromium; service worker update e2e; e2e harness rules and no retries; CI stages with time budgets; banned globals; path-triggered iPad checklist; definition of done |
+| iPad web specialist | Rendering section (cached background, pre-rendered sprites, fixed timestep, Renderer owns rAF); ArrayBuffer blobs and async-before-transaction; Home Screen storage separation; AnalyserNode recording and non-destructive trim/gain; audio session and interruption handling; share-sheet details; asset hashing by the Python app |
+| Data and release engineer | Version and compatibility policy (additive only, N−1, `minReaderFormat`); safe import (hash checks, pre-import backup, verify after write); safe orphan sweep; zip export; no false sync promise; backup crypto design; server migration rules; deploy pipeline with canary, smoke tests and rollback; lazy config for instaboot; `app.yaml` guard |
+| Product manager | Milestones M0–M7 with a walking skeleton first; one-way vs two-way doors; flags; local usage counters; update-ready flow; starter content as a bundled export; performance budgets on a named target iPad |
+
+Where reviewers disagreed:
+- **Postgres in the PR gate.** The QA lead and the skeptic wanted it nightly only; the fixed requirement wins. It stays in the smoke spec as a lazy, session-scoped container, so other specs don't pay for it.
+- **Scripted questions.** The product manager suggested postponing them because Find it targets 18 months+. They stay, since Lorentz asked for them, but land in M5 rather than earlier.
+
+## 18. Open decisions
+
+- Which iPad (model and iPadOS version) Klara will use. This sets the performance budgets and the minimum OS.
 - Plain ASGI or Starlette (SPIKE-1).
-- Whether to encrypt local IndexedDB data at rest (not needed for v1; backup is encrypted regardless).
-- Parent UI language and which script languages ship first.
+- Parent UI language and the first script languages.
