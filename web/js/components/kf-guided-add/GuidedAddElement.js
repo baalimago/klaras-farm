@@ -1,5 +1,5 @@
 // <kf-guided-add>: add a thing in seven steps (flow 1; US-3.1–3.5, 3.10, 4.1, 4.2, 4.8).
-// Draw → Felt → Eyes → Moves → Name → Ask → Sound, with a step bar, Back and ✕ (Keep draft / Discard)
+// Draw (one or more shapes glued into one outline) → Felt → Eyes → Moves → Name → Ask → Sound, with a step bar, Back and ✕ (Keep draft / Discard)
 // on every step. The draft is saved after every step and every kept recording, and an open draft for
 // the place is resumed. Props: `services`, `params = {placeId?, at?: [x, y], holdMs?}`.
 // Events: `kf-close` when done (bubbles), `kf-added {thingId}` after a thing was added.
@@ -11,10 +11,12 @@ import {
 import { loadGeometry, snapPoint } from "./geometry.js";
 import { ThingPreview, viewFor, FULL_VIEW } from "./preview.js";
 import { EyeStamper, attachEyeDrag } from "./eyes.js";
+import { ShapeDrawing } from "./drawing.js";
 import { THING_COLORS, hex } from "../../farm/palette.js";
 import { cueLines } from "../../farm/scripts.js";
 
 const DEFAULT_MOTION = Object.freeze({ kind: "preset", preset: "walk", params: {} });
+const DRAW_FELT = "tan";
 
 /** Appends the non-empty children (optional parts of a step are null). */
 const fill = (parent, ...children) => parent.append(...children.filter((c) => c != null && c !== false));
@@ -113,6 +115,11 @@ export class GuidedAddElement extends HTMLElement {
     const motion = step === "moves" ? this.thing.motion?.preset : null;
     this.preview.canvas.classList.toggle("walk", motion === "walk");
     this.preview.canvas.classList.toggle("float", motion === "float");
+    if (step === "draw") {
+      // the shapes so far, merged, at the size they were drawn, in felt (tan until a felt is picked)
+      const outline = this._drawing?.merged ?? [];
+      return this.preview.draw({ ...this.thing, outline: outline.length ? outline : null, eyes: [], color: this.thing.color ?? DRAW_FELT }, { backdrop: false });
+    }
     return this.preview.draw(this.thing, { backdrop: false });
   }
 
@@ -161,6 +168,9 @@ export class GuidedAddElement extends HTMLElement {
   // ---------- steps ----------
 
   _step_draw(panel) {
+    // Several shapes, glued into one outline (drawing.js): every closed stroke is another shape.
+    this._drawing ??= ShapeDrawing.fromOutline(this.thing.outline);
+    const drawing = this._drawing;
     const pad = document.createElement("kf-draw-pad");
     pad.setAttribute("mode", "outline");
     pad.mode = "outline";
@@ -169,26 +179,57 @@ export class GuidedAddElement extends HTMLElement {
     pad.classList.add("kf-ga-pad");
     this.stage.append(pad);
     const warn = h("p", { class: "kf-warning", role: "status", hidden: true, text: "Close the outline: the two ends are too far apart. Draw it again." });
+    const note = h("p", { class: "kf-note" });
+    const status = h("p", { class: "kf-note kf-ga-shapes", role: "status" });
     const next = this._nextBtn();
+    const add = h("button", { class: "kf-btn", type: "button", text: "+ Add a shape", "data-action": "add-shape", onclick: () => { addHint = true; sync(); } });
+    const undo = h("button", { class: "kf-btn", type: "button", text: "Undo last shape", "data-action": "undo-shape", onclick: () => { if (drawing.undo()) this._applyDrawing(); addHint = false; sync(); } });
+    let addHint = false;
+    const sync = () => {
+      const n = drawing.count;
+      note.textContent = !n
+        ? "Draw a big shape with a finger or a pencil. Small gaps close by themselves."
+        : addHint && !drawing.full
+          ? "Draw the next shape on the board, touching the others: a head, ears, a tail…"
+          : "Add more shapes that touch it, like a head or ears. They stick together into one.";
+      status.textContent = !n ? "" : drawing.full ? `${n} shapes: that's the most.` : n === 1 ? "1 shape" : `${n} shapes`;
+      status.hidden = !n;
+      add.disabled = !n || drawing.full;
+      undo.disabled = !n;
+      next.disabled = !canAdvance("draw", this.thing);
+    };
     pad.addEventListener("kf-stroke", (e) => {
       const pts = e.detail?.points;
       if (!Array.isArray(pts) || pts.length < 3) return;
-      const old = this.thing.outline;
-      const [cx, cy] = this.draft.at;
-      const outline = this.geo.fitOutline(pts, { maxW: THING_SIZE.w, maxH: THING_SIZE.h, cx, cy }).map(([x, y]) => [x, y]);
-      if (old?.length && this.thing.eyes.length) this.thing.eyes = refitEyes(this.thing.eyes, old, outline, (p, poly) => snapPoint(this.geo, p, poly));
-      this.thing.outline = outline;
       warn.hidden = true;
-      next.disabled = false;
-      this._redraw();
+      addHint = false;
+      if (drawing.add(pts)) this._applyDrawing();
+      sync();
     });
     pad.addEventListener("kf-stroke-open", () => { warn.hidden = false; });
+    sync();
     fill(panel,
-      h("h2", { text: "Draw its outline" }),
-      h("p", { class: "kf-note", text: "One big shape, with a finger or a pencil. Small gaps close by themselves." }),
+      h("h2", { text: "Draw its shape" }),
+      note,
+      status,
       warn,
-      h("div", { class: "kf-row end" }, h("button", { class: "kf-btn", type: "button", text: "Clear", onclick: () => { this.thing.outline = null; this._render(); } }), next),
+      h("div", { class: "kf-row end" }, add, undo, next),
     );
+  }
+
+  /** Fits the merged drawing to thing size at the spot and keeps the eyes on it, then repaints. */
+  _applyDrawing() {
+    const merged = this._drawing?.merged ?? [];
+    const old = this.thing.outline;
+    if (merged.length < 3) {
+      this.thing.outline = null;
+    } else {
+      const [cx, cy] = this.draft.at;
+      const outline = this.geo.fitOutline(merged, { maxW: THING_SIZE.w, maxH: THING_SIZE.h, cx, cy }).map(([x, y]) => [x, y]);
+      if (old?.length && this.thing.eyes.length) this.thing.eyes = refitEyes(this.thing.eyes, old, outline, (p, poly) => snapPoint(this.geo, p, poly));
+      this.thing.outline = outline;
+    }
+    this._redraw();
   }
 
   _step_felt(panel) {

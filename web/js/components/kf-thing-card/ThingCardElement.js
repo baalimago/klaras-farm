@@ -6,6 +6,7 @@ import { h, ensureElement, languageName } from "../kf-guided-add/dom.js";
 import { loadGeometry, snapPoint } from "../kf-guided-add/geometry.js";
 import { ThingPreview, viewFor, FULL_VIEW } from "../kf-guided-add/preview.js";
 import { EyeStamper } from "../kf-guided-add/eyes.js";
+import { ShapeDrawing } from "../kf-guided-add/drawing.js";
 import { THING_SIZE, MOTIONS, stripClip, refitEyes } from "../kf-guided-add/steps.js";
 import { languageOptions } from "./languages.js";
 import { THING_COLORS, hex } from "../../farm/palette.js";
@@ -360,10 +361,16 @@ export class ThingCardElement extends HTMLElement {
   }
 
   _redraw() {
+    // Starts from the current outline as shape 1; more shapes glue on (drawing.js). Start over for a
+    // fresh drawing. Done fits the merged outline to thing size where the thing is.
     const thing = this.thing;
+    const drawing = ShapeDrawing.fromOutline(thing.outline);
     const { root, stage, preview } = this._overlayShell("redraw");
     preview.setView(FULL_VIEW);
-    preview.draw({ ...thing, eyes: [] });
+    const paint = () => {
+      const outline = drawing.merged;
+      preview.draw({ ...thing, outline: outline.length ? outline : null, eyes: [] });
+    };
     const pad = document.createElement("kf-draw-pad");
     pad.setAttribute("mode", "outline");
     pad.mode = "outline";
@@ -371,24 +378,49 @@ export class ThingCardElement extends HTMLElement {
     pad.services = this.services;
     stage.append(pad);
     const warn = h("p", { class: "kf-warning", role: "status", hidden: true, text: "Close the outline: the two ends are too far apart. Draw it again." });
+    const status = h("p", { class: "kf-note kf-tc-shapes", role: "status" });
+    let changed = false;
     const close = () => { root.remove(); this._overlay = null; if (this._dirty) this._render(); };
+    const undo = h("button", { class: "kf-btn", type: "button", text: "Undo last shape", "data-action": "undo-shape", onclick: () => { if (drawing.undo()) { changed = true; sync(); } } });
+    const restart = h("button", { class: "kf-btn", type: "button", text: "Start over", "data-action": "start-over", onclick: () => { drawing.clear(); changed = true; sync(); } });
+    const done = h("button", {
+      class: "kf-btn primary", type: "button", text: "Done", "data-action": "redraw-done",
+      onclick: async () => {
+        const merged = drawing.merged;
+        if (!changed || merged.length < 3) return close();
+        done.disabled = true;
+        const cur = this.thing;
+        const b = this.geo.bbox(cur.outline);
+        const outline = this.geo.fitOutline(merged, { maxW: THING_SIZE.w, maxH: THING_SIZE.h, cx: b.x + b.w / 2, cy: b.y + b.h / 2 }).map(([x, y]) => [x, y]);
+        const eyes = refitEyes(cur.eyes ?? [], cur.outline, outline, (p, poly) => snapPoint(this.geo, p, poly));
+        await this._update({ outline, eyes });
+        this._dirty = true;
+        close();
+      },
+    });
+    const sync = () => {
+      const n = drawing.count;
+      const count = n === 1 ? "1 shape" : `${n} shapes`;
+      status.textContent = !n ? "Draw a new shape." : drawing.full ? `${count}: that's the most.` : `${count}. Draw more shapes that touch it, or start over.`;
+      undo.disabled = !n;
+      restart.disabled = !n;
+      done.disabled = changed && n === 0;
+      paint();
+    };
     root.append(
       h("div", { class: "kf-sheet kf-tc-overlay-bar" },
-        h("p", { text: "Draw the new outline. Its eyes and recordings stay." }), warn,
-        h("div", { class: "kf-row end" }, h("button", { class: "kf-btn", type: "button", text: "Cancel", onclick: close }))),
+        h("p", { text: "Add shapes (a head, ears…) or start over. Its eyes and recordings stay." }), status, warn,
+        h("div", { class: "kf-row end" }, undo, restart, h("button", { class: "kf-btn", type: "button", text: "Cancel", onclick: close }), done)),
     );
     pad.addEventListener("kf-stroke-open", () => { warn.hidden = false; });
-    pad.addEventListener("kf-stroke", async (e) => {
+    pad.addEventListener("kf-stroke", (e) => {
       const pts = e.detail?.points;
       if (!Array.isArray(pts) || pts.length < 3) return;
-      const cur = this.thing;
-      const b = this.geo.bbox(cur.outline);
-      const outline = this.geo.fitOutline(pts, { maxW: THING_SIZE.w, maxH: THING_SIZE.h, cx: b.x + b.w / 2, cy: b.y + b.h / 2 }).map(([x, y]) => [x, y]);
-      const eyes = refitEyes(cur.eyes ?? [], cur.outline, outline, (p, poly) => snapPoint(this.geo, p, poly));
-      await this._update({ outline, eyes });
-      this._dirty = true;
-      close();
+      warn.hidden = true;
+      if (drawing.add(pts)) changed = true;
+      sync();
     });
+    sync();
     this._overlay = { close };
   }
 

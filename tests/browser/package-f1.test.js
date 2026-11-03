@@ -340,7 +340,10 @@ test("thing card: rename, recolour, motion, + Language, re-record (cancel keeps,
   // Redraw keeps eyes (re-snapped inside) and clips
   const clipCount = (await clips()).length;
   await page.locator('[data-action="redraw"]').click();
+  await page.locator(".kf-tc-shapes").getByText("1 shape").waitFor(); // starts from the current outline
+  await page.locator('[data-action="start-over"]').click();
   await draw(page, circle(0.5, 0.5, 0.4));
+  await page.locator('[data-action="redraw-done"]').click();
   await page.waitForFunction(() => !document.querySelector(".kf-tc-overlay"));
   const redrawn = await thing();
   assert.notDeepEqual(redrawn.outline, [[0.12, 0.5], [0.28, 0.5], [0.28, 0.7], [0.12, 0.7]]);
