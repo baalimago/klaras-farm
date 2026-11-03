@@ -1,1 +1,30 @@
-/* kf-board */
+/* kf-board: a 4:3 felt board, letterboxed inside the stage, never cropped (US-7.7). */
+kf-board {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  align-self: stretch;
+  justify-self: stretch;
+  container-type: size;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+kf-board .kf-board-frame {
+  position: relative;
+  width: min(100cqw, 100cqh * 4 / 3);
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius, 18px);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  background: var(--sky);
+  touch-action: none;
+}
+kf-board canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
