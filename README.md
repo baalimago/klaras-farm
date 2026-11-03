@@ -8,6 +8,7 @@ Live: https://klaras-farm.wasmer.app
 
 - **Play:** tap anything. It jumps and says its name (then its sound, if recorded). Until a grown-up records the name, the iPad's built-in voice says it; in edit mode a small mic dot marks things still waiting for your voice.
 - **Find it:** turn on "Find it in <scene>" in Settings. Now and then, when the board is calm, the app asks "Where is the cow?" (your recorded question, or the iPad's voice). A right tap celebrates; after two wrong taps the right thing glows.
+- **Music:** a soft generated lullaby plays under play (starts with the first tap), dips while a name is said, and fades out in edit mode and when the things fall asleep. Switch it off in Settings → Play.
 - **Edit mode (grown-ups):** press and hold an empty spot or a thing for 1.5 s, then tap the code shown. Things wiggle; pencil edits, cross deletes. The bar has Scenes, Change scene, + Add, Settings and Done. Edit mode closes by itself after a minute.
 - **Settings:** languages (one, or "Mix languages" for a random recorded language on each tap), sleep timer, adult-check kind, export/import (share sheet), privacy, Guided Access guide, delete all data.
 

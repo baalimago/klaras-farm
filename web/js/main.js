@@ -6,6 +6,7 @@ import { readFlags } from "./flags.js";
 import { openIdbRepo } from "./io/idb-repo.js";
 import { MemoryRepo } from "./io/memory-repo.js";
 import { AudioEngine } from "./io/audio.js";
+import { MusicPlayer } from "./io/music.js";
 import { Recorder } from "./io/mic.js";
 import { WakeLock } from "./io/wake.js";
 import * as share from "./io/share.js";
@@ -52,8 +53,12 @@ async function boot() {
   const engine = new PlayEngine({ store, audio, presets, scripts, rng: env.rng, flags, now: () => performance.now() });
   const session = new Session({ now: () => Date.now(), holdMs: flags.holdMs });
   const wake = new WakeLock();
+  const music = new MusicPlayer({
+    audio,
+    shouldPlay: () => session.state.mode === "play" && document.visibilityState === "visible" && !engine.world.asleep,
+  });
 
-  const services = { store, session, engine, audio, recorder, scripts, presets, share, storage, flags, env, appVersion: APP_VERSION, warnings };
+  const services = { store, session, engine, audio, music, recorder, scripts, presets, share, storage, flags, env, appVersion: APP_VERSION, warnings };
   const board = document.getElementById("board");
   board.connect(services);
   services.board = board;
@@ -64,10 +69,15 @@ async function boot() {
   session.addEventListener("change", () => {
     document.getElementById("stage").dataset.mode = session.state.mode;
     if (session.state.mode === "play") wake.request();
+    music.update();
   });
+  // Music starts with the first tap (iOS unlocks audio on a gesture) and after waking from sleep.
+  document.addEventListener("pointerup", () => music.update(), { passive: true });
+  audio.addEventListener("statechange", () => music.update());
   wake.request();
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") { audio.resume(); wake.request(); }
+    music.update();
   });
 
   storage.watchForUpdates(() => shell.updateReady());

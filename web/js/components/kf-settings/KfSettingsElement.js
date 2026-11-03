@@ -207,6 +207,18 @@ export class KfSettingsElement extends HTMLElement {
     ]);
   }
 
+  /** Background music: a device preference (io/music.js), not part of the farm. */
+  musicField() {
+    const music = this.services.music;
+    if (!music) return null;
+    const id = newId("music");
+    const input = h("input", { type: "checkbox", id, "data-key": "music", checked: music.enabled, onchange: (e) => { music.enabled = e.target.checked; } });
+    return h("div", { class: "kf-find-it" }, [
+      h("div", { class: "kf-row" }, [input, h("label", { htmlFor: id, text: "Soft background music" })]),
+      h("p", { class: "kf-note", text: "A quiet lullaby while Klara plays. It dips when a name is said and stops when the things fall asleep." }),
+    ]);
+  }
+
   playSection(s) {
     const sleepId = newId("sleep");
     const gateId = newId("gate");
@@ -222,6 +234,7 @@ export class KfSettingsElement extends HTMLElement {
       ]),
       h("p", { class: "kf-note", text: "After this long, the things yawn and fall asleep, so play ends gently." }),
       this.findItField(),
+      this.musicField(),
       h("div", { class: "kf-field" }, [
         h("label", { htmlFor: gateId, text: "Adult check" }),
         h(

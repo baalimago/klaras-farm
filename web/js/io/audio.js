@@ -2,6 +2,7 @@
 //
 // Graph:  clip source → clip gain (trim fades, gainDb) ┐
 //                                     chime bus (−8 dB) ┼→ limiter (DynamicsCompressor) → output → speakers
+//          music bus (io/music.js) → duck (dips while talking) ┘
 //
 // unlock() and resume() must be called synchronously inside gesture handlers (iPad).
 // Decoded buffers are cached by sha256 with a byte budget (LRU); decodeAudioData gets a copy.
@@ -9,6 +10,7 @@
 //         'decode-failed' {clipId, sha256, reason}, 'statechange' {state}.
 import { CHIMES, CHIME_BUS_DB, HOLD_TONE, SILENT, chimeDuration } from "../dsp/chimes.js";
 import { fromDb } from "../dsp/level.js";
+import { MUSIC_DUCK_DB } from "../dsp/music.js";
 
 const FADE_S = 0.005; // click-free clip edges
 const DEFAULT_BUDGET = 24 * 1024 * 1024; // ~2 min of decoded stereo at 48 kHz
@@ -33,6 +35,7 @@ export class AudioEngine extends EventTarget {
     this._hold = null;
     this._primed = false;
     this.sessionType = "playback";
+    this._talking = 0;
   }
 
   // ---- context and unlocking ----
@@ -132,8 +135,10 @@ export class AudioEngine extends EventTarget {
     const voice = pickVoice(synth.getVoices?.() ?? [], lang);
     if (voice) u.voice = voice;
     this.dispatchEvent(new CustomEvent("speak", { detail: { text, lang } }));
+    this._talk(1);
     return new Promise((ok) => {
-      const done = (v) => { clearTimeout(timer); ok(v); };
+      let settled = false;
+      const done = (v) => { if (settled) return; settled = true; clearTimeout(timer); this._talk(-1); ok(v); };
       const timer = setTimeout(() => done(true), 4000 + text.length * 120);
       u.onend = () => done(true);
       u.onerror = () => done(false);
@@ -143,6 +148,30 @@ export class AudioEngine extends EventTarget {
 
   stopSpeaking() {
     if (this.canSpeak) globalThis.speechSynthesis.cancel();
+  }
+
+  // ---- background music ----
+
+  /** The music bus (created with the context); null before the first gesture. */
+  get musicBus() {
+    return this._ensure() ? this._musicBus : null;
+  }
+
+  /** True while a recording or the built-in voice is playing. */
+  get talking() {
+    return this._talking > 0;
+  }
+
+  _talk(delta) {
+    const was = this._talking > 0;
+    this._talking = Math.max(0, this._talking + delta);
+    const now = this._talking > 0;
+    if (was === now || !this._musicDuck) return;
+    const g = this._musicDuck.gain, t = this._ctx.currentTime;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(g.value, t);
+    // Dip fast before the voice; come back slowly after it.
+    g.linearRampToValueAtTime(now ? fromDb(MUSIC_DUCK_DB) : 1, t + (now ? 0.12 : 0.9));
   }
 
   /** True when this clip's blob failed to decode on this device (US-4.5: flag "re-record"). */
@@ -234,6 +263,11 @@ export class AudioEngine extends EventTarget {
     this._chimeBus = ctx.createGain();
     this._chimeBus.gain.value = fromDb(CHIME_BUS_DB);
     this._chimeBus.connect(limiter);
+    // Background music: its own bus, faded by io/music.js and ducked while a voice plays.
+    this._musicBus = ctx.createGain();
+    this._musicBus.gain.value = 0;
+    this._musicDuck = ctx.createGain();
+    this._musicBus.connect(this._musicDuck).connect(limiter);
     ctx.addEventListener?.("statechange", () => {
       this.dispatchEvent(new CustomEvent("statechange", { detail: { state: ctx.state } }));
       // WebKit 'interrupted' (calls, Siri) and unexpected suspends: try to come back; if iOS
@@ -255,6 +289,15 @@ export class AudioEngine extends EventTarget {
     const ctx = this._ensure();
     if (!ctx) return false;
     this.resume();
+    this._talk(1);
+    try {
+      return await this._sequenceInner(clips, { chimeOnFail, bytes, token });
+    } finally {
+      this._talk(-1);
+    }
+  }
+
+  async _sequenceInner(clips, { chimeOnFail, bytes, token }) {
     let played = 0;
     for (const clip of clips) {
       if (!clip) continue;
@@ -395,7 +438,12 @@ export function pickVoice(voices, lang) {
 }
 
 export function synthChime(ctx, dest, kind, when) {
-  for (const n of CHIMES[kind] ?? []) {
+  synthNotes(ctx, dest, CHIMES[kind] ?? [], when);
+}
+
+/** Schedules notes in the chime note shape (dsp/chimes.js) into `dest`, starting at `when`. */
+export function synthNotes(ctx, dest, notes, when) {
+  for (const n of notes) {
     const t0 = when + n.at;
     const end = t0 + n.attack + n.decay;
     const env = ctx.createGain();
