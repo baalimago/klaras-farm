@@ -1,2 +1,4 @@
 { "lang": "de", "articles": ["der", "die", "das"], "templates": ["Wo ist {the} {name}?", "Kannst du {the} {name} finden?", "Zeig mir {the} {name}!"],
-  "note": "Accusative forms (den) are said naturally; the cue is only a guide." }
+  "note": "Accusative forms (den) are said naturally; the cue is only a guide. Colour words are nouns to fit 'etwas'.",
+  "colorTemplates": ["Finde etwas {color}!", "Wo ist etwas {color}?", "Kannst du etwas {color} finden?"],
+  "colors": { "red": "Rotes", "orange": "Oranges", "yellow": "Gelbes", "green": "Grünes", "blue": "Blaues", "purple": "Lila", "pink": "Rosa", "brown": "Braunes", "white": "Weißes", "grey": "Graues", "black": "Schwarzes" } }

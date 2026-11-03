@@ -174,7 +174,7 @@ export class KfSettingsElement extends HTMLElement {
     ]);
   }
 
-  /** Find it (US-6.3): per scene. Asks in the parent's recorded voice, or the device's voice until then. */
+  /** Find games (US-6.3): per scene, on unless switched off (Place.findIt === false hides the buttons). */
   findItField() {
     const store = this.services.store;
     const place = store.currentPlace;
@@ -186,7 +186,7 @@ export class KfSettingsElement extends HTMLElement {
       type: "checkbox",
       id,
       "data-key": "find-it",
-      checked: place.findIt === true,
+      checked: place.findIt !== false,
       onchange: async (e) => {
         try {
           await store.updatePlace({ placeId: place.id, patch: { findIt: e.target.checked } });
@@ -197,11 +197,12 @@ export class KfSettingsElement extends HTMLElement {
       },
     });
     return h("div", { class: "kf-find-it" }, [
-      h("div", { class: "kf-row" }, [input, h("label", { htmlFor: id, text: `Find it in ${place.name}` })]),
+      h("div", { class: "kf-row" }, [input, h("label", { htmlFor: id, text: `Show find games in ${place.name}` })]),
       h("p", {
         class: "kf-note",
         text:
-          `Now and then the scene asks "Where is the …?" and Klara taps it. ${recorded} of ${things.length} things here have your recorded questions` +
+          `Two round buttons in the bottom corners: 🔍 asks "Where is the …?" (then plays its sound), the coloured dots ask "Find something yellow!". ` +
+          `${recorded} of ${things.length} things here have your recorded questions` +
           (recorded < things.length ? "; the others are asked in the iPad's voice until you record them (thing card → Questions)." : "."),
       }),
     ]);
