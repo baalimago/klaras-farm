@@ -83,7 +83,7 @@ flowchart TB
 - **FarmStore** (`EventTarget`): holds the `Snapshot`. Intents call a pure `farm/` function, `await repo.write(writes)` in one transaction, then swap in the new snapshot and emit `change`. If the write fails, nothing changes and the intent rejects with a `FarmError`.
 - **Session** (`EventTarget`): `{ mode: 'play' | 'gate' | 'edit', panel: null | 'card' | 'guided' | 'scene' | 'shelf', lastActivityAt, graceUntil }`, driven by the pure `edit/nextSession`.
 - **PlayEngine**: holds the ephemeral world (positions, reactions, current question). `step(world, dt, input)` is pure, with a fixed 1/60 s timestep and an accumulator, so physics runs the same at 30 or 60 fps (Low Power Mode caps the frame rate at 30). It reads the snapshot but never writes it.
-- **Renderer**: the only owner of `requestAnimationFrame`. Each frame: accumulate time, call `PlayEngine.step`, draw. It stops the loop when the page is hidden, when things sleep, or when nothing moves.
+- **Renderer**: the only owner of `requestAnimationFrame`. Each frame: accumulate time, call `PlayEngine.step`, draw. The loop runs only while something moves or animates; a tap or a timer (the next wander, the next blink) wakes it. When everything is still, the app draws nothing and uses no CPU. It also stops when the page is hidden.
 - **AudioEngine**: owns the `AudioContext`, the decoded-buffer cache and the master limiter. Plays clips by id with each clip's trim and gain.
 - **Repository**: the only port. An IndexedDB implementation and an in-memory fake pass the same contract test suite.
 
@@ -149,12 +149,21 @@ Motion is data played by a small set of tested building blocks, so animations ca
 
 ## 7. Rendering (iPad performance)
 
-- **Target device**: the oldest iPad in the family, to be confirmed. Until then, assume an A12-class iPad on iPadOS 17 or later. Budgets on that device: under 6 ms CPU per frame with 4 things, tap to sound under 100 ms, offline cold start under 2 s, under 150 MB memory.
+The app has a few small sprites, a still background and short audio clips, so it has no real resource needs. **Any visible lag is a design bug**, never a reason to lower quality.
+
+- **Target device**: the weakest iPad sold from 2025 on, the base iPad (11th generation, A16, 2025), on iPadOS 18 or later. Every newer iPad (A16 and up, M-series) is faster. Budgets on the base iPad:
+  - Frame work under **2 ms** CPU with 4 things moving (about an eighth of a 60 Hz frame), so 120 Hz iPads have room too.
+  - **0 fps when nothing moves**: no rAF loop, no timers faster than 1 s.
+  - Tap to visible reaction in the same frame; tap to sound under 50 ms.
+  - Offline cold start to an interactive board under 1 s.
+  - Under 100 MB memory; under 1 MB of app code and assets before the parent's own clips.
 - **Background cache**: scene, felt texture, grain and stitched border are painted once into an offscreen canvas. It's rebuilt only on resize, place change or scene edit.
-- **Thing sprites**: each thing's felt parts (fill, texture, inset stitch, shadow) are pre-rendered once, at the device pixel ratio, into sprites: body, head, and limbs as separate small sprites. Per frame, only `drawImage` with transforms runs. `shadowBlur`, dashed strokes and clipping (all slow on WebKit) never run per frame.
+- **Thing sprites**: each thing's felt parts (fill, texture, inset stitch, shadow) are pre-rendered once, at the device pixel ratio, into sprites: body, head, and limbs as separate small sprites. Per frame, only `drawImage` with transforms runs. `shadowBlur`, dashed strokes, filters and clipping (all slow on WebKit) never run per frame. Confetti uses a small fixed pool of pre-rendered pieces.
+- **Draw only what changed**: each frame clears and redraws only the boxes the moving sprites cover (dirty rectangles), copied from the background cache.
+- **No work on the hot path**: no allocation per frame (reused objects, no closures in the loop), no layout reads or DOM writes per frame, no decoding audio on tap (clips are decoded once into buffers).
 - **Coordinates**: the board is fixed at **4:3**, and all stored geometry is normalised to it (0–1 on both axes). In portrait the board is letterboxed.
-- **Memory**: canvases that are no longer used are released (`width = 0`), because iOS has a hard limit on total canvas memory. No OffscreenCanvas or workers.
-- Adaptive pixel ratio (1.5 on slow devices) is a flag (section 11), driven by a frame-time monitor.
+- **Memory**: canvases that are no longer used are released (`width = 0`), because iOS has a hard limit on total canvas memory. No OffscreenCanvas or workers; none are needed.
+- **Enforced in CI**: a benchmark spec drives the play loop for 10 s on Chromium with 6× CPU throttling (slower than an A16) and fails if the 95th-percentile frame work exceeds 2 ms, if anything is allocated per frame in steady state, or if the idle board requests a frame. The real-iPad checklist adds a 2-minute Safari Timelines recording on the base iPad.
 
 ## 8. Audio and recording (iPad realities)
 
@@ -327,7 +336,7 @@ There are three version numbers, and one rule for how they relate:
 ## 10. Delivery: assets, service worker, updates
 
 There is no build step. Instead:
-- **Hashed paths without a bundler.** At startup the Python app hashes `web/`. It serves the assets under `/v/<hash>/…` (relative ES module imports keep working inside that prefix) and renders `sw.js` with that version and the precache list. `index.html` and `sw.js` are never cached. The last few `/v/<hash>/` sets stay servable.
+- **Hashed paths without a bundler.** At startup the Python app reads `web/` into memory and hashes it (about 1 MB, section 12). It serves the assets under `/v/<hash>/…` (relative ES module imports keep working inside that prefix) and renders `sw.js` with that version and the precache list. `index.html` and `sw.js` are never cached. The last few `/v/<hash>/` sets stay servable.
 - **Fast first load.** `index.html` has `modulepreload` links for the boot module graph.
 - **Service worker update policy:**
   - Everything is precached and served cache-first.
@@ -360,7 +369,26 @@ There is no build step. Instead:
 
 ## 12. Backend on Wasmer Edge
 
-- **Now:** one `backend/app.py` (ASGI, about 60 lines, framework settled in SPIKE-1) that serves `/v/<hash>/` with correct MIME and cache headers, renders `sw.js`, and serves `/healthz`, plus its tests. Config is read **lazily per request**, never at import time, so instaboot snapshots never freeze environment values or open sockets.
+- **Server: Uvicorn, installed plain** (`uvicorn`, not `uvicorn[standard]`). It's one of the two servers Wasmer documents for Python, alongside Daphne, and the one its FastAPI starter uses. Plain Uvicorn is pure Python (`h11`, `click`), so nothing needs a native extension compiled for WASIX; `[standard]` would pull in `uvloop` and `httptools`, which are C extensions.
+- **App: a hand-written ASGI app**, `backend/app.py`, about 100 lines, no framework. There are only three routes, so a framework adds nothing yet:
+  - `/` and `index.html`, never cached.
+  - `/v/<hash>/…` from an **in-memory table** built once at startup: bytes, MIME type, ETag, and gzip and brotli variants compressed ahead of time. Responses carry `Cache-Control: public, max-age=31536000, immutable`. Serving from memory means no disk reads and no worker threads per request, and each request is a dictionary lookup.
+  - `sw.js` rendered with the asset hash and precache list, never cached.
+  - `/healthz` with the git SHA and asset hash.
+- **Why not a static-files library:** ServeStatic (the ASGI fork of WhiteNoise) and Starlette's `StaticFiles` are both good, but they read files from disk in worker threads, which brings WASIX thread support onto the critical path. They also offer features we already get from hashed paths and the service worker. The in-memory table is smaller than either library's configuration and is fully covered by unit tests.
+- **Starlette is the upgrade path**, not a day-one dependency. It's added when the encrypted backup API (M7) brings real request bodies and more routes. The in-memory static responder stays as a plain ASGI app mounted inside it.
+- **Not chosen:**
+  - Hypercorn: Uvicorn is the one Wasmer documents.
+  - Granian: a Rust extension, so it can't run on WASIX, and it ignores lifespan.
+  - Daphne: built for Django Channels.
+  - Wasmer's built-in static hosting (an `index.html` app with no Python): a valid fallback, but it can't render `sw.js` or serve `/healthz`, and the brief asks for a Python backend.
+- **SPIKE-1 (M0, first task)** checks on Wasmer Edge:
+  - plain Uvicorn plus the ASGI app boots and survives instaboot;
+  - brotli and gzip bodies and headers arrive intact through Wasmer's edge;
+  - cold start under 1 s;
+  - pg8000 reaches managed Postgres over TLS.
+  If Uvicorn misbehaves, Daphne is the documented fallback, and the app code doesn't change.
+- Config is read **lazily per request**, never at import time, so instaboot snapshots never freeze environment values or open sockets.
 - **app.yaml:** `kind: wasmer.io/App.v0`, `instaboot` on `/`. When backup lands: `capabilities.database.engine: postgres` (never omitted; omitted means MySQL, and the engine can't change later) in one database region. No volume until something needs one.
 - **Guard test** on `app.yaml` fails if a volume is renamed or removed (that deletes its data), if `engine: postgres` disappears, or if the region changes.
 
@@ -507,6 +535,6 @@ Where reviewers disagreed:
 
 ## 18. Open decisions
 
-- Which iPad (model and iPadOS version) Klara will use. This sets the performance budgets and the minimum OS.
-- Plain ASGI or Starlette (SPIKE-1).
+- ~~Which iPad Klara will use~~: decided, the base iPad (11th generation, A16, 2025) on iPadOS 18 or later (section 7).
+- ~~Plain ASGI or Starlette~~: decided, plain ASGI on plain Uvicorn now, with Starlette when the backup API arrives (section 12).
 - Parent UI language and the first script languages.

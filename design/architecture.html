@@ -132,7 +132,7 @@ th { font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(-
 <li><strong>FarmStore</strong> (<code>EventTarget</code>): holds the <code>Snapshot</code>. Intents call a pure <code>farm/</code> function, <code>await repo.write(writes)</code> in one transaction, then swap in the new snapshot and emit <code>change</code>. If the write fails, nothing changes and the intent rejects with a <code>FarmError</code>.</li>
 <li><strong>Session</strong> (<code>EventTarget</code>): <code>{ mode: 'play' | 'gate' | 'edit', panel: null | 'card' | 'guided' | 'scene' | 'shelf', lastActivityAt, graceUntil }</code>, driven by the pure <code>edit/nextSession</code>.</li>
 <li><strong>PlayEngine</strong>: holds the ephemeral world (positions, reactions, current question). <code>step(world, dt, input)</code> is pure, with a fixed 1/60 s timestep and an accumulator, so physics runs the same at 30 or 60 fps (Low Power Mode caps the frame rate at 30). It reads the snapshot but never writes it.</li>
-<li><strong>Renderer</strong>: the only owner of <code>requestAnimationFrame</code>. Each frame: accumulate time, call <code>PlayEngine.step</code>, draw. It stops the loop when the page is hidden, when things sleep, or when nothing moves.</li>
+<li><strong>Renderer</strong>: the only owner of <code>requestAnimationFrame</code>. Each frame: accumulate time, call <code>PlayEngine.step</code>, draw. The loop runs only while something moves or animates; a tap or a timer (the next wander, the next blink) wakes it. When everything is still, the app draws nothing and uses no CPU. It also stops when the page is hidden.</li>
 <li><strong>AudioEngine</strong>: owns the <code>AudioContext</code>, the decoded-buffer cache and the master limiter. Plays clips by id with each clip's trim and gain.</li>
 <li><strong>Repository</strong>: the only port. An IndexedDB implementation and an in-memory fake pass the same contract test suite.</li>
 </ul>
@@ -190,13 +190,21 @@ th { font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(-
 <li>Tests: each building block is unit tested; each preset gets a golden pose table (poses at fixed times) so a tweak is a visible, reviewed diff.</li>
 </ul>
 <h2>7. Rendering (iPad performance)</h2>
+<p>The app has a few small sprites, a still background and short audio clips, so it has no real resource needs. <strong>Any visible lag is a design bug</strong>, never a reason to lower quality.</p>
 <ul>
-<li><strong>Target device</strong>: the oldest iPad in the family, to be confirmed. Until then, assume an A12-class iPad on iPadOS 17 or later. Budgets on that device: under 6 ms CPU per frame with 4 things, tap to sound under 100 ms, offline cold start under 2 s, under 150 MB memory.</li>
+<li><strong>Target device</strong>: the weakest iPad sold from 2025 on, the base iPad (11th generation, A16, 2025), on iPadOS 18 or later. Every newer iPad (A16 and up, M-series) is faster. Budgets on the base iPad:</li>
+<li>Frame work under <strong>2 ms</strong> CPU with 4 things moving (about an eighth of a 60 Hz frame), so 120 Hz iPads have room too.</li>
+<li><strong>0 fps when nothing moves</strong>: no rAF loop, no timers faster than 1 s.</li>
+<li>Tap to visible reaction in the same frame; tap to sound under 50 ms.</li>
+<li>Offline cold start to an interactive board under 1 s.</li>
+<li>Under 100 MB memory; under 1 MB of app code and assets before the parent's own clips.</li>
 <li><strong>Background cache</strong>: scene, felt texture, grain and stitched border are painted once into an offscreen canvas. It's rebuilt only on resize, place change or scene edit.</li>
-<li><strong>Thing sprites</strong>: each thing's felt parts (fill, texture, inset stitch, shadow) are pre-rendered once, at the device pixel ratio, into sprites: body, head, and limbs as separate small sprites. Per frame, only <code>drawImage</code> with transforms runs. <code>shadowBlur</code>, dashed strokes and clipping (all slow on WebKit) never run per frame.</li>
+<li><strong>Thing sprites</strong>: each thing's felt parts (fill, texture, inset stitch, shadow) are pre-rendered once, at the device pixel ratio, into sprites: body, head, and limbs as separate small sprites. Per frame, only <code>drawImage</code> with transforms runs. <code>shadowBlur</code>, dashed strokes, filters and clipping (all slow on WebKit) never run per frame. Confetti uses a small fixed pool of pre-rendered pieces.</li>
+<li><strong>Draw only what changed</strong>: each frame clears and redraws only the boxes the moving sprites cover (dirty rectangles), copied from the background cache.</li>
+<li><strong>No work on the hot path</strong>: no allocation per frame (reused objects, no closures in the loop), no layout reads or DOM writes per frame, no decoding audio on tap (clips are decoded once into buffers).</li>
 <li><strong>Coordinates</strong>: the board is fixed at <strong>4:3</strong>, and all stored geometry is normalised to it (0–1 on both axes). In portrait the board is letterboxed.</li>
-<li><strong>Memory</strong>: canvases that are no longer used are released (<code>width = 0</code>), because iOS has a hard limit on total canvas memory. No OffscreenCanvas or workers.</li>
-<li>Adaptive pixel ratio (1.5 on slow devices) is a flag (section 11), driven by a frame-time monitor.</li>
+<li><strong>Memory</strong>: canvases that are no longer used are released (<code>width = 0</code>), because iOS has a hard limit on total canvas memory. No OffscreenCanvas or workers; none are needed.</li>
+<li><strong>Enforced in CI</strong>: a benchmark spec drives the play loop for 10 s on Chromium with 6× CPU throttling (slower than an A16) and fails if the 95th-percentile frame work exceeds 2 ms, if anything is allocated per frame in steady state, or if the idle board requests a frame. The real-iPad checklist adds a 2-minute Safari Timelines recording on the base iPad.</li>
 </ul>
 <h2>8. Audio and recording (iPad realities)</h2>
 <ul>
@@ -414,7 +422,7 @@ th { font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(-
 </ul>
 <h2>10. Delivery: assets, service worker, updates</h2>
 <p>There is no build step. Instead:
-- <strong>Hashed paths without a bundler.</strong> At startup the Python app hashes <code>web/</code>. It serves the assets under <code>/v/&lt;hash&gt;/…</code> (relative ES module imports keep working inside that prefix) and renders <code>sw.js</code> with that version and the precache list. <code>index.html</code> and <code>sw.js</code> are never cached. The last few <code>/v/&lt;hash&gt;/</code> sets stay servable.
+- <strong>Hashed paths without a bundler.</strong> At startup the Python app reads <code>web/</code> into memory and hashes it (about 1 MB, section 12). It serves the assets under <code>/v/&lt;hash&gt;/…</code> (relative ES module imports keep working inside that prefix) and renders <code>sw.js</code> with that version and the precache list. <code>index.html</code> and <code>sw.js</code> are never cached. The last few <code>/v/&lt;hash&gt;/</code> sets stay servable.
 - <strong>Fast first load.</strong> <code>index.html</code> has <code>modulepreload</code> links for the boot module graph.
 - <strong>Service worker update policy:</strong>
   - Everything is precached and served cache-first.
@@ -444,7 +452,26 @@ th { font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(-
 <p>A "This week" card in Settings shows them, with a "Copy feedback" button. This tells us, for example, whether Klara triggers the hold gate by accident.</p>
 <h2>12. Backend on Wasmer Edge</h2>
 <ul>
-<li><strong>Now:</strong> one <code>backend/app.py</code> (ASGI, about 60 lines, framework settled in SPIKE-1) that serves <code>/v/&lt;hash&gt;/</code> with correct MIME and cache headers, renders <code>sw.js</code>, and serves <code>/healthz</code>, plus its tests. Config is read <strong>lazily per request</strong>, never at import time, so instaboot snapshots never freeze environment values or open sockets.</li>
+<li><strong>Server: Uvicorn, installed plain</strong> (<code>uvicorn</code>, not <code>uvicorn[standard]</code>). It's one of the two servers Wasmer documents for Python, alongside Daphne, and the one its FastAPI starter uses. Plain Uvicorn is pure Python (<code>h11</code>, <code>click</code>), so nothing needs a native extension compiled for WASIX; <code>[standard]</code> would pull in <code>uvloop</code> and <code>httptools</code>, which are C extensions.</li>
+<li><strong>App: a hand-written ASGI app</strong>, <code>backend/app.py</code>, about 100 lines, no framework. There are only three routes, so a framework adds nothing yet:</li>
+<li><code>/</code> and <code>index.html</code>, never cached.</li>
+<li><code>/v/&lt;hash&gt;/…</code> from an <strong>in-memory table</strong> built once at startup: bytes, MIME type, ETag, and gzip and brotli variants compressed ahead of time. Responses carry <code>Cache-Control: public, max-age=31536000, immutable</code>. Serving from memory means no disk reads and no worker threads per request, and each request is a dictionary lookup.</li>
+<li><code>sw.js</code> rendered with the asset hash and precache list, never cached.</li>
+<li><code>/healthz</code> with the git SHA and asset hash.</li>
+<li><strong>Why not a static-files library:</strong> ServeStatic (the ASGI fork of WhiteNoise) and Starlette's <code>StaticFiles</code> are both good, but they read files from disk in worker threads, which brings WASIX thread support onto the critical path. They also offer features we already get from hashed paths and the service worker. The in-memory table is smaller than either library's configuration and is fully covered by unit tests.</li>
+<li><strong>Starlette is the upgrade path</strong>, not a day-one dependency. It's added when the encrypted backup API (M7) brings real request bodies and more routes. The in-memory static responder stays as a plain ASGI app mounted inside it.</li>
+<li><strong>Not chosen:</strong></li>
+<li>Hypercorn: Uvicorn is the one Wasmer documents.</li>
+<li>Granian: a Rust extension, so it can't run on WASIX, and it ignores lifespan.</li>
+<li>Daphne: built for Django Channels.</li>
+<li>Wasmer's built-in static hosting (an <code>index.html</code> app with no Python): a valid fallback, but it can't render <code>sw.js</code> or serve <code>/healthz</code>, and the brief asks for a Python backend.</li>
+<li><strong>SPIKE-1 (M0, first task)</strong> checks on Wasmer Edge:</li>
+<li>plain Uvicorn plus the ASGI app boots and survives instaboot;</li>
+<li>brotli and gzip bodies and headers arrive intact through Wasmer's edge;</li>
+<li>cold start under 1 s;</li>
+<li>pg8000 reaches managed Postgres over TLS.
+  If Uvicorn misbehaves, Daphne is the documented fallback, and the app code doesn't change.</li>
+<li>Config is read <strong>lazily per request</strong>, never at import time, so instaboot snapshots never freeze environment values or open sockets.</li>
 <li><strong>app.yaml:</strong> <code>kind: wasmer.io/App.v0</code>, <code>instaboot</code> on <code>/</code>. When backup lands: <code>capabilities.database.engine: postgres</code> (never omitted; omitted means MySQL, and the engine can't change later) in one database region. No volume until something needs one.</li>
 <li><strong>Guard test</strong> on <code>app.yaml</code> fails if a volume is renamed or removed (that deletes its data), if <code>engine: postgres</code> disappears, or if the region changes.</li>
 </ul>
@@ -674,8 +701,8 @@ th { font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(-
 - <strong>Scripted questions.</strong> The product manager suggested postponing them because Find it targets 18 months+. They stay, since Lorentz asked for them, but land in M5 rather than earlier.</p>
 <h2>18. Open decisions</h2>
 <ul>
-<li>Which iPad (model and iPadOS version) Klara will use. This sets the performance budgets and the minimum OS.</li>
-<li>Plain ASGI or Starlette (SPIKE-1).</li>
+<li>~~Which iPad Klara will use~~: decided, the base iPad (11th generation, A16, 2025) on iPadOS 18 or later (section 7).</li>
+<li>~~Plain ASGI or Starlette~~: decided, plain ASGI on plain Uvicorn now, with Starlette when the backup API arrives (section 12).</li>
 <li>Parent UI language and the first script languages.</li>
 </ul>
 </div>
