@@ -1,1 +1,57 @@
-/* kf-adult-check */
+/* kf-adult-check: full-screen parental gate. Taps anywhere but the keys (and the code card) fail. */
+kf-adult-check {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.kf-gate {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 32px;
+  padding: max(16px, env(safe-area-inset-top)) var(--gutter) max(16px, env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  background: rgb(59 42 34 / 0.45);
+}
+.kf-gate__card {
+  background: var(--paper);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px 24px;
+  max-width: 360px;
+}
+.kf-gate__eyebrow { margin: 0 0 4px; color: var(--ink-soft); font-weight: 600; }
+.kf-gate__prompt { margin: 0 0 12px; font-size: 2rem; letter-spacing: 0.04em; color: var(--ink); }
+.kf-gate__dots { display: flex; gap: 10px; margin-bottom: 12px; }
+.kf-gate__dots span { width: 14px; height: 14px; border-radius: 50%; background: #eadcc6; }
+.kf-gate__dots span.on { background: var(--blue); }
+.kf-gate__pad {
+  display: grid;
+  grid-template-columns: repeat(3, 76px);
+  gap: 14px;
+}
+.kf-gate__pad.ten .kf-key:last-child { grid-column: 2; }
+.kf-key {
+  width: 76px;
+  height: 76px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--paper);
+  color: var(--ink);
+  font: 700 2rem/1 var(--font);
+  box-shadow: inset 0 -4px 0 rgb(0 0 0 / 0.1), var(--shadow);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.kf-key:active { background: var(--cream); }
+@media (max-height: 520px) {
+  .kf-gate__pad { grid-template-columns: repeat(3, 60px); gap: 10px; }
+  .kf-key { width: 60px; height: 60px; font-size: 1.6rem; }
+}

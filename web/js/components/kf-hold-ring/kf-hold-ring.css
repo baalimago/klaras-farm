@@ -1,1 +1,28 @@
-/* kf-hold-ring */
+/* kf-hold-ring: felt ring that fills around the finger during the edit hold (US-11.1). */
+.parent-layer > kf-hold-ring,
+kf-hold-ring {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 132px;
+  height: 132px;
+  margin: -66px 0 0 -66px;
+  transform: translate(var(--x, 0), var(--y, 0));
+  pointer-events: none;
+  z-index: 20;
+  contain: strict;
+}
+.kf-hold-ring__felt {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(var(--sun) calc(var(--p, 0) * 1turn), rgb(255 250 240 / 0.6) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 18px), #000 calc(100% - 17px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 18px), #000 calc(100% - 17px));
+}
+.kf-hold-ring__stitch {
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  border: 2px dashed rgb(255 255 255 / 0.85);
+}
