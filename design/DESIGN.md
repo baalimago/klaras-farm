@@ -1,6 +1,6 @@
 # Klara's Farm: design notes
 
-Status: concept, stress-tested once by an adversarial review, plus one round of feedback (section 0). No implementation yet; waiting on a look-and-feel pick from `design/sketches/round2.html`.
+Status: concept, stress-tested once by an adversarial review, plus one round of feedback (section 0). No implementation yet. Look: **felt board** (picked), final palette pick pending in `design/sketches/final.html`.
 
 ## 0. Feedback round 2 (latest, overrides older sections where they differ)
 
@@ -10,7 +10,7 @@ Status: concept, stress-tested once by an adversarial review, plus one round of 
 - **Places (environments) are swappable.** A place has its own drawn scene and its own things. Starting set: Farm, Sea, Kitchen.
 - **Not only animals:** sea creatures, and everyday objects with faces (spoon, chair, teapot) alongside pets (cat).
 - **Motion styles** (one tap, no skeleton): walks, swims, floats (jellyfish), hops (objects without legs), scuttles (crab, sideways).
-- **Look:** B from round 1 was closest but not loved. Round 2 offers D Sticker Book, E Felt Board, F Riso Picture Book.
+- **Look:** felt board picked from round 2 (over Sticker Book and Riso), to be brightened. Final pass `design/sketches/final.html` offers three bright felt palettes: Sunny, Candy, Bold. Felt rules: fabric texture on every shape, inset dashed stitch, soft drop shadow, yarn lines for legs/tails, button eyes, stitched edge around the board.
 
 Data model consequence: `Place { id, name, scene strokes }` owns many `Thing { id, place_id, strokes, eyes, motion, colour? }`, and each thing has `Clip { thing_id, language, kind: name | sound | prompt, take, mime, bytes }`.
 
