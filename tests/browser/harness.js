@@ -70,6 +70,21 @@ export async function setup({ fakeMedia = false, serverEnv } = {}) {
       if (waitReady) await page.waitForFunction(() => document.documentElement.dataset.ready === "true", null, { timeout: 15000 });
       return page;
     },
+    /**
+     * A same-origin page with <base href="/v/<hash>/"> and the app CSS, but without booting the app.
+     * Use it to test one module or element: `await page.evaluate(() => import('./js/geometry/hit.js'))`.
+     */
+    async modulePage(html = "", { viewport = { width: 1180, height: 820 }, permissions = [] } = {}) {
+      const context = await browser.newContext({ viewport, hasTouch: true, deviceScaleFactor: 1, permissions });
+      contexts.push(context);
+      const page = await context.newPage();
+      page.errors = [];
+      page.on("pageerror", (e) => page.errors.push(e.message));
+      const { assets } = await (await fetch(`${server.url}/healthz`)).json();
+      await page.goto(`${server.url}/v/${assets}/manifest.webmanifest`);
+      await page.setContent(`<!doctype html><html lang="en"><head><meta charset="utf-8"><base href="/v/${assets}/"><link rel="stylesheet" href="css/main.css"></head><body>${html}</body></html>`);
+      return page;
+    },
     async teardown() {
       for (const c of contexts) await c.close().catch(() => {});
       await browser.close();
