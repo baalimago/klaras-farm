@@ -61,7 +61,7 @@
     ],
     "deviceId": "device-fixture",
     "exportedAt": "2026-11-01T09:40:00.000Z",
-    "formatVersion": 2,
+    "formatVersion": 3,
     "minReaderFormat": 1,
     "places": [
       {
@@ -172,6 +172,16 @@
           }
         ],
         "id": "0a7e5c11-8d2f-4b39-a6e4-5c1d2e3f4a11",
+        "legs": [
+          {
+            "x": 0.444,
+            "y": 0.745
+          },
+          {
+            "x": 0.556,
+            "y": 0.745
+          }
+        ],
         "motion": {
           "kind": "preset",
           "params": {},
@@ -213,6 +223,16 @@
           }
         ],
         "id": "1b8f6d22-9e30-4c4a-b7f5-6d2e3f4a5b22",
+        "legs": [
+          {
+            "x": 0.683,
+            "y": 0.735
+          },
+          {
+            "x": 0.817,
+            "y": 0.735
+          }
+        ],
         "motion": {
           "kind": "preset",
           "params": {
@@ -255,6 +275,7 @@
           }
         ],
         "id": "2c907e33-af41-4d5b-88a6-7e3f4a5b6c33",
+        "legs": [],
         "motion": {
           "kind": "preset",
           "params": {},

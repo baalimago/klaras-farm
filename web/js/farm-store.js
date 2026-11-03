@@ -3,7 +3,7 @@
 // If the write fails, nothing changes and the intent rejects with FarmError('storage').
 import * as I from "./farm/intents.js";
 import { FarmError } from "./farm/intents.js";
-import { emptySnapshot, migrate, validateSnapshot, FORMAT_VERSION, MIN_READER_FORMAT } from "./farm/snapshot.js";
+import { emptySnapshot, migrate, validateSnapshot, storedFormat, FORMAT_VERSION, MIN_READER_FORMAT } from "./farm/snapshot.js";
 
 export class FarmStore extends EventTarget {
   /** @param {import('./types.js').Repository} repo @param {import('./types.js').Env} env */
@@ -26,6 +26,7 @@ export class FarmStore extends EventTarget {
     const base = emptySnapshot(this.env, this.appVersion);
     const candidate = migrate({
       ...base,
+      formatVersion: storedFormat(data.things),
       settings: data.settings ?? base.settings,
       places: data.places,
       things: data.things,

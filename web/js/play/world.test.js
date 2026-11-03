@@ -13,8 +13,9 @@ function seeded(seed = 7) {
   return () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 2 ** 32);
 }
 const sq = (cx, cy, r) => [[cx - r, cy - r], [cx + r, cy - r], [cx + r, cy + r], [cx - r, cy + r]];
-const thing = (id, cx, cy, { r = 0.08, preset = "walk", params = {}, eyes = 1 } = {}) => ({
-  id, outline: sq(cx, cy, r), eyes: Array.from({ length: eyes }, () => ({ x: cx, y: cy })), motion: { kind: "preset", preset, params },
+const thing = (id, cx, cy, { r = 0.08, preset = "walk", params = {}, eyes = 1, legs = preset === "walk" ? 2 : 0 } = {}) => ({
+  id, outline: sq(cx, cy, r), eyes: Array.from({ length: eyes }, () => ({ x: cx, y: cy })),
+  legs: Array.from({ length: legs }, (_, i) => ({ x: cx - r / 2 + i * 0.01, y: cy + r * 0.9 })), motion: { kind: "preset", preset, params },
 });
 const run = (w, seconds, rng, input = {}, fps = 60) => {
   for (let i = 0; i < Math.round(seconds * fps); i++) step(w, 1 / fps, input, rng);
@@ -260,12 +261,33 @@ test("syncWorld keeps survivors where they are, drops new things in, removes the
   assert.ok(Math.abs(pigActor.x - 0.25) < 1e-12);
 });
 
-test("syncWorld picks up motion changes (walks → floats)", () => {
+test("syncWorld: the thing's legs decide the leg count, not its motion", () => {
   const rng = seeded(3);
   const pig = thing("pig", 0.3, 0.75);
   const w = createWorld([pig], { rng, presets });
+  assert.equal(w.actors[0].pose.legs.length, 2);
   syncWorld(w, [{ ...pig, motion: { kind: "preset", preset: "float", params: {} } }], rng);
+  assert.equal(w.actors[0].pose.legs.length, 2, "a floater keeps its (still) legs");
+  syncWorld(w, [{ ...pig, legs: thing("x", 0.3, 0.75, { legs: 4 }).legs }], rng);
+  assert.equal(w.actors[0].pose.legs.length, 4);
+  syncWorld(w, [{ ...pig, legs: [] }], rng);
   assert.equal(w.actors[0].pose.legs.length, 0);
+  syncWorld(w, [{ ...pig, legs: undefined }], rng);
+  assert.equal(w.actors[0].pose.legs.length, 0, "no legs field: no legs");
+});
+
+test("legs swing only while walking", () => {
+  const rng = seeded(5);
+  const w = createWorld([thing("pig", 0.3, 0.75, { legs: 4 })], { rng, presets });
+  const a = w.actors[0];
+  assert.deepEqual(a.pose.legs, [0, 0, 0, 0]);
+  let swung = false;
+  for (let i = 0; i < 60 * 30 && !swung; i++) {
+    step(w, 1 / 60, {}, rng);
+    if (a.state === "moving" && a.pose.legs.some((v) => Math.abs(v) > 0.05)) swung = true;
+    if (a.state === "idle" && a.move === 0) assert.deepEqual(a.pose.legs, [0, 0, 0, 0]);
+  }
+  assert.ok(swung, "legs swing during a walk");
 });
 
 test("hitTargets follow the actors (position and pose offset)", () => {

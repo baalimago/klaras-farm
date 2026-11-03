@@ -3,6 +3,7 @@
 // then swaps in `snapshot` and emits `change`.
 import { BACKDROPS, MAX_THINGS_PER_PLACE, CLIP_KINDS, clipKey, roundPoints } from "./snapshot.js";
 import { isColorKey } from "./palette.js";
+import { cleanLegs, isLeg, MAX_LEGS } from "./legs.js";
 
 export class FarmError extends Error {
   /** @param {string} code  e.g. 'place-full', 'not-found', 'invalid', 'storage' */
@@ -141,7 +142,7 @@ export function canAddThing(s, placeId) {
 }
 
 /**
- * @param {{placeId:string, names?:Object, outline:[number,number][], color:string, eyes?:any[], motion?:any, cues?:Object, clips?:any[]}} args
+ * @param {{placeId:string, names?:Object, outline:[number,number][], color:string, eyes?:any[], legs?:any[], motion?:any, cues?:Object, clips?:any[]}} args
  *   clips: clip records without id/thingId (blobs already stored); they are attached to the new thing.
  */
 export function addThing(s, args, env) {
@@ -149,6 +150,7 @@ export function addThing(s, args, env) {
   if (!canAddThing(s, place.id)) throw new FarmError("place-full", `a place holds at most ${MAX_THINGS_PER_PLACE} things`);
   checkColor(args.color);
   checkStroke(args.outline, 3);
+  checkLegs(args.legs);
   const now = env.now();
   const thing = {
     id: env.newId(),
@@ -157,6 +159,7 @@ export function addThing(s, args, env) {
     outline: roundPoints(args.outline),
     color: args.color,
     eyes: (args.eyes ?? []).slice(0, 2).map((e) => ({ x: round3(e.x), y: round3(e.y) })),
+    legs: cleanLegs(args.legs),
     motion: args.motion ?? { kind: "preset", preset: "walk", params: {} },
     cues: { ...(args.cues ?? {}) },
     createdAt: now,
@@ -171,7 +174,14 @@ export function addThing(s, args, env) {
   };
 }
 
-const THING_PATCHABLE = ["names", "outline", "color", "eyes", "motion", "cues"];
+const THING_PATCHABLE = ["names", "outline", "color", "eyes", "legs", "motion", "cues"];
+
+/** Legs are optional (none), else up to MAX_LEGS hips {x, y}. */
+function checkLegs(legs) {
+  if (legs === undefined) return;
+  if (!Array.isArray(legs) || legs.length > MAX_LEGS || !legs.every(isLeg))
+    throw new FarmError("invalid", `legs: up to ${MAX_LEGS} points {x, y}`);
+}
 
 /** Rename, recolour, redraw, re-eye, change motion or cues. Recordings are kept. */
 export function updateThing(s, { thingId, patch }, env) {
@@ -181,7 +191,8 @@ export function updateThing(s, { thingId, patch }, env) {
     if (!(key in patch)) continue;
     if (key === "color") checkColor(patch.color);
     if (key === "outline") checkStroke(patch.outline, 3);
-    next[key] = key === "outline" ? roundPoints(patch.outline) : patch[key];
+    if (key === "legs") checkLegs(patch.legs);
+    next[key] = key === "outline" ? roundPoints(patch.outline) : key === "legs" ? cleanLegs(patch.legs) : patch[key];
   }
   next.updatedAt = env.now();
   return { snapshot: { ...s, things: replace(s.things, next) }, writes: [put("things", next)], change: change("thing-updated", [thingId]) };

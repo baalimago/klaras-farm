@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Generates web/data/starter.json: the Farm, Sea and Kitchen a fresh install opens with (US-1.1).
 // Things are drawn in the same format parents create: one closed outline polygon in board coordinates,
-// one felt colour, 0–2 eyes, a motion preset. Each outline is the union of a few ellipses, rectangles
+// one felt colour, 0–2 eyes, 0–8 legs (hips just above the bottom edge), a motion preset. Each outline is the union of a few ellipses, rectangles
 // and thick lines, rasterised and traced into a single polygon, then simplified and smoothed.
 //   node tools/make-starter.mjs           writes the file
 //   node tools/make-starter.mjs --check   exits 1 if the file is out of date
@@ -10,6 +10,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { simplify, smooth, snapInside, pointInPolygon, signedArea } from "../web/js/geometry/stroke.js";
 import { roundPoints, FORMAT_VERSION, MIN_READER_FORMAT } from "../web/js/farm/snapshot.js";
+import { bottomAt } from "../web/js/farm/legs.js";
 
 // Shapes are designed on a virtual 1200 × 900 board (4:3, square pixels), then normalised to 0..1.
 const VW = 1200, VH = 900;
@@ -113,18 +114,21 @@ const SPECIES = {
     names: { en: "Pig", sv: "Gris", de: "Schwein", fr: "Cochon", es: "Cerdo" }, color: "pink", motion: "walk",
     shapes: [E(0, 0, 34, 21), E(33, -8, 17, 16), P([24, -18], [30, -36], [40, -20]), E(50, -4, 8, 7), C(2.5, [-33, -2], [-40, -8], [-38, -14])],
     eyes: [[29, -12], [40, -13]],
+    legs: [-22, -10, 10, 22],
   },
   cow: {
     names: { en: "Cow", sv: "Ko", de: "Kuh", fr: "Vache", es: "Vaca" }, color: "white", motion: "walk",
     shapes: [E(0, 0, 44, 24), E(48, -8, 15, 14), E(58, -2, 9, 7), P([38, -16], [30, -26], [42, -20]), P([56, -18], [66, -26], [60, -14]),
       C(2.5, [42, -18], [40, -30]), C(2.5, [52, -19], [55, -31]), C(2.5, [-43, -4], [-50, 10], [-50, 20])],
     eyes: [[45, -12], [55, -11]],
+    legs: [-30, -14, 14, 30],
   },
   chicken: {
     names: { en: "Chicken", sv: "Höna", de: "Huhn", fr: "Poule", es: "Gallina" }, color: "yellow", motion: "walk",
     shapes: [E(0, 0, 21, 17), E(16, -19, 10, 10), P([24, -22], [36, -18], [24, -14]), P([10, -26], [13, -35], [16, -28], [19, -35], [22, -27]),
       P([-16, -6], [-30, -22], [-26, -2])],
     eyes: [[19, -21]],
+    legs: [-6, 6],
   },
   fish: {
     names: { en: "Fish", sv: "Fisk", de: "Fisch", fr: "Poisson", es: "Pez" }, color: "orange", motion: "float",
@@ -141,6 +145,7 @@ const SPECIES = {
     shapes: [E(0, -22, 27, 15), C(2.5, [-18, -28], [-30, -34]), C(2.5, [18, -28], [30, -34]), E(-35, -39, 10, 8), E(35, -39, 10, 8),
       C(2.4, [-7, -34], [-9, -45]), C(2.4, [7, -34], [9, -45]), E(-9, -47, 5, 5), E(9, -47, 5, 5)],
     eyes: [[-9, -47], [9, -47]],
+    legs: [-20, -12, -4, 4, 12, 20],
   },
   spoon: {
     names: { en: "Spoon", sv: "Sked", de: "Löffel", fr: "Cuillère", es: "Cuchara" }, color: "silver", motion: "float",
@@ -157,11 +162,13 @@ const SPECIES = {
     shapes: [E(0, 0, 32, 14), E(33, -14, 13, 12), P([23, -20], [25, -36], [33, -24]), P([33, -24], [42, -36], [43, -20]),
       C(3, [-31, -2], [-43, -10], [-45, -26], [-38, -32])],
     eyes: [[30, -17], [39, -17]],
+    legs: [-22, -10, 10, 22],
   },
   chair: {
     names: { en: "Chair", sv: "Stol", de: "Stuhl", fr: "Chaise", es: "Silla" }, color: "wood", motion: "walk",
     shapes: [R(-18, -80, 18, -36), R(-24, -40, 24, -28)],
     eyes: [[-6, -64], [6, -64]],
+    legs: [-20, 20],
   },
 };
 
@@ -174,8 +181,15 @@ function makeThing(id, placeId, kind, x, y, s, seed) {
     const [sx, sy] = roundPoints([snapInside(p, outline, { margin: 0.012 })])[0];
     return { x: sx, y: sy };
   });
+  // legs: local x offsets; each hip sits just above the outline's bottom edge there
+  const legs = (sp.legs ?? []).map((lx) => {
+    const px = (x + lx * s) / VW;
+    const p = [px, bottomAt(outline, px) - 6 / VH];
+    const [sx, sy] = roundPoints([snapInside(p, outline, { margin: 0.006 })])[0];
+    return { x: sx, y: sy };
+  });
   return {
-    id, placeId, names: sp.names, outline, color: sp.color, eyes,
+    id, placeId, names: sp.names, outline, color: sp.color, eyes, legs,
     motion: { kind: "preset", preset: sp.motion, params: {} }, cues: {}, createdAt: T0, updatedAt: T0,
   };
 }

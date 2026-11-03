@@ -36,6 +36,12 @@
  */
 
 /**
+ * @typedef {Object} Leg   Where a felt leg attaches (its hip). Legs always hang straight down.
+ * @property {number} x   board coordinates, inside the outline (usually near its bottom)
+ * @property {number} y
+ */
+
+/**
  * @typedef {Object} PresetMotion
  * @property {'preset'} kind
  * @property {string} preset                   id of web/data/motions/<id>.json ("walk", "float")
@@ -57,6 +63,7 @@
  * @property {Point[]} outline               closed polygon, board coordinates, where it was drawn
  * @property {ColorKey} color
  * @property {Eye[]} eyes                     0–2
+ * @property {Leg[]} legs                     0–8 (format 3; older files get their preset's legs on migrate)
  * @property {Motion} motion
  * @property {Object<Lang, Cue>} cues
  * @property {string} createdAt
@@ -172,7 +179,7 @@
  * @property {number} rot         radians
  * @property {number} sx          scale x (squash/stretch)
  * @property {number} sy
- * @property {number[]} legs      leg swing angles in radians (empty for floaters)
+ * @property {number[]} legs      leg swing angles in radians, one per Thing.legs entry
  * @property {number} eyeOpen     0 closed … 1 open
  */
 
