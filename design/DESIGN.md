@@ -1,6 +1,18 @@
 # Klara's Farm: design notes
 
-Status: concept, stress-tested once by an adversarial review. No implementation yet; waiting on a look-and-feel pick from the sketches in `design/sketches/farm-sketches.html`.
+Status: concept, stress-tested once by an adversarial review, plus one round of feedback (section 0). No implementation yet; waiting on a look-and-feel pick from `design/sketches/round2.html`.
+
+## 0. Feedback round 2 (latest, overrides older sections where they differ)
+
+- **Who it's for:** a gift for Klara, who turns 1. So the core game is **Tap and hear**: tap anything, it reacts, and the parent's recorded voice says its name. **Find it** (the prompt game) is the next level, around 18 months. Colour levels come after that.
+- **No deadline.** Build the full plan at a normal pace.
+- **Parents draw the scene too**, not only the animals. The scene and the things in it go through the same look, so the whole world is consistent.
+- **Places (environments) are swappable.** A place has its own drawn scene and its own things. Starting set: Farm, Sea, Kitchen.
+- **Not only animals:** sea creatures, and everyday objects with faces (spoon, chair, teapot) alongside pets (cat).
+- **Motion styles** (one tap, no skeleton): walks, swims, floats (jellyfish), hops (objects without legs), scuttles (crab, sideways).
+- **Look:** B from round 1 was closest but not loved. Round 2 offers D Sticker Book, E Felt Board, F Riso Picture Book.
+
+Data model consequence: `Place { id, name, scene strokes }` owns many `Thing { id, place_id, strokes, eyes, motion, colour? }`, and each thing has `Clip { thing_id, language, kind: name | sound | prompt, take, mime, bytes }`.
 
 ## 1. What it is
 
@@ -98,7 +110,9 @@ Written test-first (TDD): every behaviour starts as a failing test.
 
 ## 7. Look and feel
 
-Three live sketches in `design/sketches/farm-sketches.html`:
+Round 2 (current): `design/sketches/round2.html`, switchable by look (Sticker Book, Felt Board, Riso Picture Book), place (Farm, Sea, Kitchen) and game (Tap and hear, Find it).
+
+Round 1: three live sketches in `design/sketches/farm-sketches.html`:
 - **A. Crayon Meadow:** white paper, wax-crayon scribbles; the parent's drawing fits right in.
 - **B. Paper Theatre:** bright layered cut-paper hills, clean bold outlines; clearest for spotting colours.
 - **C. Chalk Night:** calm dark chalkboard, colour glows; low stimulation, could be a bedtime mode of A or B.
