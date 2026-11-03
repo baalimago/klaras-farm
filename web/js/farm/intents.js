@@ -253,6 +253,9 @@ export function updateSettings(s, { patch }, env) {
   const settings = { ...s.settings };
   for (const key of SETTINGS_PATCHABLE) if (key in patch) settings[key] = patch[key];
   if (!Array.isArray(settings.languages) || settings.languages.length === 0) throw new FarmError("invalid", "at least one language");
+  // Mixing is the default: going from one language to several turns it on, unless the
+  // same patch chose a language on purpose.
+  if (!("playLanguage" in patch) && s.settings.languages.length === 1 && settings.languages.length > 1) settings.playLanguage = "alternate";
   if (settings.playLanguage !== "alternate" && !settings.languages.includes(settings.playLanguage)) settings.playLanguage = settings.languages[0];
   settings.updatedAt = env.now();
   return { snapshot: { ...s, settings }, writes: [put("settings", settings)], change: change("settings-updated", []) };

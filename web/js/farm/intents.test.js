@@ -93,8 +93,10 @@ test("scene pieces: add, paint, move, remove", () => {
 
 test("settings keep playLanguage consistent with languages", () => {
   const s = aSnapshot().withPlace(aPlace()).build();
+  s.settings.languages = ["en", "de"];
+  s.settings.playLanguage = "en";
   const r = I.updateSettings(s, { patch: { languages: ["sv", "de"] } }, env());
-  assert.equal(r.snapshot.settings.playLanguage, "sv");
+  assert.equal(r.snapshot.settings.playLanguage, "sv", "a removed play language falls back to the first");
   assert.throws(() => I.updateSettings(s, { patch: { languages: [] } }, env()));
 });
 
@@ -112,4 +114,14 @@ test("playLanguageFor: fixed language, or a random pick among recorded languages
   assert.equal(I.playLanguageFor(mix, { available: ["en", "de"], rng: () => 0 }), "en", "skips languages with no recording");
   assert.equal(I.playLanguageFor(mix, { available: ["en", "de"], rng: () => 0.99 }), "de");
   assert.equal(I.playLanguageFor(mix, { available: ["fr"], rng: () => 0.5 }), "en", "nothing recorded in the family's languages: any of them");
+});
+
+test("adding a second language turns on Mix languages unless a language was chosen", () => {
+  const env = { now: () => "2026-01-01T00:00:00.000Z" };
+  const s = aSnapshot().build();
+  s.settings.playLanguage = "en";
+  assert.equal(I.updateSettings(s, { patch: { languages: ["en", "sv"] } }, env).snapshot.settings.playLanguage, "alternate");
+  assert.equal(I.updateSettings(s, { patch: { languages: ["en", "sv"], playLanguage: "sv" } }, env).snapshot.settings.playLanguage, "sv");
+  const two = I.updateSettings(s, { patch: { languages: ["en", "sv"], playLanguage: "en" } }, env).snapshot;
+  assert.equal(I.updateSettings(two, { patch: { languages: ["en", "sv", "de"] } }, env).snapshot.settings.playLanguage, "en", "a chosen language stays");
 });

@@ -279,7 +279,7 @@ export function buildStarter() {
   ];
   return {
     formatVersion: FORMAT_VERSION, minReaderFormat: MIN_READER_FORMAT, appVersion: "starter", exportedAt: T0, deviceId: "starter",
-    settings: { languages: ["en"], playLanguage: "en", sleepMinutes: 8, gateKind: "keypad", reduceMotion: false, currentPlaceId: "place-farm", welcomed: false, updatedAt: T0 },
+    settings: { languages: ["en"], playLanguage: "alternate", sleepMinutes: 8, gateKind: "keypad", reduceMotion: false, currentPlaceId: "place-farm", welcomed: false, updatedAt: T0 },
     places,
     things: [...farmThings, ...seaThings, ...kitchenThings],
     clips: [],

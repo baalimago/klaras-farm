@@ -8,7 +8,7 @@
   "languages": [
    "en"
   ],
-  "playLanguage": "en",
+  "playLanguage": "alternate",
   "sleepMinutes": 8,
   "gateKind": "keypad",
   "reduceMotion": false,

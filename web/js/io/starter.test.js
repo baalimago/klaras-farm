@@ -25,7 +25,7 @@ test("starterSnapshot gives fresh ids and passes validateSnapshot", () => {
   assert.ok(ids.every((id) => id.startsWith("s-")));
   assert.equal(new Set(ids).size, ids.length);
   assert.deepEqual(s.settings.languages, ["sv"]);
-  assert.equal(s.settings.playLanguage, "sv");
+  assert.equal(s.settings.playLanguage, "alternate", "Mix languages by default");
   assert.equal(s.appVersion, "v1");
   assert.deepEqual(s.clips, []);
   const farm = s.places.find((p) => p.name === "Farm");

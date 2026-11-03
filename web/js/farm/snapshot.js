@@ -30,7 +30,7 @@ export function emptySnapshot(env, appVersion = "dev") {
 export function defaultSettings(env, lang = "en") {
   return {
     languages: [lang],
-    playLanguage: lang,
+    playLanguage: "alternate", // "Mix languages" is the default: random recorded language per tap
     sleepMinutes: 8,
     gateKind: "keypad",
     reduceMotion: false,
