@@ -132,6 +132,7 @@ test("a parent adds a thing with a recorded name, and it survives a reload", asy
   await page.waitForTimeout(1200);
   await page.mouse.up();
   await page.getByRole("button", { name: "Next" }).click();
+  await page.getByRole("button", { name: "Skip" }).click(); // legs (tests/browser/legs.test.js places them)
   await page.locator('[data-motion="walk"]').click();
   await page.getByRole("button", { name: "Next" }).click();
   await page.locator('input[name="name"]').fill("Bird");

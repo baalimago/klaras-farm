@@ -2,8 +2,18 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { STEPS, stampEye, upsertClip, stripClip, latestDraft, canAdvance, freeSpot, cleanNames, newDraft, refitEyes } from "./steps.js";
 
-test("seven steps in the approved order", () => {
-  assert.deepEqual(STEPS, ["draw", "felt", "eyes", "moves", "name", "ask", "sound"]);
+test("eight steps in the approved order: Legs right after Eyes", () => {
+  assert.deepEqual(STEPS, ["draw", "felt", "eyes", "legs", "moves", "name", "ask", "sound"]);
+});
+
+test("the Legs step: Next waits until every chosen leg is placed", () => {
+  assert.equal(canAdvance("legs", { legs: [], legTarget: null }), true, "no count picked: no legs");
+  assert.equal(canAdvance("legs", { legs: [], legTarget: 0 }), true);
+  assert.equal(canAdvance("legs", { legs: [{ x: 0, y: 0 }], legTarget: 2 }), false);
+  assert.equal(canAdvance("legs", { legs: [{ x: 0, y: 0 }, { x: 1, y: 0 }], legTarget: 2 }), true);
+  assert.equal(canAdvance("legs", {}), true, "a draft from an older build");
+  assert.deepEqual(newDraft("p", [0.5, 0.6]).thing.legs, []);
+  assert.equal(newDraft("p", [0.5, 0.6]).thing.legTarget, null);
 });
 
 test("stampEye: up to two eyes, a third tap moves the oldest", () => {

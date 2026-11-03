@@ -1,11 +1,12 @@
 // <kf-thing-card>: everything about one thing on one card (flow 2; US-3.6–3.8, 4.5, 4.7, 9.1).
 // One tab per language (typed name, name clip, 3 questions with editable cues, sound) plus
-// "+ Language"; felt colour, motion, Redraw, Re-stamp eyes, Delete with confirm and Undo.
+// "+ Language"; felt colour, motion, Redraw, Re-stamp eyes, Place legs, Delete with confirm and Undo.
 // Changes save immediately; there is no Save button. Props: `services`, `params = {thingId}`.
 import { h, ensureElement, languageName } from "../kf-guided-add/dom.js";
 import { loadGeometry, snapPoint } from "../kf-guided-add/geometry.js";
 import { ThingPreview, viewFor, FULL_VIEW } from "../kf-guided-add/preview.js";
 import { EyeStamper } from "../kf-guided-add/eyes.js";
+import { LegPlacer } from "../kf-guided-add/legs.js";
 import { THING_SIZE, MOTIONS, stripClip, refitEyes } from "../kf-guided-add/steps.js";
 import { languageOptions } from "./languages.js";
 import { THING_COLORS, hex } from "../../farm/palette.js";
@@ -279,6 +280,7 @@ export class ThingCardElement extends HTMLElement {
         { class: "kf-row kf-tc-shape" },
         h("button", { class: "kf-btn", type: "button", text: "Redraw", "data-action": "redraw", onclick: () => this._redraw() }),
         h("button", { class: "kf-btn", type: "button", text: "Re-stamp eyes", "data-action": "restamp", onclick: () => this._restamp() }),
+        h("button", { class: "kf-btn", type: "button", text: "Place legs", "data-action": "legs", onclick: () => this._placeLegs() }),
       ),
     );
   }
@@ -384,8 +386,10 @@ export class ThingCardElement extends HTMLElement {
       const cur = this.thing;
       const b = this.geo.bbox(cur.outline);
       const outline = this.geo.fitOutline(pts, { maxW: THING_SIZE.w, maxH: THING_SIZE.h, cx: b.x + b.w / 2, cy: b.y + b.h / 2 }).map(([x, y]) => [x, y]);
-      const eyes = refitEyes(cur.eyes ?? [], cur.outline, outline, (p, poly) => snapPoint(this.geo, p, poly));
-      await this._update({ outline, eyes });
+      const snap = (p, poly) => snapPoint(this.geo, p, poly);
+      const eyes = refitEyes(cur.eyes ?? [], cur.outline, outline, snap);
+      const legs = refitEyes(cur.legs ?? [], cur.outline, outline, snap);
+      await this._update({ outline, eyes, legs });
       this._dirty = true;
       close();
     });
@@ -409,9 +413,38 @@ export class ThingCardElement extends HTMLElement {
     this._overlay = { close: () => stamper.unmount(), stamper };
   }
 
-  /** Board point → client point in the open eye stamping view (tests). */
+  /** Pick how many legs, then tap where each goes (like eyes). Saved on Done; Cancel keeps the old legs. */
+  _placeLegs() {
+    const thing = this.thing;
+    const { root, preview } = this._overlayShell("legs");
+    preview.setView(viewFor(thing.outline, { fill: 0.5, centerX: 0.36, geo: this.geo }));
+    const close = () => { placer.detach(); root.remove(); this._overlay = null; if (this._dirty) this._render(); };
+    const placer = new LegPlacer({
+      preview,
+      geo: this.geo,
+      thing,
+      chime: (kind) => this.services.audio?.chime?.(kind),
+      onChange: () => this.services.session?.activity?.(),
+      buttons: (phase) => [
+        h("button", { class: "kf-btn ghost", type: "button", text: "Cancel", "data-action": "cancel-legs", onclick: close }),
+        h("button", {
+          class: "kf-btn primary", type: "button", text: "Done", "data-action": "done-legs", disabled: phase === "place",
+          onclick: async () => {
+            await this._update({ legs: placer.legs });
+            this._dirty = true;
+            close();
+          },
+        }),
+      ],
+    });
+    root.append(h("div", { class: "kf-sheet kf-tc-overlay-bar" }, placer.panel()));
+    requestAnimationFrame(() => placer.redraw());
+    this._overlay = { close, placer };
+  }
+
+  /** Board point → client point in the open eye stamping or leg placing view (tests). */
   toClient(x, y) {
-    return this._overlay?.stamper?.toClient(x, y);
+    return (this._overlay?.stamper ?? this._overlay?.placer?.preview)?.toClient(x, y);
   }
 
   async _delete() {

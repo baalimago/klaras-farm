@@ -1,7 +1,7 @@
 // Pure helpers for the add-a-thing flow (no DOM). Unit tested in steps.test.js.
 
-export const STEPS = Object.freeze(["draw", "felt", "eyes", "moves", "name", "ask", "sound"]);
-export const STEP_LABELS = Object.freeze(["Draw", "Felt", "Eyes", "Moves", "Name", "Ask", "Sound"]);
+export const STEPS = Object.freeze(["draw", "felt", "eyes", "legs", "moves", "name", "ask", "sound"]);
+export const STEP_LABELS = Object.freeze(["Draw", "Felt", "Eyes", "Legs", "Moves", "Name", "Ask", "Sound"]);
 
 /** Size of a new thing in board units (x: board width, y: board height). */
 export const THING_SIZE = Object.freeze({ w: 0.24, h: 0.32 });
@@ -12,7 +12,8 @@ export const MOTIONS = Object.freeze([
 ]);
 
 export function newDraft(placeId, at) {
-  return { id: null, placeId, step: 0, at, thing: { names: {}, cues: {}, eyes: [], outline: null, color: null, motion: null }, clips: [] };
+  // legTarget: the leg count picked on the Legs step (null = not picked yet); not part of the Thing.
+  return { id: null, placeId, step: 0, at, thing: { names: {}, cues: {}, eyes: [], legs: [], legTarget: null, outline: null, color: null, motion: null }, clips: [] };
 }
 
 /** Fills in fields a draft from an older build may lack. */
@@ -22,7 +23,7 @@ export function normalizeDraft(d, fallbackAt) {
     ...d,
     step: Math.max(0, Math.min(STEPS.length - 1, Number.isInteger(d.step) ? d.step : 0)),
     at: d.at ?? fallbackAt,
-    thing: { names: {}, cues: {}, eyes: [], outline: null, color: null, motion: null, ...t },
+    thing: { names: {}, cues: {}, eyes: [], legs: [], legTarget: null, outline: null, color: null, motion: null, ...t },
     clips: Array.isArray(d.clips) ? d.clips : [],
   };
 }
@@ -55,6 +56,7 @@ export function latestDraft(drafts, placeId) {
 export function canAdvance(step, thing) {
   if (step === "draw") return Array.isArray(thing.outline) && thing.outline.length >= 3;
   if (step === "felt") return !!thing.color;
+  if (step === "legs") return !Number.isInteger(thing.legTarget) || (thing.legs?.length ?? 0) >= thing.legTarget;
   if (step === "moves") return !!thing.motion;
   return true;
 }
@@ -91,7 +93,7 @@ export function cleanCues(cues = {}) {
   return out;
 }
 
-/** Moves eyes to the same relative spot of a redrawn outline, then snaps them inside. */
+/** Moves eyes (or legs: any {x, y} list) to the same relative spot of a redrawn outline, then snaps them inside. */
 export function refitEyes(eyes, oldOutline, newOutline, snap) {
   const box = (pts) => {
     const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);

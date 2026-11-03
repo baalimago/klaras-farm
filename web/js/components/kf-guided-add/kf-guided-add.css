@@ -121,3 +121,10 @@ kf-guided-add {
 }
 .kf-eyes-strip.holding .kf-eyes-fill { width: 100%; transition: width var(--hold-ms, 1000ms) linear; }
 .kf-eyes-label { position: relative; }
+
+/* Leg placing (Legs step and the thing card): a big count picker, then taps on the preview. */
+.kf-legs-counts { display: grid; grid-template-columns: repeat(4, minmax(64px, 1fr)); gap: 10px; margin: 12px 0; }
+.kf-btn.kf-legs-count { min-height: 72px; font-size: 1.8rem; font-weight: 800; justify-content: center; }
+.kf-btn.kf-legs-count.suggested { outline: 3px solid var(--ink); outline-offset: 2px; }
+.kf-legs-heading { margin-bottom: 4px; }
+canvas.kf-legs-target { cursor: crosshair; touch-action: none; }
