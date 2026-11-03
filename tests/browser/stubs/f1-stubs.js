@@ -1,7 +1,7 @@
 // Test stubs for package F1's dependencies, injected into a modulePage as an inline module.
 // They implement exactly the documented interfaces (design/IMPLEMENTATION.md):
 //   <kf-draw-pad mode color>  → dispatches `kf-stroke {points}` / `kf-stroke-open {gap}` (A)
-//   <kf-recorder services label clipRef existing> → dispatches `kf-recorded {clip, blob}` on Keep (D)
+//   <kf-recorder services label clipRef existing> → dispatches `kf-recorded {clip, blob}` when a take finishes (D)
 //   audio.chime(kind), audio.playClip(clip), 'decode-failed' events (D); engine.dropIn(id) (B);
 //   shell.confirm(opts) → Promise<bool>, shell.toast(msg, {undo}) (F2); session.activity() etc. (C)
 
@@ -26,13 +26,13 @@ class StubRecorder extends HTMLElement {
     const label = document.createElement("p");
     label.className = "stub-label";
     label.textContent = this.label ?? "";
-    const keep = document.createElement("button");
-    keep.type = "button";
-    keep.className = "kf-btn";
-    keep.dataset.stub = "keep";
-    keep.textContent = "Keep";
-    keep.addEventListener("click", () => this.keep());
-    this.append(label, keep);
+    const take = document.createElement("button");
+    take.type = "button";
+    take.className = "kf-btn";
+    take.dataset.stub = "take";
+    take.textContent = "Finish take";
+    take.addEventListener("click", () => this.finishTake());
+    this.append(label, take);
   }
   set label(v) {
     this._label = v;
@@ -40,8 +40,8 @@ class StubRecorder extends HTMLElement {
     if (p) p.textContent = v;
   }
   get label() { return this._label; }
-  /** What Keep on the real recorder hands over. */
-  keep() {
+  /** What the real recorder hands over as soon as a good take finishes (no Keep step). */
+  finishTake() {
     const n = ++takeNo;
     const sha = `f1${n.toString(16)}`.padStart(64, "0");
     const bytes = new Uint8Array([n & 255, 1, 2, 3]).buffer;

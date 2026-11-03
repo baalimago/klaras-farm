@@ -1,8 +1,10 @@
 // <kf-recorder>: one recording slot (flows 5 and 6; US-4.1, 4.3, 4.4, 4.7).
-// States (data-state): ready → starting → recording → processing → review → saved;
+// States (data-state): ready → starting → recording → processing → saved;
 // errors: denied (iPad Settings steps), error (data-error = too-short | silent | failed | unsupported).
-// Keep dispatches 'kf-recorded' {clip, blob}; it never writes to the store, so an existing clip
-// stays until the parent panel saves the new one.
+// Every take that passes the checks is kept: the recorder dispatches 'kf-recorded' {clip, blob}
+// as soon as it finishes, then shows "Saved ✓" with ▶ Play and Re-record. It never writes to the
+// store, so an existing clip stays until the parent panel saves the new one; a re-record that
+// fails or is cancelled saves nothing and the old clip stays.
 //
 // Props: services ({audio, recorder, env?, engine?}), label (cue text), clipRef
 // {thingId|null, language, kind, take}, existing (Clip|null).
@@ -23,8 +25,7 @@ export class KfRecorderElement extends HTMLElement {
     this._existing = null;
     this._state = "ready";
     this._error = null;
-    this._take = null;     // last RecordResult with ok:true
-    this._kept = null;     // {clip, blob} after Keep
+    this._kept = null;     // {clip, blob, cappedAt5s} of the last take this recorder saved
     this._handle = null;
     this._meter = null;
     this._built = false;
@@ -75,7 +76,6 @@ export class KfRecorderElement extends HTMLElement {
     if (!recorder) return this._fail("unsupported");
     audio?.unlock?.(); // inside the click: iPad needs the gesture
     audio?.stop?.();
-    this._take = null;
     this._set("starting");
     let handle;
     try {
@@ -107,10 +107,7 @@ export class KfRecorderElement extends HTMLElement {
     audio.unlock?.();
     let clip;
     let bytes;
-    if (this._state === "review" && this._take) {
-      clip = this._clipFrom(this._take);
-      bytes = this._take.bytes;
-    } else if (this._kept) {
+    if (this._kept) {
       clip = this._kept.clip;
       bytes = this._kept.blob.bytes;
     } else if (this._existing) {
@@ -122,28 +119,24 @@ export class KfRecorderElement extends HTMLElement {
     if (thingId) this.services.engine?.hop?.(thingId); // the thing hops while its voice plays
   }
 
-  keep() {
-    if (!this._take) return;
-    const t = this._take;
+  // ---- internals ----
+
+  /** A take that passed the checks is kept straight away (no Keep step). */
+  _save(t) {
     const clip = this._clipFrom(t);
     const blob = { sha256: t.sha256, mime: t.mime, size: t.bytes?.byteLength ?? 0, createdAt: this._now(), bytes: t.bytes };
-    this._kept = { clip, blob };
-    this._take = null;
-    this.services?.audio?.stop?.();
+    this._kept = { clip, blob, cappedAt5s: !!t.cappedAt5s };
     this._set("saved");
     this.dispatchEvent(new CustomEvent("kf-recorded", { bubbles: true, composed: true, detail: { clip, blob } }));
   }
 
-  // ---- internals ----
-
   _onResult(r) {
     if (r?.ok) {
-      this._take = r;
-      this._set("review");
+      this._save(r);
     } else if (r?.error === "denied") {
       this._set("denied");
     } else if (r?.error === "cancelled") {
-      this._set("ready");
+      this._set(this._kept ? "saved" : "ready"); // a cancelled re-record keeps the saved take
     } else {
       this._fail(r?.error in ERRORS ? r.error : "failed");
     }
@@ -225,7 +218,7 @@ export class KfRecorderElement extends HTMLElement {
     switch (this._state) {
       case "ready": {
         const hasOld = !!this._existing;
-        body.append(this._micButton(hasOld ? "Record again" : "Record"));
+        body.append(this._micButton(hasOld ? "Re-record" : "Record"));
         if (hasOld) row.append(this._btn("▶ Play", "", () => this.play()));
         break;
       }
@@ -252,27 +245,19 @@ export class KfRecorderElement extends HTMLElement {
       case "processing":
         status = "One moment…";
         break;
-      case "review": {
-        if (this._take?.cappedAt5s) {
-          const p = document.createElement("p");
-          p.className = "kf-note";
-          p.textContent = "Stopped at 5 seconds. Keep it, or try again a little shorter.";
-          body.append(p);
-        }
-        row.append(
-          this._btn("▶ Listen", "", () => this.play(), "Listen"),
-          this._btn("Try again", "", () => this.record()),
-          this._btn("Keep", "primary", () => this.keep()),
-        );
-        status = "Listen, then keep it or try again";
-        break;
-      }
       case "saved": {
         const p = document.createElement("p");
         p.className = "kf-rec-saved";
         p.textContent = "Saved ✓";
         body.append(p);
-        row.append(this._btn("▶ Play", "", () => this.play()), this._btn("Record again", "", () => this.record()));
+        if (this._kept?.cappedAt5s) {
+          const note = document.createElement("p");
+          note.className = "kf-note";
+          note.textContent = "Stopped at 5 seconds. If it got cut off, re-record it a little shorter.";
+          body.append(note);
+        }
+        row.append(this._btn("▶ Play", "", () => this.play()), this._btn("Re-record", "", () => this.record()));
+        status = "Saved";
         break;
       }
       case "denied": {
@@ -298,6 +283,13 @@ export class KfRecorderElement extends HTMLElement {
         p.textContent = ERRORS[this._error] ?? ERRORS.failed;
         body.append(p);
         if (this._error !== "unsupported") row.append(this._btn("Try again", "primary", () => this.record()));
+        if (this._kept || this._existing) {
+          const kept = document.createElement("p");
+          kept.className = "kf-note";
+          kept.textContent = "The recording you already have is still saved.";
+          body.append(kept);
+          row.append(this._btn("▶ Play", "", () => this.play(), "Play the saved recording"));
+        }
         status = p.textContent;
         break;
       }

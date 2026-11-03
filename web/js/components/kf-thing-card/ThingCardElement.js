@@ -335,7 +335,8 @@ export class ThingCardElement extends HTMLElement {
     }
   }
 
-  /** Keep on the recorder: replaces the old clip now (US-4.7). Cancel never gets here. */
+  /** A finished take is kept at once: it replaces the old clip now and the recorder closes (US-4.7).
+   *  Cancel, or a take that fails its checks, never gets here, so the old clip stays. */
   async _saveRecording(detail, { kind, take }) {
     const { clip, blob } = detail ?? {};
     if (!clip) return;

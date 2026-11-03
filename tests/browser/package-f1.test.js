@@ -153,7 +153,7 @@ test("add a thing end to end: draw, felt, eyes, moves, name, one question, skip 
   assert.equal(await step(page), "name");
   await page.locator('input[name="name"]').fill("Pig");
   assert.match(await page.locator('kf-recorder[data-kind="name"] .stub-label').textContent(), /“Pig”/);
-  await page.locator('kf-recorder[data-kind="name"] [data-stub="keep"]').click();
+  await page.locator('kf-recorder[data-kind="name"] [data-stub="take"]').click();
   await page.waitForFunction(async () => (await window.__t.store.listDrafts())[0]?.clips.length === 1);
   await page.getByRole("button", { name: "Next" }).click();
 
@@ -161,7 +161,7 @@ test("add a thing end to end: draw, felt, eyes, moves, name, one question, skip 
   assert.equal(await step(page), "ask");
   assert.equal(await page.locator(".kf-ga-cue").textContent(), "“Where is the Pig?”");
   assert.doesNotMatch(await page.locator(".kf-ga-panel").textContent(), /null|undefined/, "no stray optional parts");
-  await page.locator('kf-recorder[data-kind="prompt"][data-take="1"] [data-stub="keep"]').click();
+  await page.locator('kf-recorder[data-kind="prompt"][data-take="1"] [data-stub="take"]').click();
   await page.getByText("Recorded 1 of 3").waitFor();
   await page.getByRole("button", { name: "Skip for now" }).click();
 
@@ -295,7 +295,7 @@ test("thing card: rename, recolour, motion, + Language, re-record (cancel keeps,
   await page.locator('.kf-tc-clip[data-kind="name"] [data-action="play"]').click();
   assert.equal((await page.evaluate(() => window.__f1.played)).length, 1);
 
-  // Re-record: cancel keeps the old clip, keep replaces it
+  // Re-record: cancel keeps the old clip, a finished take replaces it
   const old = (await clips())[0];
   await page.locator('.kf-tc-clip[data-kind="name"] [data-action="record"]').click();
   assert.equal(await page.evaluate(() => window.__f1.recorded.length), 0);
@@ -305,7 +305,7 @@ test("thing card: rename, recolour, motion, + Language, re-record (cancel keeps,
   assert.equal(await page.locator("kf-recorder").count(), 0);
   assert.deepEqual(await clips(), [old]);
   await page.locator('.kf-tc-clip[data-kind="name"] [data-action="record"]').click();
-  await page.locator('kf-recorder [data-stub="keep"]').click();
+  await page.locator('kf-recorder [data-stub="take"]').click();
   await page.waitForFunction((id) => window.__t.store.clipsFor(id)[0]?.blobSha256.startsWith("0"), thingId);
   const now = await clips();
   assert.equal(now.length, 1);
@@ -314,7 +314,7 @@ test("thing card: rename, recolour, motion, + Language, re-record (cancel keeps,
 
   // A question clip can be recorded from the card too
   await page.locator('.kf-tc-clip[data-kind="prompt"][data-take="2"] [data-action="record"]').click();
-  await page.locator('kf-recorder [data-stub="keep"]').click();
+  await page.locator('kf-recorder [data-stub="take"]').click();
   await page.getByRole("heading", { name: "Questions (1/3)" }).waitFor();
 
   // Decode failures are flagged "re-record"

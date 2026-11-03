@@ -154,7 +154,7 @@ export class GuidedAddElement extends HTMLElement {
     el.existing = findClip(this.draft.clips, { language: this.lang, kind, take });
     el.dataset.kind = kind;
     el.dataset.take = String(take);
-    el.addEventListener("kf-recorded", (e) => this._keep(e.detail));
+    el.addEventListener("kf-recorded", (e) => this._saveRecording(e.detail));
     return el;
   }
 
@@ -422,8 +422,8 @@ export class GuidedAddElement extends HTMLElement {
     return run;
   }
 
-  /** A recording was kept: store its blob first, then the draft that references it. */
-  async _keep(detail) {
+  /** A take finished (every good take is kept): store its blob first, then the draft that references it. */
+  async _saveRecording(detail) {
     const { clip, blob } = detail ?? {};
     if (!clip) return;
     try {
