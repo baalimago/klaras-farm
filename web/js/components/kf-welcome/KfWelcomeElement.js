@@ -45,26 +45,27 @@ export class KfWelcomeElement extends HTMLElement {
     start.focus();
   }
 
-  async dismiss() {
+  /**
+   * Closes at once. Unlocking audio and asking for persistent storage start inside the tap;
+   * saving `welcomed` happens in the background. Nothing is awaited before closing: on iPad,
+   * navigator.storage.persist() can stay pending, which used to leave the card up and the
+   * board unreachable.
+   */
+  dismiss() {
     if (this._done) return;
     this._done = true;
     const { storage, store, audio } = this.services ?? {};
-    // Both need the user's gesture, so they start before anything is awaited.
     try {
       audio?.unlock?.();
     } catch {}
-    let persisted;
     try {
-      persisted = Promise.resolve(storage?.requestPersist?.()).catch(() => false);
-    } catch {
-      persisted = Promise.resolve(false);
-    }
+      Promise.resolve(storage?.requestPersist?.()).catch(() => {});
+    } catch {}
     try {
-      await store?.updateSettings({ patch: { welcomed: true } });
+      Promise.resolve(store?.updateSettings({ patch: { welcomed: true } })).catch((e) => console.warn("could not save welcomed", e));
     } catch (e) {
       console.warn("could not save welcomed", e); // the card shows again next launch; play is not blocked
     }
-    await persisted;
     this.dispatchEvent(new CustomEvent("kf-close", { bubbles: true }));
   }
 }

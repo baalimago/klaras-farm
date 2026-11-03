@@ -47,8 +47,13 @@ test("small wobbles and other pointers' moves are ignored", () => {
 });
 
 test("a palm never holds, at the start or when the contact grows", () => {
-  assert.equal(run([down({ width: 80 })]).phase, "cancelled");
-  assert.equal(run([down(), { type: "move", x: 500, y: 400, width: 90, height: 70, pointerId: 1 }]).phase, "cancelled");
+  assert.equal(run([down({ width: 200, height: 180 })]).phase, "cancelled");
+  assert.equal(run([down(), { type: "move", x: 500, y: 400, width: 190, height: 170, pointerId: 1 }]).phase, "cancelled");
+});
+
+test("a big iPad fingertip (up to ~90 px contact) is a finger, not a palm", () => {
+  assert.equal(run([down({ width: 90, height: 90 })]).phase, "pending");
+  assert.equal(run([down({ width: 120, height: 40 })]).phase, "pending");
 });
 
 test("never starts in the bottom 40 px or within 20 px of the side edges", () => {

@@ -4,8 +4,10 @@
 // and dispatches `kf-thing-tap` {thingId} for the edit layer.
 import { Renderer } from "../../io/renderer.js";
 import { toBoard, fromBoard } from "../../geometry/stroke.js";
+import { isPalm } from "../../edit/hold.js";
 
-const PALM_PX = 60;
+const guard = (fn) => { try { fn(); } catch (e) { console.error(e); } };
+
 const TAP_MOVE_PX = 10;
 const TAP_MS = 500;
 
@@ -104,14 +106,15 @@ export class KfBoardElement extends HTMLElement {
 
   _onDown(e) {
     if (!e.isPrimary) return;
-    if (e.width > PALM_PX || e.height > PALM_PX) return; // palm
+    if (isPalm(e)) return;
     const s = this.services;
     if (!s) return;
-    s.audio?.unlock?.(); // synchronously, inside the gesture (iPad audio rules)
-    s.engine?.fingerDown?.(true);
+    // Each step is guarded so a failure in one (audio on an odd device, say) never eats the tap.
+    guard(() => s.audio?.unlock?.()); // synchronously, inside the gesture (iPad audio rules)
+    guard(() => s.engine?.fingerDown?.(true));
     this._down = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, moved: false };
     try { this._frameEl.setPointerCapture(e.pointerId); } catch {}
-    s.session?.holdStart?.(e, this);
+    guard(() => s.session?.holdStart?.(e, this));
     if (this._mode() === "play") {
       const [x, y] = this.toBoard(e.clientX, e.clientY);
       s.engine?.tap?.(x, y);

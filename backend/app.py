@@ -10,6 +10,8 @@ Routes:
     /v/<hash>/<path>  frontend assets, cached forever (immutable)
     /sw.js            service worker rendered with the asset hash, never cached
     /healthz          {"ok", "sha", "assets"}; ?deep=1 also checks Postgres
+    POST /api/client-log  a short client error report, printed to the server log
+                          (so device-only failures, e.g. on an iPad, show up in Wasmer logs)
 """
 
 from __future__ import annotations
@@ -150,6 +152,12 @@ def make_app(root: Path, data_dir_env: str = "KF_DATA_DIR"):
         method = scope["method"]
         path = scope["path"]
         headers = dict(scope.get("headers") or [])
+        if path == "/api/client-log" and method == "POST":
+            body = await read_body(receive, CLIENT_LOG_MAX)
+            ua = headers.get(b"user-agent", b"").decode("latin-1")[:200]
+            text = body.decode("utf-8", "replace").replace("\n", " | ")[:CLIENT_LOG_MAX]
+            print(f"client-log ua={ua!r} {text}", flush=True)
+            return await respond(send, 204, b"", "text/plain")
         if method not in ("GET", "HEAD"):
             return await respond(send, 405, b"method not allowed", "text/plain", extra=[(b"allow", b"GET, HEAD")])
 
@@ -175,6 +183,25 @@ def make_app(root: Path, data_dir_env: str = "KF_DATA_DIR"):
 
     app.site = site  # for tests
     return app
+
+
+CLIENT_LOG_MAX = 2000
+
+
+async def read_body(receive, limit: int) -> bytes:
+    """Reads a request body, keeping at most `limit` bytes."""
+    chunks, size = [], 0
+    while True:
+        message = await receive()
+        if message["type"] != "http.request":
+            break
+        part = message.get("body", b"")
+        if size < limit:
+            chunks.append(part[: limit - size])
+        size += len(part)
+        if not message.get("more_body"):
+            break
+    return b"".join(chunks)
 
 
 def health(asset_hash: str, deep: bool) -> dict:

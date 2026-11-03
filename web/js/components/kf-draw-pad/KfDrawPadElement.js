@@ -10,7 +10,7 @@ import { hex, INK } from "../../farm/palette.js";
 import { roundPoints } from "../../farm/snapshot.js";
 import { simplify, smooth, closeGap, pathLength, toBoard, fromBoard, fitRect } from "../../geometry/stroke.js";
 
-const PALM_PX = 60;
+const PALM_PX = 140; // both sides: iPad fingertips report 40–90 px contacts
 const MIN_LENGTH = 0.01; // board units; shorter strokes are taps and ignored
 const HIGHLIGHT = "#ff8a5b";
 
@@ -125,7 +125,7 @@ export class KfDrawPadElement extends HTMLElement {
   // ---------- pointer ----------
   _onDown(e) {
     if (!e.isPrimary || this._stroke) return;
-    if (e.pointerType === "touch" && (e.width > PALM_PX || e.height > PALM_PX)) return;
+    if (e.pointerType === "touch" && (e.width > PALM_PX && e.height > PALM_PX)) return;
     e.preventDefault();
     try { this.setPointerCapture(e.pointerId); } catch {}
     this._gap = null;

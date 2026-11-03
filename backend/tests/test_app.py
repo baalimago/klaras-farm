@@ -11,11 +11,11 @@ from backend.app import make_app, tree_hash
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def call(app, path, method="GET", headers=(), query=b""):
+def call(app, path, method="GET", headers=(), query=b"", body=b""):
     sent = []
 
     async def receive():
-        return {"type": "http.request", "body": b"", "more_body": False}
+        return {"type": "http.request", "body": body, "more_body": False}
 
     async def send(message):
         sent.append(message)
@@ -132,3 +132,13 @@ def test_real_web_folder_boots():
     app = make_app(ROOT / "web")
     status, _, body = call(app, "/")
     assert status == 200 and b"kf-board" in body
+
+
+def test_client_log_prints_a_capped_line(site, capsys):
+    app = make_app(site)
+    status, _, _ = call(app, "/api/client-log", method="POST", headers=[("user-agent", "iPad")], body=b"boom\nat x" + b"y" * 5000)
+    assert status == 204
+    out = capsys.readouterr().out
+    assert "client-log ua='iPad' boom | at x" in out
+    assert len(out) < 2300
+    assert call(app, "/api/client-log")[0] == 404  # GET is not a route

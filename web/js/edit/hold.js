@@ -8,8 +8,16 @@ export const HOLD = Object.freeze({
   moveTolPx: 10,
   edgeBottomPx: 40,
   edgeSidePx: 20,
-  palmPx: 60,
+  palmPx: 140,
 });
+
+/**
+ * A palm, not a finger: both sides of the contact are large. iPad Safari reports a normal
+ * fingertip as 40–90 px wide (twice the touch radius), so a small threshold rejected real taps.
+ */
+export function isPalm(e) {
+  return (e.width ?? 0) > HOLD.palmPx && (e.height ?? 0) > HOLD.palmPx;
+}
 
 const IDLE = Object.freeze({ phase: "idle", progress: 0 });
 
@@ -17,7 +25,6 @@ export function initialHold() {
   return IDLE;
 }
 
-const isPalm = (e) => (e.width ?? 0) > HOLD.palmPx || (e.height ?? 0) > HOLD.palmPx;
 const active = (s) => s.phase === "pending" || s.phase === "showing";
 const cancel = (s, reason) => ({ phase: "cancelled", progress: 0, reason, pointerId: s.pointerId, x: s.x, y: s.y });
 

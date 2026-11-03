@@ -170,7 +170,7 @@ test("pointer rules: tap in play unlocks audio, taps the engine in board coords 
   calls = await page.evaluate(({ cx, cy }) => {
     const frame = window.__t.board.querySelector(".kf-board-frame");
     const ev = (o) => new PointerEvent("pointerdown", { bubbles: true, clientX: cx, clientY: cy, pointerId: 7, pointerType: "touch", ...o });
-    frame.dispatchEvent(ev({ isPrimary: true, width: 90, height: 90 }));
+    frame.dispatchEvent(ev({ isPrimary: true, width: 200, height: 180 }));
     frame.dispatchEvent(ev({ isPrimary: false, width: 10, height: 10 }));
     const ctx = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
     frame.dispatchEvent(ctx);
