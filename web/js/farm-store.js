@@ -90,6 +90,7 @@ export class FarmStore extends EventTarget {
   setQuestionLine(args) { return this._run(I.setQuestionLine, args); }
   addQuestion(args) { return this._run(I.addQuestion, args); }
   removeQuestion(args) { return this._run(I.removeQuestion, args); }
+  restoreQuestions(args) { return this._run(I.restoreQuestions, args); }
 
   // ---- drafts (not part of the snapshot) ----
   async saveDraft(draft) {

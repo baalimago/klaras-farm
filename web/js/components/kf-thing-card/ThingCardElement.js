@@ -143,10 +143,13 @@ export class ThingCardElement extends HTMLElement {
         h("button", { class: "kf-btn primary", type: "button", text: "Close", onclick: () => this._close() }),
       ),
     );
-    // Only the sheet is replaced: an open overlay (eyes, legs, redraw) stays on top of it.
+    // Only the sheet is replaced: an open overlay (eyes, legs, redraw) stays on top of it. The new
+    // sheet keeps the old one's scroll position, so an edit never jumps the parent back to the top.
+    const scroll = this._sheet?.scrollTop ?? 0;
     if (this._sheet?.parentNode === this) this._sheet.replaceWith(sheet);
     else this.prepend(sheet);
     this._sheet = sheet;
+    sheet.scrollTop = scroll;
     this._drawPreview();
   }
 
@@ -201,6 +204,7 @@ export class ThingCardElement extends HTMLElement {
         thing,
         lang,
         busy: !!this._recording,
+        shell: this.services.shell,
         slot: (take) => this._clipControls("prompt", take),
         onArticle: (article) => this._setCue({ article }),
         onError: (e) => this._error(e),

@@ -64,3 +64,11 @@ test("colour language: fixed, or mixed among the fully recorded languages", () =
   const q = [clip("q", "en", "color-question"), clip("q2", "de", "color-question")];
   assert.deepEqual(recordedColorLangs(q, [clip("w", "en", "color-word"), clip("w2", "sv", "color-word")]), ["en"]);
 });
+
+test("the device voice reads a line in the language of its script, not the play language", () => {
+  // Swedish without a script: the English example lines are read by an English voice.
+  const animal = planAnimalAsk({ ...base, lang: "sv", linesLang: "en" });
+  assert.deepEqual(animal.ask.find((s) => s.kind === "speak"), { kind: "speak", text: "Where is the hen?", lang: "en" });
+  const color = planColorAsk({ questions: [], words: [], lang: "sv", line: { text: "Tap on an animal that is yellow!", lang: "en" }, canSpeak: true, rng: () => 0 });
+  assert.equal(color.ask.find((s) => s.kind === "speak").lang, "en");
+});

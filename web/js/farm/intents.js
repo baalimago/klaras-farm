@@ -343,6 +343,27 @@ export function removeQuestion(s, { thingId, language, index, examples = [] }, e
   return {
     snapshot: { ...r.snapshot, clips },
     writes: [r.write, ...gone.map((c) => del("clips", c.id)), ...moved.map((c) => put("clips", c))],
+    // What restoreQuestions needs to undo this: the lines and this language's prompt clips before.
+    change: { ...change("thing-updated", [thingId]), removed: { thingId, language, lines: thing.cues?.[language]?.lines ?? null, clips: prompts } },
+  };
+}
+
+/**
+ * Undo of removeQuestion: puts the lines and this language's prompt recordings back as they were.
+ * Blobs survive because the orphan sweep only removes blobs older than 24 h.
+ */
+export function restoreQuestions(s, { thingId, language, lines, clips = [] }, env) {
+  const thing = findThing(s, thingId);
+  const cue = { ...(thing.cues?.[language] ?? {}) };
+  if (Array.isArray(lines)) cue.lines = [...lines];
+  else delete cue.lines;
+  const next = { ...thing, cues: { ...(thing.cues ?? {}), [language]: cue }, updatedAt: env.now() };
+  const now = s.clips.filter((c) => c.thingId === thingId && c.language === language && c.kind === "prompt");
+  const back = clips.map((c) => ({ ...c }));
+  return {
+    snapshot: { ...s, things: replace(s.things, next), clips: [...s.clips.filter((c) => !now.includes(c)), ...back] },
+    // Deletes first, then puts: no two clips share a key at any step.
+    writes: [put("things", next), ...now.map((c) => del("clips", c.id)), ...back.map((c) => put("clips", c))],
     change: change("thing-updated", [thingId]),
   };
 }

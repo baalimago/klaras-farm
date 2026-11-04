@@ -86,6 +86,32 @@ test("find buttons: a tap starts the game when the finger lifts; a 1 s hold open
   assert.deepEqual(page.errors, []);
 });
 
+test("find buttons: a hold whose lift never reaches the button is not left pressed once the adult check opens", async () => {
+  const page = await h.modulePage('<div id="stage"></div><div id="parent-layer"></div>');
+  await page.evaluate(async () => {
+    await import("./js/components/kf-find-buttons/define.js");
+    const { Session } = await import("./js/session.js");
+    window.__log = [];
+    const engine = new EventTarget();
+    Object.assign(engine, { mode: "play", findAvailable: true, findRound: null, startFind: (k) => window.__log.push(k), setMode: () => {} });
+    const services = { engine, audio: { unlock: () => {}, holdTone: () => {}, chime: () => {} }, session: new Session({ holdMs: 1500 }) };
+    services.session.connect(services);
+    const el = document.createElement("kf-find-buttons");
+    el.services = services;
+    document.getElementById("stage").append(el);
+    window.__session = services.session;
+  });
+  const color = page.getByRole("button", { name: "Find a colour" });
+  const c = await center(color);
+  await page.mouse.move(c.x, c.y);
+  await page.mouse.down();
+  await page.waitForFunction(() => window.__session.state.mode === "gate", null, { timeout: 3000 });
+  // The finger lifts over the adult check, not the button: no pointerup for the button.
+  // (The buttons hide outside play, so look the button up directly.)
+  assert.equal(await page.locator(".kf-find-btn--color").evaluate((b) => b.classList.contains("is-held")), false, "leaving play ends the press");
+  assert.deepEqual(page.errors, []);
+});
+
 // ---------------------------------------------------------------- <kf-find-setup> alone
 
 async function setupPage(game) {
@@ -151,6 +177,13 @@ test("find game setup: record a question per animal, edit the example lines free
   await page.waitForFunction(() => window.__t.store.clipsFor(window.__t.hen, { kind: "prompt" }).length === 0);
   assert.equal(await hen.locator('input[name^="cue-"]').count(), 3);
   assert.equal(await hen.locator('input[name="cue-1"]').inputValue(), "Where is my little hen?");
+  // The removal offers Undo, which brings the question and its recording back.
+  const toast = await page.evaluate(() => window.__f1.toasts.at(-1)?.message);
+  assert.equal(toast, "Removed question 1");
+  await page.evaluate(() => window.__f1.toasts.at(-1).undo());
+  await page.waitForFunction(() => window.__t.store.clipsFor(window.__t.hen, { kind: "prompt" }).length === 1);
+  await hen.locator('input[name="cue-4"]').waitFor();
+  assert.equal(await hen.locator('input[name="cue-1"]').inputValue(), "Where is the Hen?");
 
   await page.getByRole("button", { name: "Done" }).click();
   assert.equal(await page.evaluate(() => window.__closed), 1);
@@ -169,6 +202,27 @@ test("find game setup: typing a question then tapping a button straight away kee
   await page.getByRole("button", { name: "Done" }).click();
   assert.equal(await page.evaluate(() => window.__closed), 1, "one tap on Done closes the panel");
   assert.equal(await page.evaluate(() => window.__t.store.snapshot.things.find((t) => t.id === window.__t.hen).cues.en.lines[0]), "Peekaboo, hen!");
+  assert.deepEqual(page.errors, []);
+});
+
+test("find game setup: editing the last animal's question keeps the place on screen, and its Record opens", async () => {
+  const page = await setupPage("animal");
+  await page.setViewportSize({ width: 1180, height: 820 });
+  await page.evaluate(async () => {
+    const { store } = window.__t;
+    const sq = (cx, cy) => [[cx - 0.04, cy], [cx + 0.04, cy], [cx + 0.04, cy + 0.1], [cx - 0.04, cy + 0.1]];
+    for (let i = 0; i < 5; i++) await store.addThing({ placeId: store.currentPlace.id, names: { en: `Thing ${i}` }, outline: sq(0.1 + i * 0.15, 0.2), color: "blue" });
+  });
+  const last = page.locator(".kf-fs-thing").last();
+  await last.locator('input[name="cue-2"]').scrollIntoViewIfNeeded();
+  const before = await page.evaluate(() => document.querySelector(".kf-fs").scrollTop);
+  assert.ok(before > 300, `the sheet scrolled down (${before})`);
+  await last.locator('input[name="cue-2"]').fill("Where did it go?");
+  await last.locator('.kf-tc-clip[data-take="2"] [data-action="record"]').click();
+  await page.locator("kf-recorder").waitFor({ timeout: 2000 });
+  const after = await page.evaluate(() => document.querySelector(".kf-fs").scrollTop);
+  assert.ok(Math.abs(after - before) < 80, `the sheet stays where it was (${before} → ${after})`);
+  assert.equal(await page.locator(".kf-fs-thing").last().locator("kf-recorder").count(), 1, "the recorder opens on the animal that was tapped");
   assert.deepEqual(page.errors, []);
 });
 

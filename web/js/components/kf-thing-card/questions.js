@@ -7,12 +7,13 @@ import { h, languageName } from "../kf-guided-add/dom.js";
 import { cueLines, MAX_CUE_LINES } from "../../farm/scripts.js";
 
 /**
- * @param {{store:object, scripts:object, thing:object, lang:string, slot:(take:number, line:string) => HTMLElement,
+ * @param {{store:object, shell?:object, scripts:object, thing:object, lang:string, slot:(take:number, line:string) => HTMLElement,
  *   onArticle:(article:string|undefined) => void, onError:(e:any) => void, heading?:boolean, busy?:boolean}} o
  *   busy: a recorder is open, so removing a question (which renumbers the recordings) waits
+ *   shell: offers Undo after a removal (it deletes that question's recording)
  * @returns {HTMLElement}
  */
-export function questionsSection({ store, scripts, thing, lang, slot, onArticle, onError, heading = true, busy = false }) {
+export function questionsSection({ store, scripts, thing, lang, slot, onArticle, onError, heading = true, busy = false, shell = null }) {
   const { lines, examples, fallback, articles } = cueLines(scripts ?? {}, thing, lang);
   const cue = thing.cues?.[lang] ?? {};
   const recorded = new Set(store.clipsFor(thing.id, { language: lang, kind: "prompt" }).map((c) => c.take));
@@ -43,7 +44,9 @@ export function questionsSection({ store, scripts, thing, lang, slot, onArticle,
         h("button", {
           class: "kf-btn ghost icon", type: "button", "data-action": "remove-question", "aria-label": `Remove question ${i + 1}`, text: "✕",
           disabled: lines.length <= 1 || busy,
-          onclick: () => run(store.removeQuestion({ thingId: thing.id, language: lang, index: i, examples })),
+          onclick: () => run(Promise.resolve(store.removeQuestion({ thingId: thing.id, language: lang, index: i, examples })).then((change) => {
+            if (change?.removed) shell?.toast?.(`Removed question ${i + 1}`, { undo: () => store.restoreQuestions(change.removed) });
+          })),
         }),
       ),
     ),

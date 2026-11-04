@@ -99,14 +99,18 @@ test("deterministic, valid in a snapshot, and fast", () => {
   assertSimple(a);
   const snap = aSnapshot().withPlace(aPlace().withThing(aThing({ outline: a }))).build();
   assert.deepEqual(validateSnapshot(snap), { ok: true });
-  const t0 = process.hrtime.bigint();
-  const N = 20;
-  for (let i = 0; i < N; i++) unionOutlines(shapes, { aspect: 4 / 3 });
-  const ms = Number(process.hrtime.bigint() - t0) / 1e6 / N;
-  // The time budget only means something without coverage instrumentation, which slows code
-  // unpredictably (npm test); npm run test:fast and CI's plain runs check it.
+  // The fastest of 20 runs: what the code costs, not what a busy machine adds (other tests or load
+  // only ever make a run slower). Coverage instrumentation slows code several times, so it gets a
+  // looser budget instead of none.
+  let ms = Infinity;
+  for (let i = 0; i < 20; i++) {
+    const t0 = process.hrtime.bigint();
+    unionOutlines(shapes, { aspect: 4 / 3 });
+    ms = Math.min(ms, Number(process.hrtime.bigint() - t0) / 1e6);
+  }
   const instrumented = process.env.NODE_V8_COVERAGE || process.execArgv.some((a) => a.includes("coverage"));
-  if (!instrumented) assert.ok(ms < 15, `union of 5 shapes took ${ms.toFixed(2)} ms`);
+  const budget = instrumented ? 60 : 15;
+  assert.ok(ms < budget, `union of 5 shapes took ${ms.toFixed(2)} ms (budget ${budget} ms)`);
   console.log(`# union of 5 shapes: ${ms.toFixed(2)} ms, ${a.length} points`);
 });
 

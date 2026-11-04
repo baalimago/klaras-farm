@@ -116,7 +116,7 @@ music notes -> music bus (faded by MusicPlayer) -> duck ────┘
 
 ## Tests
 
-- Unit (Node, `npm test`): `io/share.test.js`, `io/starter.test.js` (the file is current; the full eight-thing scenes have real leg counts, hips inside the body, no overlaps, 120 px tap spacing and varied sizes), `tests/unit/memory-repo.test.js` (runs the contract on `MemoryRepo`), `tests/unit/wake.test.js`, `tests/unit/export-fixture.test.js` (the golden export must import forever; never regenerate it).
+- Unit (Node, `npm test`): `io/share.test.js`, `io/starter.test.js` (the file is current; the full eight-thing scenes have real leg counts, hips inside the body, no overlaps, 120 px tap spacing and varied sizes), `tests/unit/memory-repo.test.js` (runs the contract on `MemoryRepo`), `tests/unit/wake.test.js`, `tests/unit/audio-speech.test.js` (speech with a fake synthesiser), `tests/unit/audio-play.test.js` (a fake AudioContext: the colour question then word in order, failures without a chime, stop mid-sequence, the editing-sound mash guard), `tests/unit/export-fixture.test.js` (the golden export must import forever; never regenerate it).
 - Browser (`npm run test:browser`, Playwright Chromium against the real Python app):
   - `package-a.test.js`: felt rendering, idle loop at 0 fps, pointer rules, letterboxing.
   - `drag.test.js`: frame cost while dragging a thing (edit) and a piece (scene) at dpr 2, exact tracking, no background repaint, sprites reused after a move.

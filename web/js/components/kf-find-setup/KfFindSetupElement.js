@@ -81,7 +81,13 @@ export class KfFindSetupElement extends HTMLElement {
   _render() {
     if (!this.isConnected || !this.state) return;
     if (!this.languages.includes(this.state.lang)) this.state = nextSetup(this.state, { type: "lang", lang: this.languages[0] });
-    const focus = this.contains(document.activeElement) ? document.activeElement.getAttribute("name") : null;
+    // Keep the scroll position and the focused field (named within its animal's section) across the
+    // rebuild, so an edit never sends the parent back to the first animal.
+    const scroll = this.querySelector(".kf-fs")?.scrollTop ?? 0;
+    const active = this.contains(document.activeElement) ? document.activeElement : null;
+    const focus = active?.getAttribute("name")
+      ? `${active.closest("[data-thing]") ? `[data-thing="${CSS.escape(active.closest("[data-thing]").dataset.thing)}"] ` : ""}[name="${CSS.escape(active.getAttribute("name"))}"]`
+      : null;
     const color = this.state.game === "color";
     const title = color ? "Colour game" : "Find game";
     this.replaceChildren(
@@ -99,7 +105,9 @@ export class KfFindSetupElement extends HTMLElement {
           h("span", { class: "kf-tc-spacer" }),
           h("button", { class: "kf-btn primary", type: "button", text: "Done", "data-action": "done", onclick: () => this._close() }))),
     );
-    if (focus) this.querySelector(`[name="${CSS.escape(focus)}"]`)?.focus();
+    const sheet = this.querySelector(".kf-fs");
+    if (sheet) sheet.scrollTop = scroll;
+    if (focus) this.querySelector(focus)?.focus({ preventScroll: true });
   }
 
   _tabs() {
@@ -128,6 +136,7 @@ export class KfFindSetupElement extends HTMLElement {
           lang: this.state.lang,
           heading: false,
           busy: !!this.state.recording,
+          shell: this.services.shell,
           slot: (take, line) => this._slot({ kind: "prompt", thingId: thing.id, take }, line, `question ${take} for the ${this._name(thing)}`),
           onArticle: (article) => this._setArticle(thing, article),
           onError: (e) => this._error(e),

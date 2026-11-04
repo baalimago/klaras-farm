@@ -81,7 +81,11 @@ kf-find-buttons {
   box-shadow: 0 0 0 6px var(--sun), 0 5px 0 rgb(74 51 38 / 0.18), var(--shadow);
 }
 .kf-find-btn--color.is-active::after { border-color: rgb(122 97 82 / 0.45); }
-.kf-find-btn--color.is-active .kf-find-dot { background: var(--find-color); }
+/* A stitched rim on each dot, so a white (or cream) colour still shows on the cream button. */
+.kf-find-btn--color.is-active .kf-find-dot {
+  background: var(--find-color);
+  box-shadow: inset 0 -3px 0 rgb(0 0 0 / 0.12), 0 0 0 2px rgb(74 51 38 / 0.55);
+}
 @keyframes kf-find-breathe {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.07); }

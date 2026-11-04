@@ -73,3 +73,13 @@ test("thickenStroke makes a band around a polyline", () => {
   assert.ok(pointInPolygon([0.51, 0.25], bent));
   assert.deepEqual(thickenStroke([[0.2, 0.2]], 0.1), []);
 });
+
+test("a perfectly straight neck, or a there-and-back stroke (no area at all), is thickened into a band", () => {
+  const head = rect(0.75, 0.15, 0.1, 0.1);
+  const straight = [[0.65, 0.45], [0.8, 0.2]];
+  for (const stroke of [straight, [...straight, [0.65, 0.45]]]) {
+    const r = joinOpenStroke(stroke, [body, head]);
+    assert.ok(r, "joined");
+    assert.ok(Math.abs(polygonArea(r.points)) > 1e-4, `a band with area (${polygonArea(r.points)})`);
+  }
+});

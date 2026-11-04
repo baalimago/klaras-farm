@@ -26,7 +26,12 @@ export class KfFindButtonsElement extends HTMLElement {
     this.services = null;
     this._buttons = new Map();
     this._press = initialPress();
-    this._sync = () => this._render();
+    this._sync = () => {
+      // Leaving play (the hold opened the adult check and the setup) ends any press: its pointerup
+      // may never reach the button, and a press left "held" would make the next tap start nothing.
+      if (this._mode() !== "play" && this._press.phase !== "idle") this._press = initialPress();
+      this._render();
+    };
     this._onArmed = () => this._step({ type: "armed" });
   }
 
@@ -94,10 +99,15 @@ export class KfFindButtonsElement extends HTMLElement {
     this._render();
   }
 
+  _mode() {
+    const s = this.services;
+    return s?.session?.state?.mode ?? s?.engine?.mode ?? "play";
+  }
+
   _render() {
     const s = this.services;
     if (!s) return;
-    const mode = s.session?.state?.mode ?? s.engine?.mode ?? "play";
+    const mode = this._mode();
     this.hidden = !(mode === "play" && s.engine?.findAvailable);
     const round = s.engine?.findRound ?? null;
     for (const [kind, b] of this._buttons) {

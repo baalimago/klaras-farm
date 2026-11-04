@@ -94,6 +94,23 @@ test("removing a question deletes its recording and moves later recordings up on
   assert.deepEqual(r.writes.map((w) => [w.store, w.op, w.key ?? w.value.id]), [["things", "put", thingId], ["clips", "delete", "p2"], ["clips", "put", "p4"]]);
 });
 
+test("restoreQuestions undoes a removal: lines and recordings back at their takes", () => {
+  const thing = aThing({ cues: { en: { lines: ["one", "two", "three"] } } })
+    .withClip(aClip({ id: "p1", kind: "prompt", take: 1 }))
+    .withClip(aClip({ id: "p2", kind: "prompt", take: 2 }))
+    .withClip(aClip({ id: "p3", kind: "prompt", take: 3 }));
+  const s = aSnapshot().withPlace(aPlace().withThing(thing)).build();
+  const thingId = s.things[0].id;
+  const r = I.removeQuestion(s, { thingId, language: "en", index: 0 }, env());
+  const back = I.restoreQuestions(r.snapshot, r.change.removed, env());
+  valid(back.snapshot);
+  assert.deepEqual(back.snapshot.things[0].cues.en.lines, ["one", "two", "three"]);
+  assert.deepEqual(promptsOf(back.snapshot, thingId).sort(), [[1, "p1"], [2, "p2"], [3, "p3"]]);
+  const never = aSnapshot().withPlace(aPlace().withThing(aThing())).build();
+  const r2 = I.removeQuestion(never, { thingId: never.things[0].id, language: "en", index: 0 }, env());
+  assert.equal(I.restoreQuestions(r2.snapshot, r2.change.removed, env()).snapshot.things[0].cues.en.lines, undefined, "never-edited lines go back to the examples");
+});
+
 test("removing a question keeps what each later empty line said (its example becomes its text)", () => {
   const s = aSnapshot().withPlace(aPlace().withThing(aThing({ cues: { en: { lines: ["", "", ""] } } }))).build();
   const thingId = s.things[0].id;
