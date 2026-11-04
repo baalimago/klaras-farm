@@ -103,9 +103,10 @@ test("deterministic, valid in a snapshot, and fast", () => {
   const N = 20;
   for (let i = 0; i < N; i++) unionOutlines(shapes, { aspect: 4 / 3 });
   const ms = Number(process.hrtime.bigint() - t0) / 1e6 / N;
-  // Coverage instrumentation (npm test) slows code several times; the budget is for plain runs.
-  const budget = process.env.NODE_V8_COVERAGE || process.execArgv.some((a) => a.includes("coverage")) ? 60 : 15;
-  assert.ok(ms < budget, `union of 5 shapes took ${ms.toFixed(2)} ms (budget ${budget})`);
+  // The time budget only means something without coverage instrumentation, which slows code
+  // unpredictably (npm test); npm run test:fast and CI's plain runs check it.
+  const instrumented = process.env.NODE_V8_COVERAGE || process.execArgv.some((a) => a.includes("coverage"));
+  if (!instrumented) assert.ok(ms < 15, `union of 5 shapes took ${ms.toFixed(2)} ms`);
   console.log(`# union of 5 shapes: ${ms.toFixed(2)} ms, ${a.length} points`);
 });
 
