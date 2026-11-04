@@ -13,6 +13,7 @@ import * as share from "./io/share.js";
 import * as storage from "./io/storage.js";
 import { loadStarter } from "./io/starter.js";
 import { PlayEngine } from "./play-engine.js";
+import { PRESET_IDS } from "./motion/pose.js";
 import { Session } from "./session.js";
 import { Shell } from "./shell.js";
 import "./components/kf-board/define.js";
@@ -47,7 +48,7 @@ async function boot() {
   else share.discardImportBackup(store).catch(() => {}); // "Undo import" lasts until the next boot
   if (!fresh) repo.sweepOrphanBlobs?.(new Date(Date.now() - 24 * 3600e3).toISOString()).catch(() => {});
 
-  const [presets, scripts] = await Promise.all([loadJsonMap("data/motions/", ["walk", "float"]), loadScripts()]);
+  const [presets, scripts] = await Promise.all([loadJsonMap("data/motions/", PRESET_IDS), loadScripts()]);
 
   const audio = new AudioEngine({ getBlob: (sha) => store.getBlob(sha) });
   const recorder = new Recorder({ audio });

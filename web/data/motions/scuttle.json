@@ -1,6 +1,7 @@
 {
   "id": "scuttle",
   "version": 1,
+  "ground": true,
   "travel": { "mode": "ground", "speed": 0.6, "restMin": 3, "restMax": 9, "distMin": 0.06, "distMax": 0.18, "rangeY": 0.02 },
   "bob": { "shape": "bounce", "amp": 0.003, "rate": 3 },
   "squash": { "amp": 0.02, "rate": 3 },

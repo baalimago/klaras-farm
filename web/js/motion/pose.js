@@ -4,8 +4,23 @@
 // caller sizes pose.legs; the preset's legs block only says how they swing.
 import { travel, bob, squash, tilt, legs, blink } from "./blocks.js";
 
+/** Every preset shipped in web/data/motions/ (main.js loads them all at boot). */
+export const PRESET_IDS = Object.freeze(["walk", "hop", "scuttle", "float", "swim"]);
+
 /** The preset used when a thing names one that is not loaded: stands still, blinks. */
 export const STILL = Object.freeze({ id: "still", version: 1, blink: { duration: 0.18, intervalMin: 2.5, intervalMax: 6 } });
+
+/**
+ * Does a preset keep its feet on the ground (walkers: walk, hop, scuttle)? Data-driven: the preset's
+ * `ground` flag; a preset without one counts as grounded when it travels on the ground or hops.
+ * The renderer draws a contact shadow for grounded things.
+ * @param {Object=} preset
+ */
+export function isGrounded(preset) {
+  if (typeof preset?.ground === "boolean") return preset.ground;
+  const mode = preset?.travel?.mode;
+  return mode === "ground" || mode === "hop";
+}
 
 /**
  * Applies dotted overrides to a preset. Never mutates the preset. Only finite numbers override.

@@ -15,7 +15,7 @@ Run on the base iPad (11th generation, A16) with iPadOS 18 or later before a rel
 | Hold to edit at the screen edges | `edit/hold.js`, `components/kf-board/` | Holds near the bottom edge and sides never start (system gestures win). |
 | Guided Access | `components/kf-settings/` | Follow the in-app guide; triple-click locks the app. |
 | Wake lock | `io/wake.js` | Screen stays on for 5 minutes of play. |
-| Smoothness | `io/renderer.js`, `io/felt.js`, `play/` | Safari Web Inspector Timelines, 2 minutes of play with 4 things: no frame over 4 ms of script, idle board shows no rAF. |
+| Smoothness | `io/renderer.js`, `io/felt.js`, `play/` | Safari Web Inspector Timelines, 2 minutes of play with 8 walking things (Walks, Hops and Scuttles mixed): no frame over 4 ms of script, idle board shows no rAF. |
 
 ## Log
 

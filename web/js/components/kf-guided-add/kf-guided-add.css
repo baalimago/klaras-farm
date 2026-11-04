@@ -66,6 +66,10 @@ kf-guided-add {
 }
 .kf-ga-motion { min-height: 64px; font-size: 1.15rem; padding: 0 24px; }
 .kf-ga-motion[aria-pressed="true"] { background: var(--ink); color: #fff; }
+.kf-ga-sizes { margin-top: 12px; }
+.kf-ga-size-label { font-weight: 700; margin-right: 4px; }
+.kf-ga-size { min-height: 52px; padding: 0 20px; }
+.kf-ga-size[aria-pressed="true"] { background: var(--ink); color: #fff; }
 
 .kf-ga-dim {
   position: absolute;
@@ -80,6 +84,16 @@ kf-guided-add {
 @keyframes kf-ga-walk {
   from { transform: translateX(-2%) scale(1.03, 0.97); }
   to { transform: translateX(2%) translateY(-1.5%) scale(0.97, 1.03); }
+}
+.kf-ga-canvas.hop { animation: kf-ga-hop 0.67s ease-out infinite; transform-origin: 28% 62%; }
+.kf-ga-canvas.scuttle { animation: kf-ga-scuttle 0.33s linear infinite alternate; transform-origin: 28% 62%; }
+@keyframes kf-ga-hop {
+  0%, 100% { transform: translateY(0) scale(1.06, 0.94); }
+  50% { transform: translateY(-5%) scale(0.95, 1.05); }
+}
+@keyframes kf-ga-scuttle {
+  from { transform: translateX(-3%) scale(1.02, 0.98); }
+  to { transform: translateX(3%) scale(0.99, 1.01); }
 }
 @keyframes kf-ga-float {
   from { transform: translateY(-2%) rotate(-1deg); }

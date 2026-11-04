@@ -44,8 +44,13 @@ export function tilt(t, p) {
   return num(p?.amp) * Math.sin(TAU * num(p?.rate) * t);
 }
 
-/** Swing of leg i in radians: neighbours swing opposite, spread on contact, vertical mid-step. */
+/**
+ * Swing of leg i in radians. Walkers: neighbours swing opposite, spread on contact, vertical
+ * mid-step. With `together` (hoppers): every leg swings the same way, straight on landing and
+ * tucked by `swing` at the top of each hop, one hop per 1/rate s like travel's hop.
+ */
 export function legs(t, p, i) {
+  if (num(p?.together)) return num(p?.swing) * Math.abs(Math.sin(Math.PI * num(p?.rate) * t));
   const a = num(p?.swing) * Math.cos(Math.PI * num(p?.rate) * t);
   return i % 2 ? -a : a;
 }

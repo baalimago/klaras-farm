@@ -7,6 +7,7 @@
 import { INK, hex } from "../farm/palette.js";
 import { bbox, centroid } from "../geometry/stroke.js";
 import { footY, legLength } from "../farm/legs.js";
+import { isGrounded } from "../motion/pose.js";
 import {
   paintBackground, paintThingSprite, eyeSprite, groundShadowSprite, glowSprite, confettiSprites, makeCanvas, releaseCanvas,
 } from "./felt.js";
@@ -345,7 +346,8 @@ export class Renderer {
     const eyes = new Float64Array(thing.eyes.length * 2);
     thing.eyes.forEach((e, i) => { eyes[i * 2] = (e.x - cx) * W; eyes[i * 2 + 1] = (e.y - cy) * H; });
     const eyeR = Math.max(4 * U, Math.min(10 * U, 0.085 * Math.min(b.w, b.h)));
-    const walker = thing.motion?.preset === "walk";
+    // walkers (any preset flagged `ground`, see motion/pose.js isGrounded) get a contact shadow
+    const walker = isGrounded(this.engine?.presets?.[thing.motion?.preset]);
     const meanEyeX = thing.eyes.length ? thing.eyes.reduce((s, e) => s + e.x, 0) / thing.eyes.length : cx;
     // Legs: hips from the thing, left to right so neighbours swing opposite; each foot a felt-leg
     // length below the outline edge under its hip. Computed once per sprite, never per frame.

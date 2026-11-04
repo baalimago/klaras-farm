@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { resolveMotion, pose, newPose, restPose, STILL } from "./pose.js";
+import { readFileSync, readdirSync } from "node:fs";
+import { resolveMotion, pose, newPose, restPose, STILL, isGrounded, PRESET_IDS } from "./pose.js";
 import { MAX_SPEED, travelSpeed } from "./blocks.js";
 
 const preset = (id) => JSON.parse(readFileSync(new URL(`../../data/motions/${id}.json`, import.meta.url), "utf8"));
@@ -67,6 +67,23 @@ test("the thing decides the leg count: pose fills whatever legs array it is give
   for (const id of ["walk", "float", "hop", "swim", "scuttle"]) assert.equal(preset(id).legs.count, undefined, `${id}: presets no longer carry a leg count`);
 });
 
+test("isGrounded: walkers (walk, hop, scuttle) keep their feet on the ground; floaters do not", () => {
+  for (const id of ["walk", "hop", "scuttle"]) assert.equal(isGrounded(preset(id)), true, id);
+  for (const id of ["float", "swim"]) assert.equal(isGrounded(preset(id)), false, id);
+  // the flag wins; without it the travel mode decides
+  assert.equal(isGrounded({ ground: false, travel: { mode: "ground" } }), false);
+  assert.equal(isGrounded({ travel: { mode: "hop" } }), true);
+  assert.equal(isGrounded({ travel: { mode: "ground" } }), true);
+  assert.equal(isGrounded({ travel: { mode: "water" } }), false);
+  assert.equal(isGrounded(undefined), false);
+  assert.equal(isGrounded(STILL), false);
+});
+
+test("PRESET_IDS lists every preset file, so main.js loads them all", () => {
+  const files = readdirSync(new URL("../../data/motions/", import.meta.url)).filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5));
+  assert.deepEqual([...PRESET_IDS].sort(), files.sort());
+});
+
 test("blink drives eyeOpen in any state", () => {
   const r = resolveMotion(preset("float"));
   const out = newPose();
@@ -109,14 +126,14 @@ const GOLDEN = {
     [1.5, -0.008, -0.08, 1, 1, [], 1],
   ],
   hop: [
-    [0, 0, 0, 1.08, 0.92, [], 1],
-    [0.1, -0.0136, 0, 1.047, 0.953, [], 1],
-    [0.25, -0.0277, 0, 0.9434, 1.0566, [], 1],
-    [0.3125, -0.0299, 0, 0.9215, 1.0785, [], 1],
-    [0.5, -0.0212, 0, 1, 1, [], 1],
-    [0.75, -0.0115, 0, 1.0566, 0.9434, [], 1],
-    [1, -0.03, 0, 0.92, 1.08, [], 1],
-    [1.5, -0.0212, 0, 1, 1, [], 1],
+    [0, 0, 0, 1.08, 0.92, [0, 0], 1],
+    [0.1, -0.0136, 0, 1.047, 0.953, [0.1816, 0.1816], 1],
+    [0.25, -0.0277, 0, 0.9434, 1.0566, [0.3696, 0.3696], 1],
+    [0.3125, -0.0299, 0, 0.9215, 1.0785, [0.3981, 0.3981], 1],
+    [0.5, -0.0212, 0, 1, 1, [0.2828, 0.2828], 1],
+    [0.75, -0.0115, 0, 1.0566, 0.9434, [0.1531, 0.1531], 1],
+    [1, -0.03, 0, 0.92, 1.08, [0.4, 0.4], 1],
+    [1.5, -0.0212, 0, 1, 1, [0.2828, 0.2828], 1],
   ],
   swim: [
     [0, 0, 0, 1.02, 0.98, [], 1],

@@ -25,8 +25,9 @@ Elements (one folder per tag):
 - `kf-hold-ring`: felt ring that fills during hold-to-edit; created by `session.js`, attribute driven.
 - `kf-adult-check`: the parental gate (keypad code or sum, keys at least 64 px).
 - `kf-edit-layer`: edit bar (Scenes, Change scene, + Add, Settings, Done) and per-thing badges.
-- `kf-guided-add`: add a thing in eight steps: Draw, Felt, Eyes, Legs, Moves, Name, Ask, Sound.
-- `kf-thing-card`: one card per thing: languages, names, clips, cues, colour, motion, Redraw, Re-stamp eyes, Place legs, Delete.
+- `kf-guided-add`: add a thing in eight steps: Draw, Felt (felt colour and Size: Small, Medium, Big), Eyes, Legs, Moves (Walks, Hops, Scuttles, Floats, with a live CSS preview), Name, Ask, Sound.
+- `kf-thing-card`: one card per thing: languages, names, clips, cues, colour, motion (the same four), Size, Redraw, Re-stamp eyes, Place legs, Delete.
+- Size has no field in the Thing; it is baked into the outline. `kf-guided-add/steps.js` owns it: `THING_SIZES` (Small 0.7, Medium 1, Big 1.3 of `THING_SIZE`), `sizeScale(outline)` reads it back, `nearestSize` picks the pressed button, `resizeThing(thing, scale)` scales outline, eyes and legs about the bottom centre (the feet stay put) and keeps them on the board, `sizeBox(scale)` is the box `fitOutline` fills, and `sizedFill` makes the Felt-step and card previews show the size. A redraw (more shapes in Draw, or Redraw on the card) keeps the current size.
 - `kf-recorder`: one recording slot; keeps every passing take and offers Play and Re-record.
 - `kf-draw-pad`: overlay that captures one stroke at a time (`outline`, `shape`, `yarn`).
 - `kf-scenes`: the scenes shelf with felt thumbnails, switch, rename, delete, new scene.
@@ -116,6 +117,7 @@ Helper modules inside element folders:
   - `package-c.test.js`: hold ring, adult check, edit layer, Session timers with a fake clock.
   - `package-d.test.js`: `kf-recorder` with a fake mic.
   - `package-f1.test.js`: `kf-guided-add` and `kf-thing-card` with stubs (`tests/browser/stubs/f1-stubs.js`).
+  - `animal-panels.test.js`: Size and the four walking styles in `kf-thing-card` and `kf-guided-add`, each mounted alone (set `KF_SHOTS=<dir>` to save iPad-sized screenshots).
   - `package-f2.test.js`: scenes, scene tools, settings, welcome, dialogs (`tests/browser/stubs/f2-stubs.js`).
   - `shapes.test.js`: multi-shape drawing in guided add and Redraw. `legs.test.js`: leg placing and format migration.
 - Harness: `tests/browser/harness.js` gives `setup({fakeMedia})`, `newPage()` (boots the app and waits for `data-ready`) and `modulePage(html)` (base and CSS only). Elements written into `modulePage` HTML do not upgrade; import `define.js` and create them with `document.createElement`, then set `services` before appending.
