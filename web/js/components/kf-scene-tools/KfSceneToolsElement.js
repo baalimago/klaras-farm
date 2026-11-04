@@ -1,34 +1,41 @@
-// <kf-scene-tools>: change the scene (flow 3, US-2.2). Mounted by the Shell in session mode 'scene'.
-// Tool rail: Shape, Yarn, Paint, Move, Delete, Undo; "Back to animals" → session.sceneDone().
-//   Shape/Yarn: <kf-draw-pad mode="shape|yarn"> over the board; each `kf-stroke {points}` → store.addPiece.
-//   Paint: tap a piece (or choose Sky / Ground, or tap the sky or ground), then a colour.
-//   Move: drag a piece; one store write on release.
-//   Delete: tap a piece, confirm.
-//   Undo: a local stack of the place's previous {pieces, skyColor, groundColor}, applied with
-//   store.updatePlace({patch}). Every change is undoable while the tools are open.
-// Board geometry comes from services.board.boardRect() (client rect of the 4:3 board).
-import { h, swatches, reportFailure } from "../kf-dialog/dom.js";
+// <kf-scene-tools>: draw and arrange the scene (flow 3, US-2.2). Mounted by the Shell in session mode 'scene'.
+// The landscape is the place's sky and ground colours, its backdrop template, and felt pieces
+// (shapes and yarn lines) the parent draws anywhere, then moves, resizes, recolours, sends to the
+// back or deletes. No data format change: it all lives in Place {backdrop, skyColor, groundColor, pieces}.
+//
+// UI state is the pure state machine in edit/scene-tools.js; this element keeps one state, sends it
+// events and renders from it (and from the store) after every event. Tool bar: Shape, Line, Move,
+// Colour, Sky, Ground, Delete, Start, Undo, and Done (→ session.sceneDone()).
+//
+// Foreground rule: the tool bar, panel and colour sheet sit above the drawing canvas (z-index over
+// kf-draw-pad's overlay), and while a sheet is open the stage underneath is inert: no stroke can
+// start behind the picker.
+//
+// No lag: a piece being dragged or resized is drawn by the board's renderer from its cached sprite
+// (services.board.setLift), with the board rect read once per drag. Nothing is written to the store
+// until the finger lifts; the lift stays until the store's change arrives, so the piece never jumps.
+// Every edit action plays one editing sound (kf-dialog/feedback.js).
+// Undo: a local stack of the place's previous {pieces, skyColor, groundColor, backdrop}.
+import { h, swatches, reportFailure, colorName } from "../kf-dialog/dom.js";
+import { editSound } from "../kf-dialog/feedback.js";
 import { THING_COLORS, SKY_COLORS, GROUND_COLORS, hex } from "../../farm/palette.js";
-import { pickPiece, moveStroke, pathData } from "./pieces.js";
+import { initialSceneTools, nextSceneTools, isPaused, isDrawTool, templatePatch, TEMPLATES } from "../../edit/scene-tools.js";
+import { clampDelta } from "../../geometry/transform.js";
+import { pickPiece, moveStroke, pathData, strokeBox, resizeScale, scaleStroke, sendToBack } from "./pieces.js";
 
-const TOOLS = [
+const RAIL = [
   { id: "shape", label: "Shape", icon: "⬟" },
-  { id: "yarn", label: "Yarn", icon: "〰" },
-  { id: "paint", label: "Paint", icon: "🖌" },
+  { id: "line", label: "Line", icon: "〰" },
   { id: "move", label: "Move", icon: "✥" },
+  { id: "colour", label: "Colour", icon: "🎨" },
+  { id: "sky", label: "Sky", icon: "☁" },
+  { id: "ground", label: "Ground", icon: "⛰" },
   { id: "delete", label: "Delete", icon: "✕" },
 ];
-const HINTS = {
-  shape: "Draw big shapes: a house, a tree, the sun.",
-  yarn: "Draw lines: a fence, seaweed, a path.",
-  paint: "Tap a piece, or choose Sky or Ground. Then pick a colour.",
-  move: "Drag a piece to move it.",
-  delete: "Tap a piece to delete it.",
-};
-/** Where the ground starts per backdrop (fraction of board height), for tapping sky vs ground. */
-const GROUND_AT = { meadow: 0.6, sea: 0.55, room: 0.68, blank: 0.82 };
+const TEMPLATE_LABELS = { blank: "Blank", meadow: "Meadow", sea: "Sea", room: "Room" };
 const UNDO_LIMIT = 50;
 const TAP_SLOP = 10;
+const MOVE_SLOP = 3;
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 export class KfSceneToolsElement extends HTMLElement {
@@ -36,14 +43,15 @@ export class KfSceneToolsElement extends HTMLElement {
     super();
     this.services = null;
     this.params = {};
-    this.tool = "shape";
-    this.colors = { shape: "yellow", yarn: "brown" };
-    this._target = null; // {type:'piece', id} | {type:'sky'} | {type:'ground'}
+    this.state = initialSceneTools();
     this._undo = [];
     this._chain = Promise.resolve();
-    this._drag = null;
-    this._hint = "";
-    this._onChange = () => this.refresh();
+    this._live = null; // the pointer gesture in progress on the stage (positions only; the mode is in state.drag)
+    this._liftPending = false; // a dropped piece is shown lifted until the store has its new stroke
+    this._note = ""; // a one-off hint ("Close the shape…") until the next event
+    this._stageTool = null;
+    this._raf = 0;
+    this._onChange = () => this._storeChanged();
     this._onResize = () => this.layout();
     this._onActivity = () => this.services?.session?.activity?.();
   }
@@ -52,7 +60,7 @@ export class KfSceneToolsElement extends HTMLElement {
   get place() { return this.store.currentPlace; }
 
   connectedCallback() {
-    import("../kf-draw-pad/define.js").catch(() => {}); // package A; a test may have registered a stub
+    import("../kf-draw-pad/define.js").catch(() => {}); // a test may have registered a stub
     this.services?.engine?.setMode?.("scene");
     this.store.addEventListener("change", this._onChange);
     window.addEventListener("resize", this._onResize);
@@ -70,8 +78,32 @@ export class KfSceneToolsElement extends HTMLElement {
     window.removeEventListener("resize", this._onResize);
     this.removeEventListener("pointerdown", this._onActivity);
     this._ro?.disconnect();
+    cancelAnimationFrame(this._raf);
+    this._setLift(null);
     const mode = this.services?.session?.state?.mode;
     if (this.services?.engine?.mode === "scene" && mode && mode !== "scene") this.services.engine.setMode?.(mode === "edit" ? "edit" : "play");
+  }
+
+  // ---------------------------------------------------------------- state
+
+  /** Sends one event to the state machine and renders from the result. */
+  send(event) {
+    const next = nextSceneTools(this.state, event);
+    if (next === this.state) return false;
+    const before = this.state;
+    this.state = next;
+    if (before.tool !== next.tool) this._note = "";
+    this.render();
+    return true;
+  }
+
+  _storeChanged() {
+    if (this._liftPending) {
+      this._liftPending = false;
+      this._setLift(null); // the renderer now has the moved piece itself
+    }
+    const ids = (this.place?.pieces ?? []).map((p) => p.id);
+    if (!this.send({ type: "pieces", ids })) this.render();
   }
 
   // ---------------------------------------------------------------- layout
@@ -81,14 +113,30 @@ export class KfSceneToolsElement extends HTMLElement {
     this.panel = h("div", { class: "kf-st-panel" });
     this.hintEl = h("p", { class: "kf-st-hint", "aria-live": "polite" });
     this.stage = h("div", { class: "kf-st-stage" });
+    this.input = h("div", { class: "kf-st-input" });
     this.svg = document.createElementNS(SVG_NS, "svg");
     this.svg.setAttribute("class", "kf-st-svg");
     this.svg.setAttribute("viewBox", "0 0 1 1");
     this.svg.setAttribute("preserveAspectRatio", "none");
     this.svg.setAttribute("aria-hidden", "true");
-    this.back = h("button", { type: "button", class: "kf-btn primary kf-st-back", text: "Back to animals", onclick: () => this.services.session?.sceneDone?.() });
-    this.replaceChildren(this.stage, h("div", { class: "kf-st-side" }, [this.rail, this.hintEl, this.panel]), this.back);
-    this.setTool(this.tool);
+    this.group = document.createElementNS(SVG_NS, "g");
+    this.svg.append(this.group);
+    this.handle = h("button", { type: "button", class: "kf-st-handle", "aria-label": "Resize: drag to make it bigger or smaller", text: "⤡" });
+    this.handle.addEventListener("pointerdown", (e) => this.onHandleDown(e));
+    this.handle.addEventListener("pointermove", (e) => this.onMove(e));
+    this.handle.addEventListener("pointerup", (e) => this.onUp(e));
+    this.handle.addEventListener("pointercancel", () => this.cancelDrag());
+    this.stage.append(this.input, this.svg, this.handle);
+    this.sheet = h("div", { class: "kf-st-sheet", role: "dialog", "aria-modal": "false" });
+    this.done = h("button", {
+      type: "button", class: "kf-btn primary kf-st-done", text: "Done",
+      onclick: () => {
+        editSound(this.services, "save");
+        this.services.session?.sceneDone?.();
+      },
+    });
+    this.replaceChildren(this.stage, h("div", { class: "kf-st-side" }, [this.rail, this.hintEl, this.panel]), this.sheet, this.done);
+    this.render();
   }
 
   /** Puts the stage exactly over the board. */
@@ -96,6 +144,7 @@ export class KfSceneToolsElement extends HTMLElement {
     const r = this.boardRect();
     const host = this.getBoundingClientRect();
     Object.assign(this.stage.style, { left: `${r.left - host.left}px`, top: `${r.top - host.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+    this.renderSelection();
   }
 
   boardRect() {
@@ -110,203 +159,361 @@ export class KfSceneToolsElement extends HTMLElement {
     return { left: (vw - w) / 2, top: (vh - hh) / 2, width: w, height: hh };
   }
 
-  toBoard(clientX, clientY) {
-    const r = this.boardRect();
-    return [(clientX - r.left) / r.width, (clientY - r.top) / r.height];
-  }
+  // ---------------------------------------------------------------- render (from state + store)
 
-  // ---------------------------------------------------------------- tools
-
-  setTool(id) {
-    this.tool = id;
-    this._target = null;
-    this._drag = null;
-    this._hint = HINTS[id];
-    this.stage.replaceChildren();
-    if (id === "shape" || id === "yarn") {
-      const pad = document.createElement("kf-draw-pad");
-      pad.setAttribute("mode", id);
-      pad.setAttribute("color", this.colors[id]);
-      pad.services = this.services;
-      pad.color = this.colors[id];
-      pad.addEventListener("kf-stroke", (e) => this.addPiece(id, e.detail?.points));
-      pad.addEventListener("kf-stroke-open", () => this.say("Close the shape: finish where you started."));
-      this.pad = pad;
-      this.stage.append(pad);
-    } else {
-      this.pad = null;
-      const overlay = h("div", { class: "kf-st-overlay" });
-      overlay.addEventListener("pointerdown", (e) => this.onDown(e));
-      overlay.addEventListener("pointermove", (e) => this.onMove(e));
-      overlay.addEventListener("pointerup", (e) => this.onUp(e));
-      overlay.addEventListener("pointercancel", () => this.cancelDrag());
-      overlay.addEventListener("contextmenu", (e) => e.preventDefault());
-      this.stage.append(overlay, this.svg);
-    }
-    this.refresh();
-  }
-
-  say(text) {
-    this._hint = text;
-    this.hintEl.textContent = text;
-  }
-
-  /** Re-renders rail, panel and highlight from state (cheap; parent UI only). */
-  refresh() {
+  render() {
+    if (!this.rail) return;
+    const s = this.state;
     const place = this.place;
-    if (this._target?.type === "piece" && !place?.pieces.some((p) => p.id === this._target.id)) this._target = null;
+    this.renderRail(s);
+    this.renderStage(s);
+    this.hintEl.textContent = place ? this._note || this.hint(s) : "There is no scene to change.";
+    this.panel.replaceChildren(...(place ? this.panelContent(s, place) : []));
+    this.renderSheet(s, place);
+    this.renderSelection();
+  }
 
+  renderRail(s) {
+    const tool = (t) =>
+      h("button", { type: "button", class: "kf-st-tool", "aria-pressed": String(s.tool === t.id), "data-tool": t.id, onclick: () => this.pickTool(t.id) }, [
+        h("span", { class: "kf-st-icon", "aria-hidden": "true", text: t.icon }),
+        h("span", { text: t.label }),
+      ]);
     this.rail.replaceChildren(
-      ...TOOLS.map((t) =>
-        h("button", { type: "button", class: "kf-st-tool", "aria-pressed": String(this.tool === t.id), "data-tool": t.id, onclick: () => this.setTool(t.id) }, [
-          h("span", { class: "kf-st-icon", "aria-hidden": "true", text: t.icon }),
-          h("span", { text: t.label }),
-        ]),
-      ),
-      h("button", { type: "button", class: "kf-st-tool", disabled: this._undo.length === 0, "data-tool": "undo", onclick: () => this.undo() }, [
+      ...RAIL.map(tool),
+      h("button", { type: "button", class: "kf-st-tool kf-st-extra", "aria-pressed": String(s.sheet === "start"), "data-tool": "start", onclick: () => this.openSheet("start") }, [
+        h("span", { class: "kf-st-icon", "aria-hidden": "true", text: "✦" }),
+        h("span", { text: "Start" }),
+      ]),
+      h("button", { type: "button", class: "kf-st-tool kf-st-extra", disabled: this._undo.length === 0, "data-tool": "undo", onclick: () => this.undo() }, [
         h("span", { class: "kf-st-icon", "aria-hidden": "true", text: "↶" }),
         h("span", { text: "Undo" }),
       ]),
     );
-    this.hintEl.textContent = place ? this._hint : "There is no scene to change.";
-    this.panel.replaceChildren(...this.panelContent(place));
-    this.drawHighlight();
   }
 
-  panelContent(place) {
-    if (!place) return [];
-    if (this.tool === "shape" || this.tool === "yarn") {
-      const kind = this.tool;
+  /** The input layer for the tool: a draw pad for Shape/Line, else a pointer overlay. Inert while a sheet is open. */
+  renderStage(s) {
+    const kind = isDrawTool(s.tool) ? "draw" : "overlay";
+    const key = kind === "draw" ? s.tool : "overlay";
+    if (this._stageTool !== key) {
+      this._stageTool = key;
+      this.pad = null;
+      if (kind === "draw") {
+        const pad = document.createElement("kf-draw-pad");
+        pad.setAttribute("mode", s.tool === "line" ? "yarn" : "shape");
+        pad.services = this.services;
+        pad.addEventListener("kf-stroke", (e) => this.addPiece(s.tool === "line" ? "yarn" : "shape", e.detail?.points));
+        pad.addEventListener("kf-stroke-open", () => this.say("Close the shape: finish where you started."));
+        this.pad = pad;
+        this.input.replaceChildren(pad);
+      } else {
+        const overlay = h("div", { class: "kf-st-overlay" });
+        overlay.addEventListener("pointerdown", (e) => this.onDown(e));
+        overlay.addEventListener("pointermove", (e) => this.onMove(e));
+        overlay.addEventListener("pointerup", (e) => this.onUp(e));
+        overlay.addEventListener("pointercancel", () => this.cancelDrag());
+        overlay.addEventListener("contextmenu", (e) => e.preventDefault());
+        this.input.replaceChildren(overlay);
+      }
+    }
+    if (this.pad) {
+      const color = s.colors[s.tool];
+      if (this.pad.getAttribute("color") !== color) this.pad.setAttribute("color", color);
+    }
+    const paused = isPaused(s);
+    this.stage.inert = paused;
+    this.stage.classList.toggle("paused", paused);
+    if (this.pad) {
+      this.pad.style.pointerEvents = paused ? "none" : ""; // the pad is fixed-position: inert alone is not enough everywhere
+      if (paused) this.pad.clear?.();
+    }
+    this.dataset.tool = s.tool;
+  }
+
+  hint(s) {
+    switch (s.tool) {
+      case "shape": return "Draw a shape anywhere: a hill, the sun, a pond, a tree.";
+      case "line": return "Draw a line: a fence, a path, grass, waves.";
+      case "move": return s.selected ? "Drag it to move it. Pull the round handle to resize." : "Tap a piece, then drag it.";
+      case "colour": return s.selected ? "Pick a colour for it." : "Tap a piece to colour it.";
+      case "sky": return "Pick a sky colour.";
+      case "ground": return "Pick a ground colour.";
+      default: return "Tap a piece to delete it.";
+    }
+  }
+
+  panelContent(s, place) {
+    const btn = (text, onclick, extra = {}) => h("button", { type: "button", class: "kf-btn", text, onclick, ...extra });
+    if (isDrawTool(s.tool)) {
+      const key = s.colors[s.tool];
       return [
-        swatches("Colour", THING_COLORS, this.colors[kind], (key) => {
-          this.colors[kind] = key;
-          this.pad?.setAttribute("color", key);
-          if (this.pad) this.pad.color = key;
-          this.refresh();
-        }),
+        h("button", { type: "button", class: "kf-btn kf-st-colour", "aria-label": `Felt colour: ${colorName(key)}. Change`, onclick: () => this.openSheet("draw") }, [
+          h("span", { class: "kf-st-chip", "data-color": key, "aria-hidden": "true", style: `background:${hex(key)}` }),
+          h("span", { text: colorName(key) }),
+        ]),
       ];
     }
-    if (this.tool !== "paint") return [];
-    const t = this._target;
-    const targets = h("div", { class: "kf-row", role: "group", "aria-label": "Background" }, [
-      h("button", { type: "button", class: "kf-btn", "aria-pressed": String(t?.type === "sky"), text: "Sky", onclick: () => this.select({ type: "sky" }) }),
-      h("button", { type: "button", class: "kf-btn", "aria-pressed": String(t?.type === "ground"), text: "Ground", onclick: () => this.select({ type: "ground" }) }),
-    ]);
-    if (!t) return [targets];
-    let keys = THING_COLORS;
-    let current = null;
-    if (t.type === "sky") (keys = SKY_COLORS), (current = place.skyColor);
-    else if (t.type === "ground") (keys = GROUND_COLORS), (current = place.groundColor);
-    else current = place.pieces.find((p) => p.id === t.id)?.color;
-    return [targets, swatches("Colour", keys, current, (key) => this.paint(key))];
+    if (s.tool === "sky" || s.tool === "ground") {
+      return [btn(s.tool === "sky" ? "Sky colours" : "Ground colours", () => this.openSheet(s.tool))];
+    }
+    const piece = s.selected ? place.pieces.find((p) => p.id === s.selected) : null;
+    if (!piece || s.tool === "delete") return [];
+    return [
+      h("p", { class: "kf-st-label", text: piece.kind === "yarn" ? "This line:" : "This piece:" }),
+      h("div", { class: "kf-row kf-st-actions" }, [
+        btn("Change colour", () => this.openSheet("piece")),
+        btn("To back", () => this.toBack(piece.id), { disabled: place.pieces[0]?.id === piece.id }),
+        btn("Delete", () => this.confirmDelete(piece)),
+        btn("Let go", () => this.deselect()),
+      ]),
+    ];
   }
 
-  select(target) {
-    this._target = target;
-    this.refresh();
+  renderSheet(s, place) {
+    this.sheet.hidden = !s.sheet || !place;
+    if (this.sheet.hidden) return void this.sheet.replaceChildren();
+    const close = h("button", { type: "button", class: "kf-btn", text: "Close", onclick: () => this.closeSheet() });
+    let title = "";
+    let body = [];
+    if (s.sheet === "start") {
+      title = "Start from";
+      body = [h("div", { class: "kf-row kf-st-templates", role: "group", "aria-label": "Start from" },
+        Object.keys(TEMPLATES).map((k) => h("button", {
+          type: "button", class: "kf-btn kf-st-template", text: TEMPLATE_LABELS[k], "aria-pressed": String(place.backdrop === k),
+          onclick: () => this.startFrom(k),
+        })))];
+    } else {
+      let keys = THING_COLORS;
+      let current = null;
+      if (s.sheet === "sky") (title = "Sky colour"), (keys = SKY_COLORS), (current = place.skyColor);
+      else if (s.sheet === "ground") (title = "Ground colour"), (keys = GROUND_COLORS), (current = place.groundColor);
+      else if (s.sheet === "draw") (title = s.tool === "line" ? "Line colour" : "Shape colour"), (current = s.colors[s.tool]);
+      else (title = "Piece colour"), (current = place.pieces.find((p) => p.id === s.selected)?.color ?? null);
+      body = [swatches("Colour", keys, current, (key) => this.pickColour(key))];
+    }
+    this.sheet.setAttribute("aria-label", title);
+    this.sheet.replaceChildren(h("div", { class: "kf-st-sheet-head" }, [h("h2", { text: title }), close]), ...body);
   }
 
-  drawHighlight() {
-    const svg = this.svg;
-    svg.replaceChildren();
+  /** Dashed outline of the selected piece, and the resize handle in Move. Moved with a transform while dragging. */
+  renderSelection() {
+    if (!this.group) return;
+    this.group.replaceChildren();
+    this.group.removeAttribute("transform");
+    this.handle.style.transform = "";
     const place = this.place;
-    if (!place) return;
-    const piece = this._target?.type === "piece" ? place.pieces.find((p) => p.id === this._target.id) : null;
-    if (piece) svg.append(this.outlinePath(piece.stroke, piece.kind === "shape", "kf-st-selected"));
-    if (this._drag?.moved) {
-      const p = this._drag.piece;
-      const moved = moveStroke(p.stroke, this._drag.dx, this._drag.dy);
-      const ghost = this.outlinePath(moved, p.kind === "shape", "kf-st-ghost");
-      if (p.kind === "shape") ghost.setAttribute("fill", hex(p.color));
-      else ghost.setAttribute("stroke", hex(p.color));
-      svg.append(ghost);
+    const s = this.state;
+    const piece = s.selected && place ? place.pieces.find((p) => p.id === s.selected) : null;
+    this.handle.hidden = !piece || s.tool !== "move";
+    if (!piece) return;
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", pathData(piece.stroke, piece.kind === "shape"));
+    path.setAttribute("class", "kf-st-selected");
+    path.setAttribute("vector-effect", "non-scaling-stroke");
+    this.group.append(path);
+    if (!this.handle.hidden) {
+      const { box } = strokeBox(piece.stroke);
+      this.handle.style.left = `${(box.x + box.w) * 100}%`;
+      this.handle.style.top = `${(box.y + box.h) * 100}%`;
     }
   }
 
-  outlinePath(stroke, closed, cls) {
-    const path = document.createElementNS(SVG_NS, "path");
-    path.setAttribute("d", pathData(stroke, closed));
-    path.setAttribute("class", cls);
-    path.setAttribute("vector-effect", "non-scaling-stroke");
-    return path;
+  // ---------------------------------------------------------------- tool bar and sheet
+
+  pickTool(id) {
+    if (this.send({ type: "tool", tool: id })) editSound(this.services, "tool");
   }
 
-  // ---------------------------------------------------------------- pointer (Paint, Move, Delete)
+  openSheet(sheet) {
+    if (this.send({ type: "open-sheet", sheet })) editSound(this.services, "tool");
+  }
+
+  closeSheet() {
+    if (this.send({ type: "close-sheet" })) editSound(this.services, "back");
+  }
+
+  deselect() {
+    if (this.send({ type: "deselect" })) editSound(this.services, "back");
+  }
+
+  say(text) {
+    this._note = text;
+    this.hintEl.textContent = text;
+  }
+
+  // ---------------------------------------------------------------- pointer (Move, Colour, Delete)
 
   onDown(e) {
-    if (!e.isPrimary || !this.place) return;
+    if (!e.isPrimary || !this.place || isPaused(this.state)) return;
     e.preventDefault();
-    const pt = this.toBoard(e.clientX, e.clientY);
-    const r = this.boardRect();
-    const piece = pickPiece(this.place.pieces, pt, r);
-    this._down = { x: e.clientX, y: e.clientY, id: e.pointerId, piece };
-    if (this.tool === "move" && piece) {
-      e.currentTarget.setPointerCapture?.(e.pointerId);
-      this._drag = { piece, x: e.clientX, y: e.clientY, dx: 0, dy: 0, moved: false };
-      this._target = { type: "piece", id: piece.id };
-      this.drawHighlight();
-    }
+    const rect = this.boardRect(); // once per gesture: no layout reads while the finger moves
+    const pt = [(e.clientX - rect.left) / rect.width, (e.clientY - rect.top) / rect.height];
+    const piece = pickPiece(this.place.pieces, pt, rect);
+    this._live = { id: e.pointerId, x: e.clientX, y: e.clientY, rect, piece, dx: 0, dy: 0, s: 1, moved: false };
+    if (this.state.tool !== "move" || !piece) return;
+    const wasSelected = this.state.selected === piece.id;
+    if (!this.send({ type: "drag-start", mode: "move", id: piece.id })) return;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    this._live.box = strokeBox(piece.stroke).box;
+    editSound(this.services, wasSelected ? "pick" : "select");
+  }
+
+  onHandleDown(e) {
+    const s = this.state;
+    const piece = s.selected ? this.place?.pieces.find((p) => p.id === s.selected) : null;
+    if (!e.isPrimary || !piece) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!this.send({ type: "drag-start", mode: "resize", id: piece.id })) return;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    const rect = this.boardRect();
+    const { cx, cy } = strokeBox(piece.stroke);
+    this._live = {
+      id: e.pointerId, x: e.clientX, y: e.clientY, rect, piece, dx: 0, dy: 0, s: 1, moved: false,
+      centre: [rect.left + cx * rect.width, rect.top + cy * rect.height], cx, cy,
+    };
+    editSound(this.services, "pick");
   }
 
   onMove(e) {
-    const d = this._drag;
-    if (!d || e.pointerId !== this._down?.id) return;
-    const r = this.boardRect();
-    d.dx = (e.clientX - d.x) / r.width;
-    d.dy = (e.clientY - d.y) / r.height;
-    if (!d.moved && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 3) d.moved = true;
-    if (d.moved) this.drawHighlight();
+    const live = this._live;
+    const drag = this.state.drag;
+    if (!live || !drag || e.pointerId !== live.id) return;
+    if (!live.moved && Math.hypot(e.clientX - live.x, e.clientY - live.y) > MOVE_SLOP) live.moved = true;
+    if (!live.moved) return;
+    if (drag.mode === "resize") {
+      live.s = resizeScale(live.piece.stroke, [live.x, live.y], [e.clientX, e.clientY], live.centre);
+      this._setLift({ id: live.piece.id, s: live.s, cx: live.cx, cy: live.cy });
+    } else {
+      const [dx, dy] = clampDelta(live.box, (e.clientX - live.x) / live.rect.width, (e.clientY - live.y) / live.rect.height);
+      live.dx = dx;
+      live.dy = dy;
+      this._setLift({ id: live.piece.id, dx, dy });
+    }
+    this._scheduleOutline();
   }
 
   onUp(e) {
-    const down = this._down;
-    this._down = null;
-    if (!down || e.pointerId !== down.id) return;
-    const d = this._drag;
-    this._drag = null;
-    if (d) {
-      if (d.moved) {
-        const stroke = moveStroke(d.piece.stroke, d.dx, d.dy);
-        this.commit((place) => this.store.updatePiece({ placeId: place.id, pieceId: d.piece.id, patch: { stroke } }));
-      } else this.drawHighlight();
+    const live = this._live;
+    this._live = null;
+    if (!live || e.pointerId !== live.id) return;
+    const drag = this.state.drag;
+    if (drag) {
+      if (live.moved) this.onMove({ pointerId: live.id, clientX: e.clientX, clientY: e.clientY }); // the last position counts
+      this.send({ type: "drag-end" });
+      if (live.moved) this.dropPiece(drag.mode, live);
+      else this._setLift(null);
       return;
     }
-    if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > TAP_SLOP) return;
-    this.tap(down.piece, this.toBoard(e.clientX, e.clientY));
+    if (Math.hypot(e.clientX - live.x, e.clientY - live.y) > TAP_SLOP) return;
+    this.tap(live.piece);
   }
 
   cancelDrag() {
-    this._down = null;
-    this._drag = null;
-    this.drawHighlight();
+    this._live = null;
+    this._setLift(null);
+    this.send({ type: "drag-cancel" });
+    this.renderSelection();
   }
 
-  tap(piece, [, y]) {
-    if (this.tool === "paint") {
-      if (piece) this.select({ type: "piece", id: piece.id });
-      else this.select({ type: y < (GROUND_AT[this.place.backdrop] ?? 0.6) ? "sky" : "ground" });
-    } else if (this.tool === "delete" && piece) {
-      this.select({ type: "piece", id: piece.id });
-      this.confirmDelete(piece);
+  tap(piece) {
+    if (!piece) return void this.send({ type: "tap-empty" }); // tap-away keeps the selection
+    const changed = this.send({ type: "tap-piece", id: piece.id });
+    if (this.state.tool === "delete") return void this.confirmDelete(piece);
+    if (changed) editSound(this.services, "select");
+  }
+
+  /** The outline follows the lifted piece once per frame, with a transform (no path rebuild). */
+  _scheduleOutline() {
+    if (this._raf) return;
+    this._raf = requestAnimationFrame(() => {
+      this._raf = 0;
+      const live = this._live;
+      if (!live || !this.state.drag) return;
+      const r = live.rect;
+      if (this.state.drag.mode === "resize") {
+        const t = `translate(${live.cx} ${live.cy}) scale(${live.s}) translate(${-live.cx} ${-live.cy})`;
+        this.group.setAttribute("transform", t);
+        const { box } = strokeBox(live.piece.stroke);
+        const hx = (live.cx + (box.x + box.w - live.cx) * live.s - (box.x + box.w)) * r.width;
+        const hy = (live.cy + (box.y + box.h - live.cy) * live.s - (box.y + box.h)) * r.height;
+        this.handle.style.transform = `translate(${hx}px, ${hy}px)`;
+      } else {
+        this.group.setAttribute("transform", `translate(${live.dx} ${live.dy})`);
+        this.handle.style.transform = `translate(${live.dx * r.width}px, ${live.dy * r.height}px)`;
+      }
+    });
+  }
+
+  _setLift(lift) {
+    try {
+      this.services?.board?.setLift?.(lift);
+    } catch (e) {
+      console.error(e);
     }
   }
 
   // ---------------------------------------------------------------- changes
 
+  dropPiece(mode, live) {
+    const piece = live.piece;
+    const stroke = mode === "resize" ? scaleStroke(piece.stroke, live.s) : moveStroke(piece.stroke, live.dx, live.dy);
+    editSound(this.services, "drop");
+    this._liftPending = true; // keep showing it where it was put until the store has it
+    this.commit((place) => this.store.updatePiece({ placeId: place.id, pieceId: piece.id, patch: { stroke } })).then((ok) => {
+      if (ok || !this._liftPending) return;
+      this._liftPending = false;
+      this._setLift(null);
+      this.renderSelection();
+    });
+  }
+
   addPiece(kind, points) {
     if (!Array.isArray(points) || points.length < (kind === "shape" ? 3 : 2)) return;
-    const color = this.colors[kind];
+    const color = this.state.colors[kind === "yarn" ? "line" : "shape"];
+    editSound(this.services, "add");
     this.commit((place) => this.store.addPiece({ placeId: place.id, piece: { kind, stroke: points, color } }));
   }
 
-  paint(key) {
-    const t = this._target;
-    if (!t) return;
+  pickColour(key) {
+    const s = this.state;
+    editSound(this.services, "colour");
+    if (s.sheet === "draw") {
+      this.send({ type: "draw-colour", key });
+      this.send({ type: "close-sheet" }); // picked: back to drawing
+      return;
+    }
     this.commit((place) => {
-      if (t.type === "sky") return this.store.updatePlace({ placeId: place.id, patch: { skyColor: key } });
-      if (t.type === "ground") return this.store.updatePlace({ placeId: place.id, patch: { groundColor: key } });
-      return this.store.updatePiece({ placeId: place.id, pieceId: t.id, patch: { color: key } });
+      if (s.sheet === "sky") return this.store.updatePlace({ placeId: place.id, patch: { skyColor: key } });
+      if (s.sheet === "ground") return this.store.updatePlace({ placeId: place.id, patch: { groundColor: key } });
+      return this.store.updatePiece({ placeId: place.id, pieceId: s.selected, patch: { color: key } });
     });
+  }
+
+  toBack(pieceId) {
+    editSound(this.services, "drop");
+    this.commit((place) => {
+      const pieces = sendToBack(place.pieces, pieceId);
+      return pieces === place.pieces ? null : this.store.updatePlace({ placeId: place.id, patch: { pieces } });
+    });
+  }
+
+  async startFrom(backdrop) {
+    const patch = templatePatch(backdrop);
+    if (!patch || !this.place) return;
+    if (this.place.pieces.length > 0) {
+      const ok = await this.services.shell.confirm({
+        title: `Start from ${TEMPLATE_LABELS[backdrop]}?`,
+        body: "This clears the pieces you drew. You can undo this while the scene tools are open.",
+        confirmLabel: "Start over",
+        cancelLabel: "Keep my scene",
+      });
+      if (!ok) return;
+    }
+    editSound(this.services, "save");
+    this.send({ type: "close-sheet" });
+    this.commit((place) => this.store.updatePlace({ placeId: place.id, patch }));
   }
 
   async confirmDelete(piece) {
@@ -317,30 +524,37 @@ export class KfSceneToolsElement extends HTMLElement {
       cancelLabel: "Keep it",
       danger: true,
     });
-    if (!ok) return this.select(null);
+    if (!ok) return;
+    editSound(this.services, "poof");
     this.commit((place) => this.store.removePiece({ placeId: place.id, pieceId: piece.id }));
-    this.services.audio?.chime?.("poof");
   }
 
-  /** Runs one change after the previous one, remembering the place as it was for Undo. */
+  /** Runs one change after the previous one, remembering the place as it was for Undo. Resolves true when saved. */
   commit(change) {
-    this._chain = this._chain.then(async () => {
+    const run = this._chain.then(async () => {
       const place = this.place;
-      if (!place) return;
-      const before = { pieces: structuredClone(place.pieces), skyColor: place.skyColor, groundColor: place.groundColor };
+      if (!place) return false;
+      const before = { pieces: structuredClone(place.pieces), skyColor: place.skyColor, groundColor: place.groundColor, backdrop: place.backdrop };
       try {
-        await change(place);
+        const result = await change(place);
+        if (result === null) return false; // nothing to change
         this._undo.push(before);
         if (this._undo.length > UNDO_LIMIT) this._undo.shift();
+        this.render();
+        return true;
       } catch (e) {
         reportFailure(this.services, e);
+        this.render();
+        return false;
       }
-      this.refresh();
     });
-    return this._chain;
+    this._chain = run;
+    return run;
   }
 
   undo() {
+    if (this._undo.length === 0) return this._chain;
+    editSound(this.services, "undo");
     this._chain = this._chain.then(async () => {
       const place = this.place;
       const prev = this._undo.pop();
@@ -351,7 +565,7 @@ export class KfSceneToolsElement extends HTMLElement {
         this._undo.push(prev);
         reportFailure(this.services, e);
       }
-      this.refresh();
+      this.render();
     });
     return this._chain;
   }

@@ -50,7 +50,7 @@ music notes -> music bus (faded by MusicPlayer) -> duck ────┘
 - `setSessionType('playback' | 'play-and-record')` sets `navigator.audioSession.type` where supported.
 - `preload(clips)`, `playThing(clips)` (name then sound, stops anything playing, resolves true when all played), `playClip(clip, {bytes?})`, `stop()`.
 - `speak(text, lang)`: device text-to-speech fallback while a thing has no recording. Picks a voice with `pickVoice`. Call it inside the tap. Never rejects; a safety timeout resolves it. `canSpeak`, `stopSpeaking()`.
-- `chime(kind)` returns its length in seconds. `holdTone(on)`.
+- `chime(kind)` returns its length in seconds, or 0 when skipped: an editing sound (`EDIT_CHIMES`) of the same kind again within `CHIME_REPEAT_S` (40 ms, `performance.now`) plays once (mash-safe); the child's chimes are never skipped here. Any kind in `dsp/chimes.js` `CHIMES`, including the editing family. Components play edit sounds through `components/kf-dialog/feedback.js` `editSound`. `holdTone(on)`.
 - `musicBus` (null before the context exists). `talking` is true while a clip or speech plays; the duck dips to `MUSIC_DUCK_DB` in 0.12 s and comes back over 0.9 s.
 - `decode(arrayBuffer)` decodes a copy. `isBroken(clip)` after a decode failure (US-4.5).
 - Decoded buffers are cached by SHA-256 in an LRU with a 24 MB budget; concurrent loads share one decode.
@@ -75,12 +75,14 @@ music notes -> music bus (faded by MusicPlayer) -> duck ────┘
 
 ### Renderer (`renderer.js`) and felt painter (`felt.js`)
 
-- `new Renderer(canvas, {store, engine})`, `setSize(cssW, cssH, dpr)`, `invalidate('background'|'sprites'|thingId)`, `wake()`, `stop()`, `destroy()`, `burst(x, y)`, `actorBounds(thingId)`, `running`, `frames`.
-- The Renderer is the only owner of `requestAnimationFrame`. Each frame: `engine.step(dt)`, one background blit, then per actor a contact shadow, yarn legs, one sprite `drawImage` and button eyes, plus felt confetti from a fixed pool of 24.
+- `new Renderer(canvas, {store, engine})`, `setSize(cssW, cssH, dpr)`, `invalidate('background'|'sprites'|thingId)`, `wake()`, `stop()`, `destroy()`, `burst(x, y)`, `actorBounds(thingId)`, `setLift(lift)`, `running`, `frames`, `pieceSprites`, `lift`.
+- The Renderer is the only owner of `requestAnimationFrame`. Each frame: `engine.step(dt)`, one background blit, in scene mode one `drawImage` per scene piece, then per actor a contact shadow, yarn legs, one sprite `drawImage` and button eyes, plus felt confetti from a fixed pool of 24.
+- Scene mode: the background is painted without pieces (`paintBackground(..., {pieces: false})`) and each piece is a cached sprite (`paintPieceSprite`, dashed outline baked in). `setLift({id, dx, dy, s, cx, cy})` (board units) draws that piece moved and scaled about (cx, cy) until `setLift(null)`; it only writes numbers and requests a frame, so the scene tools call it on every pointermove. A piece change does not repaint the background (the key is place id, backdrop, sky and ground); only a recoloured, reshaped or resized piece gets a new sprite. Leaving scene mode repaints the background once with the pieces baked in.
+- Moves keep sprites: when a thing's or piece's new geometry is a pure translation of the old (`geometry/transform.js` `translationBetween`, within the store's 3-decimal rounding) and the colour is the same, the old felt sprite is reused at the new place. A drag therefore costs no felt painting at all, during or after.
 - When `engine.isIdle()` and no confetti is alive, the loop stops (0 fps). It schedules a `setTimeout` for `engine.nextWakeMs()` and wakes on engine `wake`, `mode`, `change` and store `change` events.
 - Contact shadow: only for things whose preset is grounded (`motion/pose.js` `isGrounded`, the preset's `ground` flag), looked up in `engine.presets` when the sprite is built. Walk, hop and scuttle get one; float and swim do not. An engine without presets draws no shadows.
 - Sprites are cached per thing in `entries`. Snapshots are immutable, so a changed thing is a new object and its sprite is rebuilt. Background is repainted only when the place or scene mode changes.
-- `felt.js` does all slow work once: felt tile, `paintBackground`, `paintThingSprite(thing, pxPerBoardUnit, dpr)` returning `{canvas, ax, ay, ox, oy}`, `eyeSprite`, `groundShadowSprite`, `glowSprite`, `confettiSprites`. `releaseCanvas` zeroes canvases because iOS caps canvas memory.
+- `felt.js` does all slow work once: felt tile, `paintBackground(c, place, size, {scene, border, pieces})`, `paintPieceSprite(piece, W, H, {scene})` returning `{canvas, ox, oy}`, `paintThingSprite(thing, pxPerBoardUnit, dpr)` returning `{canvas, ax, ay, ox, oy}`, `eyeSprite`, `groundShadowSprite`, `glowSprite`, `confettiSprites`. `releaseCanvas` zeroes canvases because iOS caps canvas memory.
 
 ### Share, storage, starter, wake, sha, report
 
@@ -115,6 +117,7 @@ music notes -> music bus (faded by MusicPlayer) -> duck ────┘
 - Unit (Node, `npm test`): `io/share.test.js`, `io/starter.test.js` (the file is current; the full eight-thing scenes have real leg counts, hips inside the body, no overlaps, 120 px tap spacing and varied sizes), `tests/unit/memory-repo.test.js` (runs the contract on `MemoryRepo`), `tests/unit/wake.test.js`, `tests/unit/export-fixture.test.js` (the golden export must import forever; never regenerate it).
 - Browser (`npm run test:browser`, Playwright Chromium against the real Python app):
   - `package-a.test.js`: felt rendering, idle loop at 0 fps, pointer rules, letterboxing.
+  - `drag.test.js`: frame cost while dragging a thing (edit) and a piece (scene) at dpr 2, exact tracking, no background repaint, sprites reused after a move.
   - `package-d.test.js`: AudioEngine, chime levels, decode failures, Recorder with a fake mic (`setup({fakeMedia: true})`).
   - `package-e.test.js`: the Repository contract on IndexedDB, export, wipe and import, rejected imports, Delete all data, offline after the service worker installs.
   - `music.test.js`: lullaby level, fades, ducking, off switch.

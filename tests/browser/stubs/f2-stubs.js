@@ -41,6 +41,9 @@
       const r = el.getBoundingClientRect();
       return [r.left + x * r.width, r.top + y * r.height];
     };
+    /** Scene tools draw a dragged piece through the renderer; the stub records each lift. */
+    el.lifts = [];
+    el.setLift = (lift) => el.lifts.push(lift ? { ...lift } : null);
     return el;
   }
 

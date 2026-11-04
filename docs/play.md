@@ -28,6 +28,9 @@ Play is the live board a toddler touches. Things wander, blink, jump and speak w
 | `step(dt)` | Advances by the frame delta. After an idle gap it counts the gap with its own clock, so a wake-up step may pass any dt, even 0. |
 | `tap(x, y)` | A child's tap in board coordinates, play only. Returns the thing id or null. |
 | `pick(x, y)` | Which thing is at (x, y), any mode. Used for edit taps and the edit-mode hold. |
+| `grab(thingId)` | Edit mode only: pick a thing up to drag it. It holds a still rest pose. Returns its anchor `{x, y}` or null. |
+| `dragTo(x, y)` | Puts the held thing's anchor at (x, y) exactly (no smoothing) and fires `wake`. |
+| `release(commit = true)` | Puts it down. With `commit` it stays and the result `{thingId, dx, dy}` is how far to move its outline in the store (`geometry/transform.js` `movedThingPatch`); without, it goes back and returns null. `held` is the id being dragged. Leaving edit mode drops the hold. |
 | `fingerDown(bool)` | All things pause while a finger is down (US-5.3). |
 | `startFind(kind)` | `'animal'` or `'color'`. Starts a round, or repeats the question if that game is already running. Call inside the press. |
 | `stopFind()` | Ends a round quietly. |
@@ -47,7 +50,7 @@ Events (all `CustomEvent`):
 
 ### World (`play/world.js`)
 
-`createWorld(things, {rng, presets, mode, reduceMotion})`, `syncWorld(world, things, rng, {drop})`, `setMode`, `react`, `dropActor`, `sleepAll`, `step(world, dt, {fingerDown}, rng)`, `isIdle`, `nextWakeMs`, `hitTargets`, `actorFor`. Constants: `TICK = 1/60`, `GROUND_TOP = 0.55`.
+`createWorld(things, {rng, presets, mode, reduceMotion})`, `syncWorld(world, things, rng, {drop})`, `setMode`, `react`, `dropActor`, `sleepAll`, `step(world, dt, {fingerDown}, rng)`, `isIdle`, `nextWakeMs`, `hitTargets`, `actorFor`, and for the edit drag `holdActor` (still, settled wiggle), `placeActor(world, id, x, y)` and `settleActor` (the drop point becomes home; the actor's outline moves with it so taps hit it before the store catches up; returns `[dx, dy]`). Constants: `TICK = 1/60`, `GROUND_TOP = 0.55`.
 
 Actor states:
 
@@ -56,6 +59,7 @@ idle ──rest timer──▶ moving ──arrived──▶ idle
   any ──tap──▶ react (1 s jump) ──▶ idle
   new / place switched ──▶ drop (0.7 s, staggered 0.12 s) ──▶ idle | wiggle | sleep
   setMode('edit') ──▶ wiggle (decays over 2 s, then still)
+  edit: grab ──▶ wiggle, settled (held still, follows dragTo) ──release──▶ same, home = drop point
   sleepAll ──▶ sleep (yawn 1.6 s, settled at 2.2 s; a tap only stirs for 0.6 s)
 ```
 

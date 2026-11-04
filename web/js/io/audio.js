@@ -8,7 +8,7 @@
 // Decoded buffers are cached by sha256 with a byte budget (LRU); decodeAudioData gets a copy.
 // Events: 'clip-start' {clipId, offsetS, durationS, gainDb}, 'clip-end' {clipId}, 'chime' {kind},
 //         'decode-failed' {clipId, sha256, reason}, 'statechange' {state}.
-import { CHIMES, CHIME_BUS_DB, HOLD_TONE, SILENT, chimeDuration } from "../dsp/chimes.js";
+import { CHIMES, CHIME_BUS_DB, HOLD_TONE, SILENT, EDIT_CHIMES, chimeDuration, chimeAllowed } from "../dsp/chimes.js";
 import { fromDb } from "../dsp/level.js";
 import { MUSIC_DUCK_DB } from "../dsp/music.js";
 
@@ -200,10 +200,21 @@ export class AudioEngine extends EventTarget {
 
   // ---- chimes ----
 
-  /** Plays a soft synthesised chime ('tap','enter','leave','start','stop','plink','poof','hold-done'). Returns its length in s. */
+  /**
+   * Plays a soft synthesised chime: any kind in dsp/chimes.js CHIMES (the child's tap, enter/leave,
+   * recording blips, plink, poof, hold-done, yay and the editing family EDIT_CHIMES). Returns its
+   * length in s, or 0 when skipped: an editing sound (EDIT_CHIMES) of the same kind again within CHIME_REPEAT_S is one sound (mash-safe).
+   */
   chime(kind) {
     const ctx = this._ensure();
     if (!ctx || !CHIMES[kind]) return 0;
+    if (EDIT_CHIMES.includes(kind)) {
+      // Editing sounds only: the child's chimes keep their own mash policy (play/mash.js).
+      const now = globalThis.performance.now() / 1000;
+      this._chimeAt ??= new Map();
+      if (!chimeAllowed(this._chimeAt.get(kind), now)) return 0;
+      this._chimeAt.set(kind, now);
+    }
     this.resume();
     synthChime(ctx, this._chimeBus, kind, ctx.currentTime + 0.005);
     this.dispatchEvent(new CustomEvent("chime", { detail: { kind } }));

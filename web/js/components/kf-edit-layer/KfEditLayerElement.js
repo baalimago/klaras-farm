@@ -2,8 +2,11 @@
 // The bar (Scenes, Change scene, + Add, Settings, Done) and still, 44 pt+ badges per thing:
 // pencil → the thing card; cross → confirm (naming the recordings) → delete → Undo toast.
 // Badges are placed once from services.board.actorRect(id) and re-placed on store changes and resize,
-// never per frame. Hidden while a panel is open over edit mode.
+// never per frame. Hidden while a panel is open over edit mode, and while a thing is dragged.
+// Selection: the thing last tapped or dragged on the board is selected (a dashed felt ring). Tapping
+// empty board never drops it; only selecting another thing changes it.
 import { MAX_THINGS_PER_PLACE } from "../../farm/snapshot.js";
+import { editSound } from "../kf-dialog/feedback.js";
 
 const BADGE = 52; // px, ≥ 44 pt target
 const EDGE = BADGE / 2 + 4;
@@ -27,7 +30,18 @@ export class KfEditLayerElement extends HTMLElement {
     sub(s.session, "update-ready", () => this.render());
     sub(window, "resize", () => this.placeBadges());
     sub(s.board, "kf-thing-tap", (e) => {
-      if (e.detail?.thingId && !s.session?.state?.panel) s.session?.openPanel("card", { thingId: e.detail.thingId });
+      if (!e.detail?.thingId || s.session?.state?.panel) return;
+      this.selected = e.detail.thingId;
+      editSound(s, "select");
+      s.session?.openPanel("card", { thingId: e.detail.thingId });
+    });
+    sub(s.board, "kf-thing-grab", (e) => {
+      this.selected = e.detail?.thingId ?? this.selected;
+      this.classList.add("dragging");
+    });
+    sub(s.board, "kf-thing-drop", () => {
+      this.classList.remove("dragging");
+      this.placeBadges(); // the actor is already where it was put down
     });
     this.render();
     // The board settles things in place as edit mode starts; place the badges again once it has.
@@ -92,7 +106,10 @@ export class KfEditLayerElement extends HTMLElement {
     b.type = "button";
     b.className = `kf-btn${kind ? " " + kind : ""}`;
     b.textContent = label;
-    b.addEventListener("click", onClick);
+    b.addEventListener("click", (e) => {
+      if (label !== "Done") editSound(this.services, "select"); // Done: the session plays 'leave'
+      onClick(e);
+    });
     return b;
   }
 
@@ -133,6 +150,7 @@ export class KfEditLayerElement extends HTMLElement {
       const r = s.board?.actorRect?.(thing.id);
       if (!r) continue;
       const name = this._name(thing);
+      if (thing.id === this.selected) this._badges.append(this._ring(r));
       const cx = r.left + r.width / 2;
       const half = Math.max(BADGE / 2 + 6, r.width * 0.3);
       const y = clampY(r.top);
@@ -153,6 +171,20 @@ export class KfEditLayerElement extends HTMLElement {
     }
   }
 
+  /** The selected thing's dashed ring (decorative; taps go through to the board). */
+  _ring(r) {
+    const ring = document.createElement("div");
+    ring.className = "kf-edit-ring";
+    ring.dataset.thingId = this.selected;
+    ring.setAttribute("aria-hidden", "true");
+    const pad = 10;
+    Object.assign(ring.style, {
+      left: `${Math.round(r.left - pad)}px`, top: `${Math.round(r.top - pad)}px`,
+      width: `${Math.round(r.width + 2 * pad)}px`, height: `${Math.round(r.height + 2 * pad)}px`,
+    });
+    return ring;
+  }
+
   _badge(kind, label, glyph, x, y, onClick) {
     const b = document.createElement("button");
     b.type = "button";
@@ -161,7 +193,10 @@ export class KfEditLayerElement extends HTMLElement {
     b.textContent = glyph;
     b.style.left = `${Math.round(x)}px`;
     b.style.top = `${Math.round(y)}px`;
-    b.addEventListener("click", onClick);
+    b.addEventListener("click", (e) => {
+      if (kind === "pencil") editSound(this.services, "select");
+      onClick(e);
+    });
     return b;
   }
 

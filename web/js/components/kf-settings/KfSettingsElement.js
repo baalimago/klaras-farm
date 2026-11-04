@@ -4,6 +4,7 @@
 // replace, Undo until next boot), storage status, privacy, Guided Access guide, delete all data,
 // "Update ready", app version. Props: services, params. Dispatches kf-close.
 import { h, newId, plural, joinAnd, languageName, reportFailure } from "../kf-dialog/dom.js";
+import { editSound } from "../kf-dialog/feedback.js";
 
 const SLEEP_OPTIONS = [
   [0, "Off"],
@@ -193,6 +194,7 @@ export class KfSettingsElement extends HTMLElement {
       "data-key": "find-it",
       checked: place.findIt !== false,
       onchange: async (e) => {
+        editSound(this.services, "toggle");
         try {
           await store.updatePlace({ placeId: place.id, patch: { findIt: e.target.checked } });
         } catch (err) {
@@ -218,7 +220,7 @@ export class KfSettingsElement extends HTMLElement {
     const music = this.services.music;
     if (!music) return null;
     const id = newId("music");
-    const input = h("input", { type: "checkbox", id, "data-key": "music", checked: music.enabled, onchange: (e) => { music.enabled = e.target.checked; } });
+    const input = h("input", { type: "checkbox", id, "data-key": "music", checked: music.enabled, onchange: (e) => { editSound(this.services, "toggle"); music.enabled = e.target.checked; } });
     return h("div", { class: "kf-find-it" }, [
       h("div", { class: "kf-row" }, [input, h("label", { htmlFor: id, text: "Soft background music" })]),
       h("p", { class: "kf-note", text: "A quiet lullaby while Klara plays. It dips when a name is said and stops when the things fall asleep." }),

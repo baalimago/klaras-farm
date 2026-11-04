@@ -16,7 +16,7 @@
 // Time: step(dt) takes the frame delta. While the world is idle the renderer may stop calling
 // step; the engine then counts the idle gap with its own clock (`now`), so a wake-up step can pass
 // any dt (even 0). Pass the frame delta, not the time since the last frame before the loop stopped.
-import { createWorld, syncWorld, step, setMode, react, dropActor, sleepAll, isIdle, nextWakeMs, hitTargets, actorFor } from "./play/world.js";
+import { createWorld, syncWorld, step, setMode, react, dropActor, sleepAll, isIdle, nextWakeMs, hitTargets, actorFor, holdActor, placeActor, settleActor } from "./play/world.js";
 import { hitTest } from "./play/hit.js";
 import { decideTap, idleMash, startPlaying, stopPlaying } from "./play/mash.js";
 import { createSleep, tickSleep, sleepRemainingS } from "./play/sleep.js";
@@ -55,6 +55,7 @@ export class PlayEngine extends EventTarget {
     this._askToken = 0;   // the latest question; an older one finishing doesn't unfreeze things
     this._roundToken = 0; // the latest find round; callbacks of an older round do nothing
     this._glowIds = new Set(); // find hint: the right thing(s) glow after 2 misses
+    this._held = null; // edit mode drag: {thingId, x, y} where it was picked up
     const settings = store.settings ?? {};
     this._sleepMinutes = settings.sleepMinutes ?? 0;
     this._sleep = createSleep(this._sleepMinutes);
@@ -73,6 +74,7 @@ export class PlayEngine extends EventTarget {
     if (!MODES.includes(mode) || mode === this._mode) return;
     this._catchUp();
     this._mode = mode;
+    this._held = null; // a drag ends with edit mode
     setMode(this.world, mode, this.rng);
     if (mode === "play") this._sleep = createSleep(this._sleepMinutes);
     this._sleep.paused = mode !== "play";
@@ -198,6 +200,50 @@ export class PlayEngine extends EventTarget {
   pick(x, y) {
     return this._hit(x, y);
   }
+
+  /**
+   * Edit mode: pick a thing up to drag it (US-11.3). It holds still so it follows the finger 1:1.
+   * Returns its anchor {x, y} in board coordinates, or null (not edit mode, or no such thing).
+   */
+  grab(thingId) {
+    if (this._mode !== "edit") return null;
+    this._catchUp();
+    const a = holdActor(this.world, thingId);
+    if (!a) return null;
+    this._held = { thingId, x: a.x, y: a.y };
+    this._wake();
+    return { x: a.x, y: a.y };
+  }
+
+  /** Moves the held thing's anchor to (x, y). One number write and a frame request per pointermove. */
+  dragTo(x, y) {
+    const h = this._held;
+    if (!h) return;
+    placeActor(this.world, h.thingId, x, y);
+    this._wake();
+  }
+
+  /**
+   * Puts the held thing down. With `commit` it stays where it is and the result {thingId, dx, dy}
+   * says how far to move its outline in the store (geometry/transform.js movedThingPatch); without,
+   * it goes back to where it was picked up and the result is null.
+   */
+  release(commit = true) {
+    const h = this._held;
+    this._held = null;
+    if (!h) return null;
+    if (!commit) {
+      placeActor(this.world, h.thingId, h.x, h.y);
+      this._wake();
+      return null;
+    }
+    const d = settleActor(this.world, h.thingId);
+    this._wake();
+    return d ? { thingId: h.thingId, dx: d[0], dy: d[1] } : null;
+  }
+
+  /** The thing being dragged, or null. */
+  get held() { return this._held?.thingId ?? null; }
 
   /** All things pause while a finger is down (US-5.3). */
   fingerDown(down) {

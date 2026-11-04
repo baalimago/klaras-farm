@@ -7,7 +7,17 @@ kf-edit-layer {
 }
 kf-edit-layer button { pointer-events: auto; }
 kf-edit-layer.covered .kf-edit-bar,
-kf-edit-layer.covered .kf-edit-badges { display: none; }
+kf-edit-layer.covered .kf-edit-badges,
+kf-edit-layer.dragging .kf-edit-badges { display: none; }
+/* The selected thing: a stitched felt ring. Decorative: taps pass through to the board. */
+.kf-edit-ring {
+  position: absolute;
+  box-sizing: border-box;
+  border: 3px dashed var(--paper);
+  border-radius: 24px;
+  box-shadow: 0 0 0 2px rgb(74 51 38 / 0.35);
+  pointer-events: none;
+}
 
 .kf-edit-bar {
   position: absolute;
