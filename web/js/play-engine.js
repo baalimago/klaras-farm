@@ -21,7 +21,8 @@ import { hitTest } from "./play/hit.js";
 import { decideTap, idleMash, startPlaying, stopPlaying } from "./play/mash.js";
 import { createSleep, tickSleep, sleepRemainingS } from "./play/sleep.js";
 import { createFind, startRound, endRound, stepFind, answerFind, isAnswer, hinting, reconcileFind, findRemainingS } from "./play/find.js";
-import { tapClips, playLanguageFor, clipsFor } from "./farm/intents.js";
+import { tapClips, playLanguageFor, clipsFor, gameClips } from "./farm/intents.js";
+import { planAnimalAsk, planColorAsk, colorAskLanguage, recordedColorLangs } from "./play/ask.js";
 import { cueLines, colorLine } from "./farm/scripts.js";
 
 const MODES = ["play", "edit", "scene"];
@@ -51,7 +52,7 @@ export class PlayEngine extends EventTarget {
     this._idleAtLastStep = true;
     this._find = createFind();
     this._prompting = false;
-    this._askCount = 0;
+    this._lastAskClipId = null; // the last recorded question played, so the next one differs
     this._askToken = 0;   // the latest question; an older one finishing doesn't unfreeze things
     this._roundToken = 0; // the latest find round; callbacks of an older round do nothing
     this._glowIds = new Set(); // find hint: the right thing(s) glow after 2 misses
@@ -318,57 +319,80 @@ export class PlayEngine extends EventTarget {
     return playLanguageFor(snap.settings, { available, rng: this.rng });
   }
 
+  /** The plan for the current round's question (play/ask.js), or null when there is nothing to ask. */
+  _askPlan() {
+    const f = this._find;
+    const snap = this.store.snapshot;
+    const canSpeak = !!this.audio?.canSpeak;
+    if (f.kind === "color") {
+      const questions = gameClips(snap, { kind: "color-question" });
+      const words = gameClips(snap, { kind: "color-word", color: f.color });
+      const lang = colorAskLanguage(snap.settings, recordedColorLangs(questions, words), this.rng);
+      const line = colorLine(this.scripts, f.color, lang, Math.floor(this.rng() * 3));
+      return planColorAsk({ questions, words, lang, line, canSpeak, rng: this.rng, lastId: this._lastAskClipId });
+    }
+    const thing = snap.things.find((t) => t.id === f.target);
+    if (!thing) return null;
+    const lang = this._langFor(snap, thing.id, "prompt");
+    const { lines, fallback } = cueLines(this.scripts, thing, lang);
+    const sounds = clipsFor(snap, thing.id, { kind: "sound" });
+    return planAnimalAsk({
+      prompts: clipsFor(snap, thing.id, { kind: "prompt" }),
+      lang,
+      lines,
+      linesLang: fallback ? "en" : lang,
+      name: tapClips(snap, thing.id, lang).find((c) => c.kind === "name") ?? null,
+      sound: sounds.find((c) => c.language === lang) ?? sounds[0] ?? null,
+      canSpeak,
+      rng: this.rng,
+      lastId: this._lastAskClipId,
+    });
+  }
+
+  /** Starts one plan step synchronously (iOS: inside the press). Resolves true when it was heard. */
+  _playStep(step) {
+    if (step.kind === "clip") return this._call("playClip", step.clip);
+    if (step.kind === "clips") return this._call("playSequence", step.clips);
+    if (step.kind === "speak") return this._call("speak", step.text, step.lang);
+    this._call("chime", "tap");
+    return true;
+  }
+
   /**
-   * Asks the current round's question. Animal: the parent's recorded question (rotating takes),
-   * else the scripted cue in the device's voice, else the recorded name; then the thing's own
-   * sound as a clue. Colour: "Find something yellow!" in the device's voice.
+   * Asks the current round's question (play/ask.js). Animal: the parent's recorded question (a
+   * random take), else a cue line in the device's voice, else the recorded name; only after the
+   * question has finished, the thing's own sound as a clue. Colour: the recorded colour question
+   * and colour word as one sequence, else the whole line in the device's voice.
+   * The first step starts synchronously, inside the press; a step that is not heard (the device
+   * voice never started, a clip would not decode) falls through to the next one.
    */
   _ask(repeat = false) {
     const f = this._find;
     if (f.phase !== "asking") return;
-    const snap = this.store.snapshot;
-    const n = this._askCount++;
+    const plan = this._askPlan();
+    if (!plan) return;
     const askToken = ++this._askToken;
     const round = this._roundToken;
-    let playing = null;
-    let clue = null;
-    if (f.kind === "color") {
-      const lang = playLanguageFor(snap.settings, { rng: this.rng });
-      const line = colorLine(this.scripts, f.color, lang, n);
-      if (line && this.audio?.canSpeak) playing = this._call("speak", line.text, line.lang);
-      else this._call("chime", "tap"); // no voice: the colour button shows the colour
-    } else {
-      const thingId = f.target;
-      const thing = snap.things.find((t) => t.id === thingId);
-      if (!thing) return;
-      const lang = this._langFor(snap, thingId, "prompt");
-      const prompts = clipsFor(snap, thingId, { kind: "prompt" });
-      const own = prompts.filter((c) => c.language === lang);
-      const pool = own.length ? own : prompts;
-      if (pool.length) {
-        playing = this._call("playClip", pool[n % pool.length]);
-      } else {
-        const { lines, fallback } = cueLines(this.scripts, thing, lang);
-        const line = lines.length && this.audio?.canSpeak ? lines[n % lines.length] : null;
-        const name = line ? null : tapClips(snap, thingId, lang).find((c) => c.kind === "name");
-        if (line) playing = this._call("speak", line, fallback ? "en" : lang);
-        else if (name) playing = this._call("playClip", name);
-      }
-      const sounds = clipsFor(snap, thingId, { kind: "sound" });
-      const sound = sounds.find((c) => c.language === lang) ?? sounds[0] ?? null;
-      if (sound) clue = () => this._call("playClip", sound);
-    }
+    const current = () => askToken === this._askToken && round === this._roundToken;
     this._prompting = true;
     this.dispatchEvent(new CustomEvent("ask", { detail: { kind: f.kind, thingId: f.target, color: f.color, repeat } }));
+    const run = (i) => {
+      const step = plan.ask[i];
+      if (step.kind === "clip" || step.kind === "clips") this._lastAskClipId = (step.clip ?? step.clips[0]).id;
+      return Promise.resolve(this._playStep(step)).then((heard) => {
+        if (!current()) return false;
+        if (heard === false && i + 1 < plan.ask.length) return run(i + 1);
+        return true;
+      });
+    };
     const done = () => {
       if (askToken !== this._askToken) return;
       this._prompting = false;
       this._wake();
     };
-    // The clue sound follows the question, unless something interrupted it.
-    const current = () => askToken === this._askToken && round === this._roundToken;
-    Promise.resolve(playing)
-      .then((ok) => (clue && ok !== false && current() ? clue() : undefined))
+    // The clue sound follows the question once it has finished, unless something interrupted it.
+    run(0)
+      .then((asked) => (plan.clue && asked && current() ? this._playStep(plan.clue) : undefined))
       .then(done, done);
     this._wake();
   }

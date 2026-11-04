@@ -149,7 +149,7 @@ test("find games: the 🔍 button asks for an animal, tapping it celebrates; hid
 test("a parent adds a thing with a recorded name, and it survives a reload", async () => {
   const page = await h.newPage();
   await dismissWelcome(page);
-  // Make room: the Farm starts with 3 things, so the 4th is allowed.
+  // The Farm starts with 3 things; a scene holds 8 by default.
   const before = await kf(page, () => window.__kf.store.thingsIn(window.__kf.store.currentPlace.id).length);
   await enterEdit(page);
   await page.locator('[data-action="add"]').click();
@@ -193,7 +193,7 @@ test("a parent adds a thing with a recorded name, and it survives a reload", asy
     return { count: s.thingsIn(s.currentPlace.id).length, name: t.names.en, color: t.color, clips: s.clipsFor(t.id).map((c) => c.kind) };
   });
   assert.deepEqual(after, { count: before + 1, name: "Bird", color: "blue", clips: ["name"] });
-  assert.equal(await page.locator('[data-action="add"]').isDisabled(), true, "the place is full at 4");
+  assert.equal(await page.locator('[data-action="add"]').isDisabled(), false, "room for more: a scene holds 8 by default");
 
   await page.reload();
   await page.waitForFunction(() => document.documentElement.dataset.ready === "true");

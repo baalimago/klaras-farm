@@ -39,7 +39,8 @@ kf-find-buttons {
   border: 2px dashed rgb(122 97 82 / 0.45);
   pointer-events: none;
 }
-.kf-find-btn:active { transform: scale(0.94); }
+.kf-find-btn:active,
+.kf-find-btn.is-held { transform: scale(0.94); }
 .kf-find-btn__face {
   display: grid;
   place-items: center;

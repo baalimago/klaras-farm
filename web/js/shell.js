@@ -11,6 +11,7 @@ const PANELS = {
   scene: "kf-scene-tools",
   settings: "kf-settings",
   welcome: "kf-welcome",
+  "find-setup": "kf-find-setup",
 };
 
 export class Shell {

@@ -15,6 +15,30 @@ test("hold → gate → pass → edit; fail returns to play", () => {
   assert.equal(s.lastActivityAt, 1200);
 });
 
+test("a hold that asks for a panel (long press on a find button) opens it after the adult check", () => {
+  const then = { name: "find-setup", params: { game: "color" } };
+  let s = nextSession(initialSession(0), { type: "hold-armed", then }, 1000);
+  assert.equal(s.mode, "gate");
+  assert.equal(s.panel, null, "nothing for grown-ups shows before the check");
+  assert.deepEqual(s.then, then);
+  const passed = nextSession(s, { type: "gate-pass" }, 1500);
+  assert.equal(passed.mode, "edit");
+  assert.deepEqual(passed.panel, then);
+  assert.equal(passed.then, null);
+  const failed = nextSession(s, { type: "gate-fail" }, 1500);
+  assert.equal(failed.mode, "play");
+  assert.equal(failed.then, null, "a failed check forgets the panel");
+  assert.equal(nextSession(failed, { type: "hold-armed" }, 2000).then, null, "a plain hold asks for no panel");
+  assert.deepEqual(nextSession(initialSession(0), { type: "hold-armed", then: { name: "find-setup" } }, 1).then, { name: "find-setup", params: {} });
+});
+
+test("within grace a hold that asks for a panel opens edit with it at once", () => {
+  const closed = nextSession(inEdit(0), { type: "tick" }, 100 + AUTO_CLOSE_MS);
+  const s = nextSession(closed, { type: "hold-armed", then: { name: "find-setup", params: { game: "animal" } } }, 100 + AUTO_CLOSE_MS + 10);
+  assert.equal(s.mode, "edit");
+  assert.deepEqual(s.panel, { name: "find-setup", params: { game: "animal" } });
+});
+
 test("Done ends the session: the next hold needs the check again", () => {
   let s = nextSession(inEdit(), { type: "done" }, 5000);
   assert.equal(s.mode, "play");

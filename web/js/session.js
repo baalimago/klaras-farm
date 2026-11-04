@@ -50,7 +50,8 @@ export class Session extends EventTarget {
   }
 
   // ---- transitions ----
-  holdArmed() { this._apply({ type: "hold-armed" }); }
+  /** @param {{name:string, params?:object}|null} [then]  a panel to open once edit mode starts (after the check) */
+  holdArmed(then = null) { this._apply({ type: "hold-armed", then }); }
   gatePassed() { this._apply({ type: "gate-pass" }); }
   gateFailed() { this._apply({ type: "gate-fail" }); }
   done() { this._apply({ type: "done" }); }
@@ -93,23 +94,28 @@ export class Session extends EventTarget {
 
   /**
    * Called by the board on every primary pointerdown. Drives edit/hold.js, the ring and the soft tone.
+   * The find game buttons call it too, with `opts`: then (the panel their hold opens after the
+   * check), holdMs (their shorter hold) and edges: false (they sit near the screen edge on purpose).
    * @param {PointerEvent} e
    * @param {HTMLElement & {toBoard?:Function, services?:object}} boardEl
+   * @param {{then?:{name:string, params?:object}, holdMs?:number, edges?:boolean}} [opts]
    */
-  holdStart(e, boardEl) {
+  holdStart(e, boardEl, opts = {}) {
     if (boardEl?.services && !this.services) this.services = boardEl.services;
     const { mode, panel } = this._s;
     if (!(mode === "play" || (mode === "edit" && !panel))) return;
     if (this._hold && this._hold.state.phase !== "armed") return; // a second finger: its own listeners cancel
     this._endHold(true);
     const t = this.now();
+    const holdMs = opts.holdMs ?? this.holdMs;
+    const edges = opts.edges !== false;
     const state = nextHold(initialHold(), {
       type: "down", x: e.clientX, y: e.clientY, t, width: e.width, height: e.height,
-      vw: this.win?.innerWidth, vh: this.win?.innerHeight, pointerId: e.pointerId,
-    }, { holdMs: this.holdMs });
+      vw: edges ? this.win?.innerWidth : undefined, vh: edges ? this.win?.innerHeight : undefined, pointerId: e.pointerId,
+    }, { holdMs });
     if (state.phase !== "pending") return;
 
-    const hold = { state, boardEl, ring: this._createRing(), listeners: [], timers: [], interval: null, down: e };
+    const hold = { state, boardEl, then: opts.then ?? null, holdMs, ring: this._createRing(), listeners: [], timers: [], interval: null, down: e };
     this._hold = hold;
     const on = (type, fn) => {
       this.win?.addEventListener(type, fn, true);
@@ -133,7 +139,7 @@ export class Session extends EventTarget {
     const hold = this._hold;
     if (!hold) return;
     const prev = hold.state;
-    const next = nextHold(prev, event, { holdMs: this.holdMs });
+    const next = nextHold(prev, event, { holdMs: hold.holdMs });
     if (next === prev) return;
     hold.state = next;
     const audio = this.services?.audio;
@@ -172,9 +178,10 @@ export class Session extends EventTarget {
   }
 
   _armed(hold) {
-    this.dispatchEvent(new CustomEvent("hold-armed", { detail: { x: hold.state.x, y: hold.state.y } }));
+    this.dispatchEvent(new CustomEvent("hold-armed", { detail: { x: hold.state.x, y: hold.state.y, then: hold.then } }));
     const { mode, panel } = this._s;
-    if (mode === "play") return this.holdArmed();
+    if (mode === "play") return this.holdArmed(hold.then);
+    if (hold.then) return; // a find button hold only means something in play
     if (mode !== "edit" || panel) return;
     // Holding an empty spot in edit mode adds a thing there (US-11.3).
     const s = this.services ?? hold.boardEl?.services ?? {};
@@ -184,7 +191,8 @@ export class Session extends EventTarget {
     if (s.engine?.pick?.(at[0], at[1])) return;
     const place = s.store?.currentPlace;
     if (place && s.store?.canAddThing && !s.store.canAddThing(place.id)) {
-      s.shell?.toast?.("This scene has 4 things, the most it can hold. Delete one to add another.");
+      const n = s.store.maxThings ?? 8;
+      s.shell?.toast?.(`This scene has ${n} things, the most it can hold. Delete one to add another, or allow more in Settings.`);
       return;
     }
     this.openPanel("guided", { at });

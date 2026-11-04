@@ -1,9 +1,10 @@
 // Pure intents: (snapshot, args, env) → { snapshot, writes, change }.
 // They never mutate their input. FarmStore applies `writes` in one transaction,
 // then swaps in `snapshot` and emits `change`.
-import { BACKDROPS, MAX_THINGS_PER_PLACE, CLIP_KINDS, clipKey, roundPoints } from "./snapshot.js";
-import { isColorKey } from "./palette.js";
+import { BACKDROPS, DEFAULT_MAX_THINGS, MAX_THINGS_LIMIT, MAX_QUESTIONS, THING_CLIP_KINDS, GAME_CLIP_KINDS, clipKey, roundPoints } from "./snapshot.js";
+import { isColorKey, SIMPLE_COLORS } from "./palette.js";
 import { cleanLegs, isLeg, MAX_LEGS } from "./legs.js";
+import { questionCount } from "./scripts.js";
 
 export class FarmError extends Error {
   /** @param {string} code  e.g. 'place-full', 'not-found', 'invalid', 'storage' */
@@ -137,8 +138,14 @@ export function removePiece(s, { placeId, pieceId }, env) {
 
 // ---------- things ----------
 
+/** The family's things-per-place cap (Settings → Things per scene), 1 to 12, default 8. */
+export function maxThings(s) {
+  const n = s.settings?.maxThings;
+  return Number.isInteger(n) && n >= 1 && n <= MAX_THINGS_LIMIT ? n : DEFAULT_MAX_THINGS;
+}
+
 export function canAddThing(s, placeId) {
-  return s.things.filter((t) => t.placeId === placeId).length < MAX_THINGS_PER_PLACE;
+  return s.things.filter((t) => t.placeId === placeId).length < maxThings(s);
 }
 
 /**
@@ -147,7 +154,7 @@ export function canAddThing(s, placeId) {
  */
 export function addThing(s, args, env) {
   const place = findPlace(s, args.placeId);
-  if (!canAddThing(s, place.id)) throw new FarmError("place-full", `a place holds at most ${MAX_THINGS_PER_PLACE} things`);
+  if (!canAddThing(s, place.id)) throw new FarmError("place-full", `a place holds at most ${maxThings(s)} things`);
   checkColor(args.color);
   checkStroke(args.outline, 3);
   checkLegs(args.legs);
@@ -227,15 +234,29 @@ export function restoreThing(s, { thing, clips, index = -1 }, env) {
 
 // ---------- clips ----------
 
+/** A clip's owner and kind: a thing's own clip, or a colour game clip (thingId null). */
+function checkClipOwner(s, clip) {
+  if (clip.thingId === null || clip.thingId === undefined) {
+    if (!GAME_CLIP_KINDS.includes(clip.kind)) throw new FarmError("invalid", "clip kind");
+    if (clip.kind === "color-word" && !SIMPLE_COLORS.includes(clip.color)) throw new FarmError("invalid", "colour word without a colour");
+    return;
+  }
+  findThing(s, clip.thingId);
+  if (!THING_CLIP_KINDS.includes(clip.kind)) throw new FarmError("invalid", "clip kind");
+}
+
 /**
- * Saves a clip, replacing any clip with the same (thingId, language, kind, take).
- * The old clip is replaced only now, when the new one is saved (US-4.7).
+ * Saves a clip, replacing any clip with the same key (clipKey: thing, language, kind, take; or for
+ * colour game clips language, kind, colour, take). The old clip is replaced only now, when the new
+ * one is saved (US-4.7).
  * @param {{clip: Omit<import('../types.js').Clip,'id'|'createdAt'>, blob?: import('../types.js').BlobRecord}} args
  */
-export function saveClip(s, { clip, blob }, env) {
-  findThing(s, clip.thingId);
-  if (!CLIP_KINDS.includes(clip.kind)) throw new FarmError("invalid", "clip kind");
-  if (!Number.isInteger(clip.take) || clip.take < 1 || clip.take > 3) throw new FarmError("invalid", "clip take");
+export function saveClip(s, { clip: input, blob }, env) {
+  const game = input.thingId === null || input.thingId === undefined;
+  const clip = game ? { ...input, thingId: null } : input;
+  checkClipOwner(s, clip);
+  if (!Number.isInteger(clip.take) || clip.take < 1 || clip.take > MAX_QUESTIONS) throw new FarmError("invalid", "clip take");
+  if (game && clip.kind === "color-question") delete clip.color;
   const key = clipKey(clip);
   const previous = s.clips.find((c) => clipKey(c) === key);
   const saved = { ...clip, id: env.newId(), createdAt: env.now() };
@@ -246,24 +267,90 @@ export function saveClip(s, { clip, blob }, env) {
   return {
     snapshot: { ...s, clips: [...s.clips.filter((c) => c !== previous), saved] },
     writes,
-    change: change("clip-saved", [clip.thingId, saved.id]),
+    change: change("clip-saved", game ? [saved.id] : [clip.thingId, saved.id]),
   };
 }
 
 export function deleteClip(s, { clipId }) {
   const clip = s.clips.find((c) => c.id === clipId);
   if (!clip) throw new FarmError("not-found", `clip ${clipId}`);
-  return { snapshot: { ...s, clips: s.clips.filter((c) => c.id !== clipId) }, writes: [del("clips", clipId)], change: change("clip-deleted", [clip.thingId, clipId]) };
+  const ids = clip.thingId === null ? [clipId] : [clip.thingId, clipId];
+  return { snapshot: { ...s, clips: s.clips.filter((c) => c.id !== clipId) }, writes: [del("clips", clipId)], change: change("clip-deleted", ids) };
+}
+
+// ---------- questions ("Where is the…?", US-4.8) ----------
+// Cue.lines are free text, 1 to MAX_QUESTIONS per thing and language; an empty line plays the
+// script example. Prompt take n is the recording of line n, so removing a line renumbers the
+// recordings after it.
+
+/** The parent's lines for a language, at its current length (empty strings stand for examples). */
+function linesOf(thing, language) {
+  const n = questionCount(thing, language);
+  const lines = thing.cues?.[language]?.lines ?? [];
+  return Array.from({ length: n }, (_, i) => String(lines[i] ?? "").trim());
+}
+
+function withLines(s, thing, language, lines, env) {
+  const cues = { ...(thing.cues ?? {}), [language]: { ...(thing.cues?.[language] ?? {}), lines } };
+  const next = { ...thing, cues, updatedAt: env.now() };
+  return { snapshot: { ...s, things: replace(s.things, next) }, write: put("things", next) };
+}
+
+/** Changes the text of question `index` (0-based). Empty text goes back to the example. */
+export function setQuestionLine(s, { thingId, language, index, text }, env) {
+  const thing = findThing(s, thingId);
+  const lines = linesOf(thing, language);
+  if (!Number.isInteger(index) || index < 0 || index >= lines.length) throw new FarmError("invalid", "question index");
+  lines[index] = String(text ?? "").trim();
+  const r = withLines(s, thing, language, lines, env);
+  return { snapshot: r.snapshot, writes: [r.write], change: change("thing-updated", [thingId]) };
+}
+
+/** Adds a question at the end (up to MAX_QUESTIONS). Empty text means "the example". */
+export function addQuestion(s, { thingId, language, text = "" }, env) {
+  const thing = findThing(s, thingId);
+  const lines = linesOf(thing, language);
+  if (lines.length >= MAX_QUESTIONS) throw new FarmError("invalid", `at most ${MAX_QUESTIONS} questions`);
+  const r = withLines(s, thing, language, [...lines, String(text).trim()], env);
+  return { snapshot: r.snapshot, writes: [r.write], change: change("thing-updated", [thingId]) };
+}
+
+/**
+ * Removes question `index` (at least one stays) with its recording; later recordings move up one
+ * take so each stays with its line. Blobs are left for the orphan sweep.
+ */
+export function removeQuestion(s, { thingId, language, index }, env) {
+  const thing = findThing(s, thingId);
+  const lines = linesOf(thing, language);
+  if (lines.length <= 1) throw new FarmError("invalid", "at least one question");
+  if (!Number.isInteger(index) || index < 0 || index >= lines.length) throw new FarmError("invalid", "question index");
+  lines.splice(index, 1);
+  const r = withLines(s, thing, language, lines, env);
+  const take = index + 1;
+  const prompts = s.clips.filter((c) => c.thingId === thingId && c.language === language && c.kind === "prompt");
+  const gone = prompts.filter((c) => c.take === take);
+  // Ascending order: each take moves into the slot just vacated, so no two clips share a key at any step.
+  const moved = prompts.filter((c) => c.take > take).sort((a, b) => a.take - b.take).map((c) => ({ ...c, take: c.take - 1 }));
+  const movedIds = new Map(moved.map((c) => [c.id, c]));
+  const clips = r.snapshot.clips.filter((c) => !gone.includes(c)).map((c) => movedIds.get(c.id) ?? c);
+  return {
+    snapshot: { ...r.snapshot, clips },
+    writes: [r.write, ...gone.map((c) => del("clips", c.id)), ...moved.map((c) => put("clips", c))],
+    change: change("thing-updated", [thingId]),
+  };
 }
 
 // ---------- settings ----------
 
-const SETTINGS_PATCHABLE = ["languages", "playLanguage", "sleepMinutes", "gateKind", "reduceMotion", "welcomed"];
+const SETTINGS_PATCHABLE = ["languages", "playLanguage", "sleepMinutes", "gateKind", "reduceMotion", "welcomed", "maxThings"];
 
 export function updateSettings(s, { patch }, env) {
   const settings = { ...s.settings };
   for (const key of SETTINGS_PATCHABLE) if (key in patch) settings[key] = patch[key];
   if (!Array.isArray(settings.languages) || settings.languages.length === 0) throw new FarmError("invalid", "at least one language");
+  // Lowering the cap never removes things; it only stops new ones being added to a full scene.
+  if ("maxThings" in patch && !(Number.isInteger(patch.maxThings) && patch.maxThings >= 1 && patch.maxThings <= MAX_THINGS_LIMIT))
+    throw new FarmError("invalid", `things per scene: 1 to ${MAX_THINGS_LIMIT}`);
   // Mixing is the default: going from one language to several turns it on, unless the
   // same patch chose a language on purpose.
   if (!("playLanguage" in patch) && s.settings.languages.length === 1 && settings.languages.length > 1) settings.playLanguage = "alternate";
@@ -284,6 +371,16 @@ export function thingsIn(s, placeId) {
 export function clipsFor(s, thingId, { language, kind } = {}) {
   return s.clips
     .filter((c) => c.thingId === thingId && (!language || c.language === language) && (!kind || c.kind === kind))
+    .sort((a, b) => a.take - b.take);
+}
+
+/**
+ * Colour game clips (thingId null), sorted by take.
+ * @param {{kind?:'color-word'|'color-question', language?:string, color?:string}} [filter]
+ */
+export function gameClips(s, { kind, language, color } = {}) {
+  return s.clips
+    .filter((c) => c.thingId === null && (!kind || c.kind === kind) && (!language || c.language === language) && (!color || c.color === color))
     .sort((a, b) => a.take - b.take);
 }
 

@@ -26,7 +26,7 @@ export class FarmStore extends EventTarget {
     const base = emptySnapshot(this.env, this.appVersion);
     const candidate = migrate({
       ...base,
-      formatVersion: storedFormat(data.things),
+      formatVersion: storedFormat(data.things, data.settings),
       settings: data.settings ?? base.settings,
       places: data.places,
       things: data.things,
@@ -73,6 +73,9 @@ export class FarmStore extends EventTarget {
   saveClip(args) { return this._run(I.saveClip, args); }
   deleteClip(args) { return this._run(I.deleteClip, args); }
   updateSettings(args) { return this._run(I.updateSettings, args); }
+  setQuestionLine(args) { return this._run(I.setQuestionLine, args); }
+  addQuestion(args) { return this._run(I.addQuestion, args); }
+  removeQuestion(args) { return this._run(I.removeQuestion, args); }
 
   // ---- drafts (not part of the snapshot) ----
   async saveDraft(draft) {
@@ -99,6 +102,9 @@ export class FarmStore extends EventTarget {
   thingsIn(placeId) { return I.thingsIn(this.snapshot, placeId); }
   clipsFor(thingId, filter) { return I.clipsFor(this.snapshot, thingId, filter); }
   canAddThing(placeId) { return I.canAddThing(this.snapshot, placeId); }
+  gameClips(filter) { return I.gameClips(this.snapshot, filter); }
+  /** Things per scene (Settings), 1 to 12, default 8. */
+  get maxThings() { return I.maxThings(this.snapshot); }
 
   // ---- internals ----
   async _run(fn, args) {

@@ -1,5 +1,5 @@
 // <kf-thing-card>: everything about one thing on one card (flow 2; US-3.6–3.8, 4.5, 4.7, 9.1).
-// One tab per language (typed name, name clip, 3 questions with editable cues, sound) plus
+// One tab per language (typed name, name clip, 1–6 free-text questions with recordings, sound) plus
 // "+ Language"; felt colour, motion, Redraw, Re-stamp eyes, Place legs, Delete with confirm and Undo.
 // Changes save immediately; there is no Save button. Props: `services`, `params = {thingId}`.
 import { h, ensureElement, languageName } from "../kf-guided-add/dom.js";
@@ -12,6 +12,8 @@ import { THING_SIZE, MOTIONS, stripClip, refitEyes } from "../kf-guided-add/step
 import { languageOptions } from "./languages.js";
 import { THING_COLORS, hex } from "../../farm/palette.js";
 import { cueLines } from "../../farm/scripts.js";
+import { clipSlot } from "./clip-slot.js";
+import { questionsSection } from "./questions.js";
 
 const KIND_LABEL = { name: "name", prompt: "question", sound: "sound" };
 
@@ -152,9 +154,6 @@ export class ThingCardElement extends HTMLElement {
 
   _words(thing) {
     const lang = this.lang;
-    const { lines, fallback, articles } = cueLines(this.services.scripts ?? {}, thing, lang);
-    const cue = thing.cues?.[lang] ?? {};
-    const promptCount = this._clips({ kind: "prompt" }).length;
     return h(
       "div",
       { class: "kf-tc-words", role: "tabpanel", "aria-label": languageName(lang) },
@@ -169,23 +168,15 @@ export class ThingCardElement extends HTMLElement {
           })),
         this._clipControls("name", 1),
       ),
-      h("h3", { text: `Questions (${promptCount}/3)` }),
-      fallback ? h("p", { class: "kf-note", text: `No script for ${languageName(lang)} yet: say these in your language.` }) : null,
-      articles.length
-        ? h("label", { class: "kf-field kf-tc-article" }, h("span", { text: "Article" }),
-            h("select", { name: "article", onchange: (e) => this._setCue({ article: e.target.value || undefined }) },
-              h("option", { value: "", text: "(none)", selected: !cue.article }),
-              articles.map((a) => h("option", { value: a, text: a, selected: cue.article === a }))))
-        : null,
-      lines.map((line, i) =>
-        h(
-          "div",
-          { class: "kf-tc-line" },
-          h("label", { class: "kf-field" }, h("span", { text: `Question ${i + 1}` }),
-            h("input", { type: "text", name: `cue-${i + 1}`, value: line, onchange: (e) => this._setLine(i, e.target.value) })),
-          this._clipControls("prompt", i + 1),
-        ),
-      ),
+      questionsSection({
+        store: this.services.store,
+        scripts: this.services.scripts,
+        thing,
+        lang,
+        slot: (take) => this._clipControls("prompt", take),
+        onArticle: (article) => this._setCue({ article }),
+        onError: (e) => this._error(e),
+      }),
       h("h3", { text: "Sound" }),
       h("div", { class: "kf-tc-line" }, this._clipControls("sound", 1)),
     );
@@ -197,36 +188,22 @@ export class ThingCardElement extends HTMLElement {
 
   _clipControls(kind, take) {
     const clip = this._clips({ kind, take })[0] ?? null;
-    const open = this._recording && this._recording.kind === kind && this._recording.take === take && this._recording.language === this.lang;
-    const what = kind === "prompt" ? `question ${take}` : KIND_LABEL[kind];
-    const failed = clip && this._failed.has(clip.id);
-    const box = h(
-      "div",
-      { class: "kf-tc-clip", "data-kind": kind, "data-take": String(take) },
-      clip ? h("button", { class: "kf-btn icon", type: "button", "aria-label": `Play ${what}`, "data-action": "play", text: "▶", onclick: () => this.services.audio?.playClip?.(clip) }) : null,
-      failed ? h("span", { class: "kf-tc-flag", role: "status", text: "Won't play: re-record" }) : null,
-      open
-        ? null
-        : h("button", {
-            class: `kf-btn${failed ? " primary" : ""}`, type: "button", "data-action": "record",
-            text: this._recordText(kind, !!clip),
-            "aria-label": `${clip ? "Re-record" : "Record"} ${what}`,
-            onclick: () => { this._recording = { language: this.lang, kind, take }; this._render(); },
-          }),
-    );
-    if (open) {
-      const rec = document.createElement("kf-recorder");
-      rec.services = this.services;
-      rec.label = this._cueFor(kind, take);
-      rec.clipRef = { thingId: this.thingId, language: this.lang, kind, take };
-      rec.existing = clip;
-      rec.addEventListener("kf-recorded", (e) => this._saveRecording(e.detail, { kind, take }));
-      box.append(
-        h("div", { class: "kf-tc-recorder" }, rec,
-          h("button", { class: "kf-btn ghost", type: "button", "data-action": "cancel-record", text: "Cancel", onclick: () => { this._recording = null; this._render(); } })),
-      );
-    }
-    return box;
+    const open = !!this._recording && this._recording.kind === kind && this._recording.take === take && this._recording.language === this.lang;
+    return clipSlot({
+      services: this.services,
+      clip,
+      kind,
+      take,
+      what: kind === "prompt" ? `question ${take}` : KIND_LABEL[kind],
+      recordText: this._recordText(kind, !!clip),
+      cue: open ? this._cueFor(kind, take) : "",
+      open,
+      clipRef: { thingId: this.thingId, language: this.lang, kind, take },
+      failed: !!clip && this._failed.has(clip.id),
+      onOpen: () => { this._recording = { language: this.lang, kind, take }; this._render(); },
+      onCancel: () => { this._recording = null; this._render(); },
+      onRecorded: (detail) => this._saveRecording(detail, { kind, take }),
+    });
   }
 
   /** Say exactly what to record, so the name and the sound are never mixed up. */
@@ -318,12 +295,6 @@ export class ThingCardElement extends HTMLElement {
     if (!cue.article) delete cue.article;
     cues[this.lang] = cue;
     return this._update({ cues });
-  }
-
-  _setLine(i, value) {
-    const prev = this.thing.cues?.[this.lang]?.lines ?? ["", "", ""];
-    const lines = [0, 1, 2].map((k) => (k === i ? value.trim() : (prev[k] ?? "")));
-    return this._setCue({ lines });
   }
 
   async _addLanguage(lang) {

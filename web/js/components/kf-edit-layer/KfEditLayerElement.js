@@ -3,7 +3,6 @@
 // pencil → the thing card; cross → confirm (naming the recordings) → delete → Undo toast.
 // Badges are placed once from services.board.actorRect(id) and re-placed on store changes and resize,
 // never per frame. Hidden while a panel is open over edit mode.
-import { MAX_THINGS_PER_PLACE } from "../../farm/snapshot.js";
 
 const BADGE = 52; // px, ≥ 44 pt target
 const EDGE = BADGE / 2 + 4;
@@ -56,7 +55,7 @@ export class KfEditLayerElement extends HTMLElement {
     const reason = document.createElement("p");
     reason.className = "kf-edit-reason";
     reason.id = "kf-edit-reason";
-    reason.textContent = `A scene holds ${MAX_THINGS_PER_PLACE} things at most. Delete one to add another.`;
+
 
     const bar = document.createElement("nav");
     bar.className = "kf-edit-bar";
@@ -113,6 +112,7 @@ export class KfEditLayerElement extends HTMLElement {
     this._add_.disabled = full;
     if (full) this._add_.setAttribute("aria-describedby", "kf-edit-reason");
     else this._add_.removeAttribute("aria-describedby");
+    this._reason.textContent = `This scene holds ${s.store?.maxThings ?? 8} things at most. Delete one, or allow more in Settings.`;
     this._reason.hidden = !full || panelOpen;
     this._empty.hidden = panelOpen || !place || things.length > 0;
     this._dot.hidden = !s.updateReady;

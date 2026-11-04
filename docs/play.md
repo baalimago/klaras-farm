@@ -11,6 +11,7 @@ Play is the live board a toddler touches. Things wander, blink, jump and speak w
 - `web/js/play/mash.js`: mash policy for taps (restart after 300 ms, nothing queues).
 - `web/js/play/sleep.js`: the sleep timer.
 - `web/js/play/find.js`: the Find games state machine (animal and colour rounds).
+- `web/js/play/ask.js`: what a find question plays, in order (pure plans: `planAnimalAsk`, `planColorAsk`, `colorAskLanguage`, `recordedColorLangs`).
 - `web/js/play/colors.js`: folds felt palette keys into simple colour words, and the hex for each colour button.
 - `web/js/play-engine.js`: `PlayEngine`, the state owner. Wires the pure parts to the store, audio and renderer.
 - Tests: `web/js/play/*.test.js`, `tests/unit/play-engine.test.js`, `tests/unit/find-it.test.js`.
@@ -76,7 +77,7 @@ idle ──rest timer──▶ moving ──arrived──▶ idle
 
 `createSleep(minutes)` (0 or bad input means off), `tickSleep(state, dt)` returns true once, on the step it falls asleep, `sleepRemainingS(state)`. Paused outside play.
 
-### Find (`play/find.js`, `play/colors.js`)
+### Find (`play/find.js`, `play/colors.js`, `play/ask.js`)
 
 ```
 idle ──startRound──▶ asking ──right tap──▶ idle (celebration)
@@ -87,11 +88,21 @@ idle ──startRound──▶ asking ──right tap──▶ idle (celebration
 ```
 
 - `FIND = {nudgeAfterS: 6, timeoutS: 30, hintAfterMisses: 2}`.
-- Rounds start only from `<kf-find-buttons>`. Nothing asks by itself.
+- Rounds start only from `<kf-find-buttons>` (a short tap, on the finger's lift). Nothing asks by itself.
 - Animal: prefers things that can be asked for by name (a prompt or name clip, or a typed name when the device can speak). Never the last target when there are two or more.
-- Colour: a simple colour present among the things, never the last one when there are two or more. Any thing of that colour is right. `colorGroup(key)` folds felt keys (`sky`, `water`, `deep` are all blue). `groupHex(group)` gives the button's dot colour.
+- Colour: a simple colour present among the things, never the last one when there are two or more. Any thing of that colour is right: the goal is linking the word to the colour, not one animal. `colorGroup(key)` folds felt keys (`sky`, `water`, `deep` are all blue). `groupHex(group)` gives the button's dot colour.
 - `stepFind` counts quiet time only while `calm` (no voice playing). `reconcileFind` ends a round whose answer left the scene. `findRemainingS` feeds `nextWakeMs`.
 - Exports: `createFind`, `startRound`, `endRound`, `stepFind`, `isAnswer`, `answerFind`, `hinting`, `reconcileFind`, `findRemainingS`.
+
+#### Asking (`play/ask.js`)
+
+A plan is `{ask: Step[], clue: Step|null}`; a step is `{kind:'clip', clip}`, `{kind:'clips', clips}` (one gapless sequence), `{kind:'speak', text, lang}` or `{kind:'chime'}`.
+
+- `ask` lists alternatives, best first; a chime always ends it. The engine starts `ask[0]` synchronously inside the press. When a step resolves `false` (not heard: the device voice never started, a clip would not decode) and the round is still current, it plays the next one.
+- `clue` (the animal's sound) plays only after a question step finished and only if the round is still current. Never instead of the question, never over it (playtest round 3: "it only played the chicken sound").
+- `planAnimalAsk`: a recorded prompt in the play language (else any language), a random take, never the same take twice in a row (`lastId`); then a random cue line in the device voice; then the recorded name; then a chime. Clue: the sound in that language, else any.
+- `planColorAsk`: the recorded colour question (random take) and that colour's word in the same language, as one sequence; else the device voice says `colorLine` ("Tap on an animal that is yellow!"); else any recorded word for the colour; else a chime. No clue.
+- `colorAskLanguage(settings, recordedLangs, rng)`: the fixed play language, or with "Mix languages" a random language where the question and the word are both recorded (else any family language).
 
 ## Idle rules (0 fps)
 
@@ -104,14 +115,14 @@ idle ──startRound──▶ asking ──right tap──▶ idle (celebration
 
 - A tap plays the thing's name then its sound (`farm/intents.tapClips`). No recording: a chime, then the device voice says the typed name.
 - Language: fixed, or with "mix" (`playLanguage: "alternate"`) a random language among those recorded for that thing, per tap (`playLanguageFor` with the injected rng).
-- Animal question: the parent's recorded prompt (takes rotate), else a scripted cue in the device voice, else the recorded name; then the thing's sound as a clue. Colour question: "Find something yellow!" in the device voice, else a chime.
+- Animal question: the parent's recorded prompt (a random take), else a cue line in the device voice, else the recorded name; only then the thing's sound as a clue (`play/ask.js`). Colour question: the recorded colour question then the recorded colour word (`audio.playSequence`), else "Tap on an animal that is yellow!" in the device voice, else a chime.
 - Correct: a happy jump, confetti, a `yay` chime, then the name and sound.
 - Audio calls go through `_call`, which swallows errors. Audio trouble never breaks play.
 
 ## How it fits
 
 - `<kf-board>` calls `fingerDown`, `tap`, `pick`, sets `hitMinRadius`, and filters input first (primary pointer only, palms ignored via `edit/hold.js` `isPalm`).
-- `<kf-find-buttons>` calls `startFind` on `pointerdown` and listens to `find`.
+- `<kf-find-buttons>` calls `startFind` on `pointerup` of a short tap (a user activation on iOS, so the device voice may start) and listens to `find`. Holding a button opens its setup panel instead.
 - `Session` calls `setMode`. Guided add calls `dropIn`.
 - `io/renderer.js` calls `step`, reads `actors`, listens to `reaction` and `wake`.
 - The engine listens to the store's `change`: rebuilds actors, applies `sleepMinutes` and `reduceMotion`, drops things in on a place switch (not on hydrate or replace), ends a round whose scene or answer is gone. It reads the store and never writes it.
@@ -123,7 +134,7 @@ idle ──startRound──▶ asking ──right tap──▶ idle (celebration
 - Mash policy: nothing queues, ever. Restart the same thing only after 300 ms.
 - Things freeze while a finger is down and while a find question plays (DESIGN decision 7). `_advance` sets `fingerDown = finger || prompting`.
 - Sleep timer: after `sleepMinutes` of play everyone yawns and sleeps. Taps then only stir, with no sound. Find rounds end and the buttons hide.
-- Start audio and speech synchronously inside the gesture. iOS needs it. `tap` and `startFind` do this.
+- Start audio and speech synchronously inside the gesture. iOS needs it. `tap` and `startFind` do this. iOS only lets speech start from an activation event (`pointerup`, `click`, not `pointerdown` of a touch) until one utterance has played; `main.js` primes the voice on the first `pointerup` (`audio.primeSpeech()`).
 - Tokens guard every async callback (`_askToken`, `_roundToken`, mash token). An old prompt ending must never unfreeze things or repeat a question.
 - No allocation in `step`. `hitTargets` allocates, so call it on taps only.
 - Every reaction returns to idle within 3 s (US-5.2). Confetti lasts at most 1 s.
@@ -135,7 +146,9 @@ idle ──startRound──▶ asking ──right tap──▶ idle (celebration
 - `web/js/play/world.test.js`: centroids, unknown presets, speed cap, ground band, edges, rests, finger pause, react, drop, wiggle, sleep, idle and `nextWakeMs`, frame-rate independence.
 - `web/js/play/hit.test.js`, `mash.test.js`, `sleep.test.js`, `find.test.js`: each pure module, with fixed rng.
 - `tests/unit/play-engine.test.js`: the engine with a fake audio and a MemoryRepo-backed store. Taps, sounds, confetti, 1.3x hit target, catch-up after idle.
-- `tests/unit/find-it.test.js`: find games end to end. Never starts by itself, button visibility, voice fallbacks, nudges, hints, timeouts.
+- `web/js/play/ask.test.js`: question plans and their fallbacks.
+- `tests/unit/find-it.test.js`: find games end to end. Never starts by itself, button visibility, voice fallbacks, the question before the sound (also when the device voice is not heard), random takes, colour question plus word, nudges, hints, timeouts.
+- `tests/browser/find-games.test.js`: the 🔍 asks first in the real app; the colour round plays the recorded question then word.
 - `tests/browser/`: the board in Chromium. Run with `npm test` and `npm run test:browser`.
 
 Keep this file current: update it in the same commit as any change to this domain.

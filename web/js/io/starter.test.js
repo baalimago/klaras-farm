@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { starterSnapshot, baseLanguage } from "./starter.js";
-import { validateSnapshot, MAX_THINGS_PER_PLACE } from "../farm/snapshot.js";
+import { validateSnapshot, DEFAULT_MAX_THINGS } from "../farm/snapshot.js";
 import { pointInPolygon, bbox, signedArea } from "../geometry/stroke.js";
 import { fixedEnv } from "../../../tests/builders.js";
 import { starterJson, STARTER_PATH } from "../../../tools/make-starter.mjs";
@@ -44,7 +44,7 @@ test("Farm, Sea and Kitchen with the planned things", () => {
   assert.equal(motion.Crab, "walk");
   assert.equal(motion.Fish, "float");
   assert.equal(motion.Octopus, "float");
-  for (const p of template.places) assert.ok(p.thingOrder.length <= MAX_THINGS_PER_PLACE);
+  for (const p of template.places) assert.ok(p.thingOrder.length <= DEFAULT_MAX_THINGS);
 });
 
 test("outlines are single closed polygons on the board with eyes inside", () => {

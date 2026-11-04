@@ -545,7 +545,7 @@ export class GuidedAddElement extends HTMLElement {
         "section",
         { class: "kf-sheet center", role: "alertdialog", "aria-labelledby": "kf-ga-full" },
         h("h2", { id: "kf-ga-full", text: "This scene is full" }),
-        h("p", { text: "A scene holds at most 4 things, so Klara is never overwhelmed. Delete one to add another." }),
+        h("p", { text: `This scene already has ${this.services.store.maxThings ?? 8} things, the most it can hold, so Klara is never overwhelmed. Delete one, or allow more in Settings.` }),
         h("div", { class: "kf-row end" }, h("button", { class: "kf-btn primary", type: "button", text: "OK", onclick: () => this._close() })),
       ),
     );

@@ -1,6 +1,6 @@
 {
- "formatVersion": 3,
- "minReaderFormat": 1,
+ "formatVersion": 4,
+ "minReaderFormat": 4,
  "appVersion": "starter",
  "exportedAt": "2026-01-01T00:00:00.000Z",
  "deviceId": "starter",
@@ -12,6 +12,7 @@
   "sleepMinutes": 8,
   "gateKind": "keypad",
   "reduceMotion": false,
+  "maxThings": 8,
   "currentPlaceId": "place-farm",
   "welcomed": false,
   "updatedAt": "2026-01-01T00:00:00.000Z"

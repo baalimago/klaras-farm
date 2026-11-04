@@ -1,6 +1,8 @@
 // In-memory Repository. Same contract as idb-repo.js (tests/contracts/repository.contract.js).
 // `failOn` injects faults for tests: failOn = (writes, n) => Error|null, n = write call count.
 
+import { clipKey } from "../farm/snapshot.js";
+
 const STORES = ["places", "things", "clips", "blobs", "drafts", "meta"];
 const keyOf = (store, value) => (store === "blobs" ? value.sha256 : store === "meta" ? value.key : value.id);
 const clone = (v) => structuredClone(v);
@@ -43,6 +45,8 @@ export class MemoryRepo {
         if (c) clipIndex.delete(uniq(c));
       }
       if (w.store === "clips" && w.op === "put") {
+        // A put of an existing clip under a new key (a renumbered take) frees its old key, as in IndexedDB.
+        for (const [k, id] of clipIndex) if (id === w.value.id) clipIndex.delete(k);
         const owner = clipIndex.get(uniq(w.value));
         if (owner && owner !== w.value.id) {
           const e = new Error("clip key not unique");
@@ -100,4 +104,5 @@ export class MemoryRepo {
   close() {}
 }
 
-const uniq = (c) => `${c.thingId}|${c.language}|${c.kind}|${c.take}`;
+// The clip uniqueness key (thing clips by thing, colour game clips by colour), as IndexedDB enforces it.
+const uniq = (c) => clipKey(c);

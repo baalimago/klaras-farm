@@ -1,5 +1,5 @@
 // The snapshot as a whole: creation, validation, canonical form and migration.
-import { isColorKey } from "./palette.js";
+import { isColorKey, SIMPLE_COLORS } from "./palette.js";
 import { MAX_LEGS, isLeg, legacyLegCount, spreadLegs } from "./legs.js";
 
 // Format history (additive only, ARCHITECTURE §9.5):
@@ -9,10 +9,25 @@ import { MAX_LEGS, isLeg, legacyLegCount, spreadLegs } from "./legs.js";
 //      minReaderFormat stays 1: an older app still validates and plays a format 3 file (it ignores
 //      legs and draws its preset legs, and keeps the field when it saves the thing), which is
 //      better than refusing the import on a device that has not updated yet.
-export const FORMAT_VERSION = 3;
-export const MIN_READER_FORMAT = 1;
-export const MAX_THINGS_PER_PLACE = 4;
-export const CLIP_KINDS = Object.freeze(["name", "prompt", "sound"]);
+//   4: Settings.maxThings (1–12, default 8; it was a fixed 4 per place). Question prompts take 1–6
+//      and Cue.lines holds 1–6 free-text questions (its length is the number of questions).
+//      Family colour game clips: kind 'color-word' (with `color`, a simple colour) and
+//      'color-question', both with thingId null. minReaderFormat is 4: a format 3 app would call
+//      such a file damaged (thingId null, takes over 3, more than 4 things), so it says
+//      "made by a newer version" instead.
+export const FORMAT_VERSION = 4;
+export const MIN_READER_FORMAT = 4;
+/** Things per place: the family's cap is `settings.maxThings`, from 1 to MAX_THINGS_LIMIT. */
+export const MAX_THINGS_LIMIT = 12;
+export const DEFAULT_MAX_THINGS = 8;
+/** The hard ceiling validation allows in one place (the family's cap is settings.maxThings). */
+export const MAX_THINGS_PER_PLACE = MAX_THINGS_LIMIT;
+/** Questions per thing and language (Cue.lines, prompt takes), and colour question takes. */
+export const MAX_QUESTIONS = 6;
+export const THING_CLIP_KINDS = Object.freeze(["name", "prompt", "sound"]);
+/** Family-level clips for the colour game: their thingId is null. */
+export const GAME_CLIP_KINDS = Object.freeze(["color-word", "color-question"]);
+export const CLIP_KINDS = Object.freeze([...THING_CLIP_KINDS, ...GAME_CLIP_KINDS]);
 export const BACKDROPS = Object.freeze(["meadow", "sea", "room", "blank"]);
 export const MOTION_PRESETS = Object.freeze(["walk", "float"]);
 
@@ -39,6 +54,7 @@ export function defaultSettings(env, lang = "en") {
     sleepMinutes: 8,
     gateKind: "keypad",
     reduceMotion: false,
+    maxThings: DEFAULT_MAX_THINGS,
     currentPlaceId: null,
     welcomed: false,
     updatedAt: env.now(),
@@ -68,6 +84,7 @@ export function validateSnapshot(s, opts = {}) {
   if (!st || !Array.isArray(st.languages) || !st.languages.every(isLang)) return fail("settings.languages invalid");
   if (!(st.playLanguage === "alternate" || isLang(st.playLanguage))) return fail("settings.playLanguage invalid");
   if (!isNum(st.sleepMinutes) || st.sleepMinutes < 0) return fail("settings.sleepMinutes invalid");
+  if (!isMaxThings(st.maxThings)) return fail("settings.maxThings invalid");
 
   const placeIds = new Set();
   for (const p of s.places) {
@@ -103,10 +120,11 @@ export function validateSnapshot(s, opts = {}) {
     if (!Array.isArray(t.legs) || t.legs.length > MAX_LEGS || !t.legs.every(isLeg)) return fail(`thing ${t.id}: legs`);
     if (t.motion?.kind !== "preset" || !isStr(t.motion.preset) || typeof t.motion.params !== "object")
       return fail(`thing ${t.id}: motion`);
-    if (!t.cues || typeof t.cues !== "object") return fail(`thing ${t.id}: cues`);
+    if (!t.cues || typeof t.cues !== "object" || !Object.values(t.cues).every(isCue)) return fail(`thing ${t.id}: cues`);
     if (!isIso(t.createdAt) || !isIso(t.updatedAt)) return fail(`thing ${t.id}: dates`);
   }
-  for (const [placeId, n] of perPlace) if (n > MAX_THINGS_PER_PLACE) return fail(`place ${placeId}: more than ${MAX_THINGS_PER_PLACE} things`);
+  // Lowering settings.maxThings never removes things, so only the hard ceiling is checked here.
+  for (const [placeId, n] of perPlace) if (n > MAX_THINGS_LIMIT) return fail(`place ${placeId}: more than ${MAX_THINGS_LIMIT} things`);
   for (const p of s.places) for (const id of p.thingOrder) if (!thingIds.has(id)) return fail(`place ${p.id}: thingOrder`);
 
   const clipIds = new Set();
@@ -114,9 +132,9 @@ export function validateSnapshot(s, opts = {}) {
   for (const c of s.clips) {
     if (!isStr(c?.id) || clipIds.has(c.id)) return fail("clip id missing or duplicated");
     clipIds.add(c.id);
-    if (!thingIds.has(c.thingId)) return fail(`clip ${c.id}: unknown thing`);
-    if (!isLang(c.language) || !CLIP_KINDS.includes(c.kind) || !Number.isInteger(c.take) || c.take < 1 || c.take > 3)
-      return fail(`clip ${c.id}: key`);
+    const owner = clipOwnerError(c, thingIds);
+    if (owner) return fail(`clip ${c.id}: ${owner}`);
+    if (!isLang(c.language) || !isTake(c.take)) return fail(`clip ${c.id}: key`);
     const key = clipKey(c);
     if (clipKeys.has(key)) return fail(`clip ${c.id}: duplicate key ${key}`);
     clipKeys.add(key);
@@ -128,8 +146,37 @@ export function validateSnapshot(s, opts = {}) {
   return { ok: true };
 }
 
-/** Uniqueness key of a clip: (thingId, language, kind, take). One-way door. */
+const isTake = (v) => Number.isInteger(v) && v >= 1 && v <= MAX_QUESTIONS;
+const isMaxThings = (v) => Number.isInteger(v) && v >= 1 && v <= MAX_THINGS_LIMIT;
+
+/** A Cue: optional `lines` (up to MAX_QUESTIONS strings) and an optional `article`. */
+function isCue(c) {
+  if (!c || typeof c !== "object") return false;
+  if (c.lines !== undefined && !(Array.isArray(c.lines) && c.lines.length <= MAX_QUESTIONS && c.lines.every((l) => l === null || isStr(l)))) return false;
+  return c.article === undefined || isStr(c.article);
+}
+
+/** A colour game clip: family-level, so its thingId is null. */
+export function isGameClip(c) {
+  return c?.thingId === null && GAME_CLIP_KINDS.includes(c.kind);
+}
+
+function clipOwnerError(c, thingIds) {
+  if (c.thingId === null) {
+    if (!GAME_CLIP_KINDS.includes(c.kind)) return "kind";
+    if (c.kind === "color-word" && !SIMPLE_COLORS.includes(c.color)) return "colour";
+    return null;
+  }
+  if (!thingIds.has(c.thingId)) return "unknown thing";
+  return THING_CLIP_KINDS.includes(c.kind) ? null : "kind";
+}
+
+/**
+ * Uniqueness key of a clip. Thing clips: (thingId, language, kind, take), a one-way door.
+ * Game clips (thingId null): (language, kind, colour, take).
+ */
 export function clipKey(c) {
+  if (c.thingId == null) return `game|${c.language}|${c.kind}|${c.color ?? ""}|${c.take}`;
   return `${c.thingId}|${c.language}|${c.kind}|${c.take}`;
 }
 
@@ -140,7 +187,16 @@ const STEPS = {
   // 2 → 3: legs become data. Each thing gets the legs its preset used to draw, where it drew them.
   // Things that already carry legs keep them (the step is safe to run on mixed data).
   2: (s) => ({ ...s, formatVersion: 3, things: (s.things ?? []).map(withLegacyLegs) }),
+  // 3 → 4: the per-place cap becomes a setting (default 8). Cue lines and clips keep their meaning:
+  // an empty line still means "the example question", and takes 1–3 stay where they were.
+  3: (s) => ({ ...s, formatVersion: 4, settings: withMaxThings(s.settings) }),
 };
+
+/** Settings as format 4 has them: `maxThings` set (default 8) when it is missing or out of range. */
+export function withMaxThings(settings) {
+  if (!settings || typeof settings !== "object" || isMaxThings(settings.maxThings)) return settings;
+  return { ...settings, maxThings: DEFAULT_MAX_THINGS };
+}
 
 /** A thing as it looked before format 3: legs from its motion preset, spread along the bottom. */
 export function withLegacyLegs(t) {
@@ -149,9 +205,14 @@ export function withLegacyLegs(t) {
   return { ...t, legs: n ? spreadLegs(t.outline, n) : [] };
 }
 
-/** The format of records read back from storage, which carry no version: things without legs are format 2. */
-export function storedFormat(things) {
-  return (things ?? []).some((t) => !Array.isArray(t?.legs)) ? 2 : FORMAT_VERSION;
+/**
+ * The format of records read back from storage, which carry no version. Things without legs are
+ * format 2; stored settings without `maxThings` are format 3. No settings (a fresh install) tells nothing.
+ */
+export function storedFormat(things, settings = null) {
+  if ((things ?? []).some((t) => !Array.isArray(t?.legs))) return 2;
+  if (settings && typeof settings === "object" && !isMaxThings(settings.maxThings)) return 3;
+  return FORMAT_VERSION;
 }
 
 export function migrate(s) {

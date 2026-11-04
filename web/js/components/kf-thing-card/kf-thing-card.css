@@ -26,3 +26,6 @@ kf-thing-card {
 .kf-tc-spacer { flex: 1; }
 .kf-tc-overlay { position: fixed; inset: 0; z-index: 20; background: var(--wall); }
 .kf-sheet.kf-tc-overlay-bar { inset: auto var(--gutter) max(16px, env(safe-area-inset-bottom)) auto; width: min(360px, 60%); z-index: 1; }
+/* questions.js: the remove ✕ lines up with the Record button beside it. */
+.kf-question [data-action="remove-question"] { align-self: flex-end; margin-bottom: 8px; }
+.kf-questions > [data-action="add-question"] { margin-top: 4px; }

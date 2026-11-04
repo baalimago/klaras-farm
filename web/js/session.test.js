@@ -104,6 +104,36 @@ test("a 1.5 s hold shows the ring after 0.5 s with the soft tone, then opens the
   assert.equal(ring.removed, false, "the full ring stays under the finger until release");
 });
 
+test("a find button hold: shorter, allowed at the screen edge, and opens its setup panel after the check", () => {
+  const { clock, win, session } = setup();
+  let detail = null;
+  session.addEventListener("hold-armed", (e) => { detail = e.detail; });
+  const then = { name: "find-setup", params: { game: "color" } };
+  const e = pointer("pointerdown", { clientX: 1170, clientY: 810 }); // inside the side and bottom edge bands
+  session.holdStart(e, null, { then, holdMs: 1000, edges: false });
+  win.dispatchEvent(e);
+  clock.advance(1010);
+  assert.equal(session.state.mode, "gate");
+  assert.deepEqual(detail.then, then);
+  session.gatePassed();
+  assert.deepEqual(session.state.panel, then);
+  // The same press near the edge without edges:false never starts.
+  const other = setup();
+  other.session.holdStart(pointer("pointerdown", { clientX: 1170, clientY: 810 }), null);
+  other.clock.advance(2000);
+  assert.equal(other.session.state.mode, "play");
+});
+
+test("a full scene's toast names the family's cap", () => {
+  const { clock, calls, session, services, holdDown } = setup({ things: 4 });
+  services.store.maxThings = 6;
+  session.holdArmed();
+  session.gatePassed();
+  holdDown();
+  clock.advance(1600);
+  assert.match(calls.find((c) => c[0] === "toast")[1], /6 things/);
+});
+
 test("releasing early, moving or a second finger cancels silently", () => {
   for (const [type, fields] of [
     ["pointerup", {}],

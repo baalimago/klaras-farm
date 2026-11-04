@@ -9,7 +9,7 @@ import { writeFileSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { simplify, smooth, snapInside, pointInPolygon, signedArea } from "../web/js/geometry/stroke.js";
-import { roundPoints, FORMAT_VERSION, MIN_READER_FORMAT } from "../web/js/farm/snapshot.js";
+import { roundPoints, FORMAT_VERSION, MIN_READER_FORMAT, DEFAULT_MAX_THINGS } from "../web/js/farm/snapshot.js";
 import { bottomAt } from "../web/js/farm/legs.js";
 
 // Shapes are designed on a virtual 1200 × 900 board (4:3, square pixels), then normalised to 0..1.
@@ -293,7 +293,7 @@ export function buildStarter() {
   ];
   return {
     formatVersion: FORMAT_VERSION, minReaderFormat: MIN_READER_FORMAT, appVersion: "starter", exportedAt: T0, deviceId: "starter",
-    settings: { languages: ["en"], playLanguage: "alternate", sleepMinutes: 8, gateKind: "keypad", reduceMotion: false, currentPlaceId: "place-farm", welcomed: false, updatedAt: T0 },
+    settings: { languages: ["en"], playLanguage: "alternate", sleepMinutes: 8, gateKind: "keypad", reduceMotion: false, maxThings: DEFAULT_MAX_THINGS, currentPlaceId: "place-farm", welcomed: false, updatedAt: T0 },
     places,
     things: [...farmThings, ...seaThings, ...kitchenThings],
     clips: [],

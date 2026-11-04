@@ -14,12 +14,14 @@ import { MUSIC_DUCK_DB } from "../dsp/music.js";
 
 const FADE_S = 0.005; // click-free clip edges
 const DEFAULT_BUDGET = 24 * 1024 * 1024; // ~2 min of decoded stereo at 48 kHz
+const SPEECH_START_MS = 2500; // the device voice must start by then, or the question falls back to a clip
+const SPEECH_RETRY_MS = 120; // an utterance that ended without starting is tried once more after this
 
 export class AudioEngine extends EventTarget {
   /**
-   * @param {{getBlob: (sha:string) => Promise<import('../types.js').BlobRecord|null>, budgetBytes?: number, AudioContextClass?: any}} opts
+   * @param {{getBlob: (sha:string) => Promise<import('../types.js').BlobRecord|null>, budgetBytes?: number, AudioContextClass?: any, speechStartMs?: number}} opts
    */
-  constructor({ getBlob, budgetBytes = DEFAULT_BUDGET, AudioContextClass = globalThis.AudioContext ?? globalThis.webkitAudioContext } = {}) {
+  constructor({ getBlob, budgetBytes = DEFAULT_BUDGET, AudioContextClass = globalThis.AudioContext ?? globalThis.webkitAudioContext, speechStartMs = SPEECH_START_MS } = {}) {
     super();
     this._getBlob = getBlob ?? (async () => null);
     this._budget = budgetBytes;
@@ -36,6 +38,11 @@ export class AudioEngine extends EventTarget {
     this._primed = false;
     this.sessionType = "playback";
     this._talking = 0;
+    this._speechStartMs = speechStartMs;
+    this._speakToken = 0; // stopSpeaking() bumps it: an older utterance ending is "not heard"
+    this._speechPrimed = false;
+    this._voices = null;
+    this._voicesWatched = false;
   }
 
   // ---- context and unlocking ----
@@ -100,6 +107,11 @@ export class AudioEngine extends EventTarget {
     return this._sequence(clips, { chimeOnFail: true });
   }
 
+  /** Clips one after another as one utterance (the colour game: question, then colour word). Stops anything playing. */
+  playSequence(clips) {
+    return this._sequence(clips, { chimeOnFail: false });
+  }
+
   /** One clip (parent previews). `opts.bytes` plays a take that isn't stored yet. */
   playClip(clip, opts = {}) {
     return this._sequence([clip], { chimeOnFail: false, bytes: opts.bytes });
@@ -120,34 +132,107 @@ export class AudioEngine extends EventTarget {
   }
 
   /**
-   * Says `text` with the device's voice in `lang` (BCP 47). Used only while a thing has no
-   * recording of its own, so starter things talk from the first tap. Call it inside the tap on iOS.
-   * Resolves when finished (or after a safety timeout); never rejects.
+   * Says `text` with the device's voice in `lang` (BCP 47), while a thing has no recording of its
+   * own. Call it synchronously inside a gesture: iOS refuses the first utterance of a page outside
+   * one (silently, with no events). Resolves true once the voice has started and finished, false
+   * when it was not heard (never started, an error, or stopped); never rejects.
+   * iOS quirks handled here (playtest round 3, the silent "Where is…?"): an idle synthesiser is
+   * never cancelled (cancel() then speak() in one tick drops the new utterance on WebKit); an
+   * utterance that ends or errors without starting is tried once more; and one that has not
+   * started after SPEECH_START_MS counts as not heard, so the caller can fall back.
    */
   speak(text, lang = "en", { rate = 0.85, pitch = 1.15 } = {}) {
     if (!this.canSpeak || !text) return Promise.resolve(false);
     const synth = globalThis.speechSynthesis;
-    synth.cancel();
-    const u = new globalThis.SpeechSynthesisUtterance(text);
-    u.lang = lang;
-    u.rate = rate;
-    u.pitch = pitch;
-    const voice = pickVoice(synth.getVoices?.() ?? [], lang);
-    if (voice) u.voice = voice;
+    if (synth.speaking || synth.pending) synth.cancel();
+    this._speechPrimed = true;
+    const token = ++this._speakToken;
+    const voice = pickVoice(this._voiceList(), lang);
+    const make = () => {
+      const u = new globalThis.SpeechSynthesisUtterance(text);
+      u.lang = lang;
+      u.rate = rate;
+      u.pitch = pitch;
+      if (voice) u.voice = voice;
+      return u;
+    };
     this.dispatchEvent(new CustomEvent("speak", { detail: { text, lang } }));
     this._talk(1);
     return new Promise((ok) => {
       let settled = false;
-      const done = (v) => { if (settled) return; settled = true; clearTimeout(timer); this._talk(-1); ok(v); };
-      const timer = setTimeout(() => done(true), 4000 + text.length * 120);
-      u.onend = () => done(true);
-      u.onerror = () => done(false);
-      synth.speak(u);
+      let started = false;
+      let retried = false;
+      let endTimer = 0;
+      let startTimer = 0;
+      const done = (v) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(startTimer);
+        clearTimeout(endTimer);
+        this._talk(-1);
+        ok(v);
+      };
+      const notStarted = () => {
+        if (token !== this._speakToken || retried) return done(false);
+        retried = true;
+        clearTimeout(startTimer); // the retry gets its own start timeout
+        setTimeout(() => { if (!settled && token === this._speakToken) say(); }, SPEECH_RETRY_MS);
+      };
+      const say = () => {
+        const u = make();
+        u.onstart = () => {
+          started = true;
+          clearTimeout(startTimer);
+          endTimer = setTimeout(() => done(true), 4000 + text.length * 120);
+        };
+        u.onend = () => (started ? done(token === this._speakToken) : notStarted());
+        u.onerror = () => (started ? done(false) : notStarted());
+        clearTimeout(startTimer);
+        startTimer = setTimeout(() => {
+          if (started || settled) return;
+          done(false);
+          if (token === this._speakToken) synth.cancel(); // a late start would talk over what comes next
+        }, this._speechStartMs);
+        synth.speak(u);
+      };
+      say();
     });
   }
 
+  /** Stops the device voice. Pending speak() calls resolve false (not heard). */
   stopSpeaking() {
-    if (this.canSpeak) globalThis.speechSynthesis.cancel();
+    if (!this.canSpeak) return;
+    this._speakToken++;
+    const synth = globalThis.speechSynthesis;
+    if (synth.speaking || synth.pending) synth.cancel();
+  }
+
+  /**
+   * iOS lets a page speak only after one utterance was started inside a gesture. Call it in an
+   * activation event (pointerup, click): it starts a silent utterance once, unless something
+   * already spoke, so later questions started from any handler are heard.
+   */
+  primeSpeech() {
+    if (!this.canSpeak || this._speechPrimed) return;
+    this._speechPrimed = true;
+    const synth = globalThis.speechSynthesis;
+    if (synth.speaking || synth.pending) return;
+    try {
+      const u = new globalThis.SpeechSynthesisUtterance(" ");
+      u.volume = 0;
+      synth.speak(u);
+    } catch {}
+  }
+
+  /** Voices load late on iOS (getVoices() is empty until 'voiceschanged'); the list is kept fresh. */
+  _voiceList() {
+    const synth = globalThis.speechSynthesis;
+    if (!this._voicesWatched && synth?.addEventListener) {
+      this._voicesWatched = true;
+      synth.addEventListener("voiceschanged", () => { this._voices = synth.getVoices?.() ?? []; });
+    }
+    if (!this._voices?.length) this._voices = synth?.getVoices?.() ?? [];
+    return this._voices;
   }
 
   // ---- background music ----
@@ -299,11 +384,14 @@ export class AudioEngine extends EventTarget {
 
   async _sequenceInner(clips, { chimeOnFail, bytes, token }) {
     let played = 0;
-    for (const clip of clips) {
+    // Decode every clip up front, so the second starts the moment the first ends (no decode gap).
+    const buffers = clips.map((clip) => (clip ? this._buffer(clip, bytes) : null));
+    for (const b of buffers) b?.catch(() => {});
+    for (const [i, clip] of clips.entries()) {
       if (!clip) continue;
       let buffer;
       try {
-        buffer = await this._buffer(clip, bytes);
+        buffer = await buffers[i];
       } catch (e) {
         if (token === this._token) this._failed(clip, e);
         continue;

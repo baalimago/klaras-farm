@@ -15,6 +15,7 @@
 @import url("../js/components/kf-welcome/kf-welcome.css");
 @import url("../js/components/kf-dialog/kf-dialog.css");
 @import url("../js/components/kf-find-buttons/kf-find-buttons.css");
+@import url("../js/components/kf-find-setup/kf-find-setup.css");
 
 html, body {
   margin: 0;
