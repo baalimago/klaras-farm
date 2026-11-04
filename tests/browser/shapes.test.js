@@ -174,7 +174,7 @@ test("thing card redraw: starts from the current outline, a shape glues on, Done
   // shape 1 is the old box scaled to drawing size around (0.5, 0.48): an ear sticking out on its right
   const before = await page.evaluate(() => window.__t.store.snapshot.things[0].outline);
   await drag(page, loop(0.8, 0.3, 0.07));
-  assert.match(await page.locator(".kf-tc-shapes").textContent(), /^2 shapes/);
+  await page.locator(".kf-tc-shapes").filter({ hasText: /^2 shapes/ }).waitFor({ timeout: 3000 });
   await page.locator('[data-action="redraw-done"]').click();
   await page.waitForFunction(() => !document.querySelector(".kf-tc-overlay"));
   const after = await page.evaluate(async () => {
@@ -354,7 +354,9 @@ test("thing card redraw: the body opens as an editable shape, with the guidance;
   await page.locator('.kf-tc-overlay [data-action="delete-shape"]').click();
   assert.match(await page.locator(".kf-tc-shapes").textContent(), /^Draw a new shape/);
   await drag(page, Array.from({ length: 40 }, (_, i) => [0.5 + 0.3 * Math.cos((i / 36) * 2 * Math.PI), 0.5 + 0.15 * Math.sin((i / 36) * 2 * Math.PI)]));
-  assert.match(await page.locator(".kf-tc-shapes").textContent(), /^1 shape/);
+  // The new stroke lands with the pad's pointerup; wait for the label rather than read it at once
+  // (it failed once in CI on a slower runner).
+  await page.locator(".kf-tc-shapes").filter({ hasText: /^1 shape/ }).waitFor({ timeout: 3000 });
   await page.locator('[data-action="redraw-done"]').click();
   await page.waitForFunction(() => !document.querySelector(".kf-tc-overlay"));
   const t = await page.evaluate(async () => {
