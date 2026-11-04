@@ -57,11 +57,16 @@ async function mount(page, tag, params = {}) {
 
 /** Drags a finger along board points through the visible pad's own client coords. */
 async function drag(page, points) {
-  const client = await page.evaluate((pts) => {
+  const { client, hit } = await page.evaluate((pts) => {
     const pads = [...document.querySelectorAll("kf-draw-pad")];
-    const r = pads.at(-1).boardRect();
-    return pts.map(([x, y]) => [r.left + x * r.width, r.top + y * r.height]);
+    const pad = pads.at(-1);
+    const r = pad.boardRect();
+    const client = pts.map(([x, y]) => [r.left + x * r.width, r.top + y * r.height]);
+    // Every point must land on the pad, not on a panel over it, or the stroke is not a stroke.
+    const hit = client.every(([x, y]) => pad.contains(document.elementFromPoint(x, y)));
+    return { client, hit };
   }, points);
+  assert.ok(hit, "the stroke stays on the drawing pad (no panel over it)");
   await page.mouse.move(...client[0]);
   await page.mouse.down();
   for (const p of client.slice(1)) await page.mouse.move(p[0], p[1], { steps: 2 });
@@ -353,7 +358,8 @@ test("thing card redraw: the body opens as an editable shape, with the guidance;
   // delete it and draw a wide new body instead
   await page.locator('.kf-tc-overlay [data-action="delete-shape"]').click();
   assert.match(await page.locator(".kf-tc-shapes").textContent(), /^Draw a new shape/);
-  await drag(page, Array.from({ length: 40 }, (_, i) => [0.5 + 0.3 * Math.cos((i / 36) * 2 * Math.PI), 0.5 + 0.15 * Math.sin((i / 36) * 2 * Math.PI)]));
+  // Up and left of the guidance panel, which sits over the pad's lower right.
+  await drag(page, Array.from({ length: 40 }, (_, i) => [0.4 + 0.25 * Math.cos((i / 36) * 2 * Math.PI), 0.4 + 0.12 * Math.sin((i / 36) * 2 * Math.PI)]));
   // The new stroke lands with the pad's pointerup; wait for the label rather than read it at once
   // (it failed once in CI on a slower runner).
   await page.locator(".kf-tc-shapes").filter({ hasText: /^1 shape/ }).waitFor({ timeout: 3000 });

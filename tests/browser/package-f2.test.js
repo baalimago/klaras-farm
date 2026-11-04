@@ -188,11 +188,12 @@ test("scenes: thumbnails fall back to plain colours when io/felt.js is missing",
   const page = await open("kf-scenes");
   await page.locator("kf-scenes canvas").first().waitFor();
   // Farm's sky (#8fd8f5) at the top of its thumbnail.
-  const px = await page.evaluate(() => {
+  // The thumbnail paints once its fallback has loaded: wait for it rather than read the first frame.
+  const painted = await page.waitForFunction(() => {
     const c = document.querySelector("kf-scenes canvas");
-    return [...c.getContext("2d").getImageData(Math.floor(c.width / 2), 2, 1, 1).data].slice(0, 3);
-  });
-  assert.ok(px.some((v) => v > 0), "thumbnail is painted");
+    return [...c.getContext("2d").getImageData(Math.floor(c.width / 2), 2, 1, 1).data].slice(0, 3).some((v) => v > 0);
+  }, null, { timeout: 3000 }).then(() => true, () => false);
+  assert.ok(painted, "thumbnail is painted");
 });
 
 // ---------------------------------------------------------------- kf-settings
