@@ -128,3 +128,42 @@ kf-guided-add {
 .kf-btn.kf-legs-count.suggested { outline: 3px solid var(--ink); outline-offset: 2px; }
 .kf-legs-heading { margin-bottom: 4px; }
 canvas.kf-legs-target { cursor: crosshair; touch-action: none; }
+
+/* Shape editing (shape-editor.js): a layer inside the draw pad with each shape's stitch and a resize
+   handle. It lets touches through to the pad unless a shape is selected (set inline by the editor). */
+.kf-se-layer { position: absolute; inset: 0; pointer-events: none; touch-action: none; z-index: 1; }
+kf-draw-pad .kf-se-layer > canvas.kf-se-outlines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.kf-se-handle {
+  position: absolute;
+  width: 56px;
+  height: 56px;
+  min-width: var(--tap);
+  border-radius: 50%;
+  border: 3px dashed var(--ink);
+  background: var(--paper);
+  box-shadow: var(--shadow);
+  padding: 0;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+.kf-se-handle::after {
+  content: "";
+  position: absolute;
+  inset: 16px;
+  border-right: 4px solid var(--ink);
+  border-bottom: 4px solid var(--ink);
+  border-radius: 2px;
+}
+.kf-se-handle[data-corner="1"]::after { transform: scaleX(-1); }
+.kf-se-handle[data-corner="2"]::after { transform: scaleY(-1); }
+.kf-se-handle[data-corner="3"]::after { transform: scale(-1, -1); }
+.kf-se-handle[hidden] { display: none; }
+.kf-se-selection { margin-top: 8px; }
+.kf-se-selection [aria-pressed="true"] { outline: 3px solid var(--orange); }
+
+/* "Draw the body only" guidance (guide.js). */
+.kf-body-guide { display: flex; align-items: center; gap: 12px; margin: 6px 0 10px; }
+.kf-body-guide figcaption { font-weight: 700; line-height: 1.3; }
+.kf-body-guide-pic { flex: none; }
+.kf-body-guide-pic .felt { fill: var(--sand); stroke: var(--ink); stroke-width: 2; stroke-dasharray: 5 4; }
+.kf-body-guide-pic .ghost { fill: none; stroke: var(--ink-soft); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 1 6; opacity: 0.6; }

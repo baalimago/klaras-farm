@@ -1,7 +1,7 @@
 // Pure helpers for the add-a-thing flow (no DOM). Unit tested in steps.test.js.
 
 export const STEPS = Object.freeze(["draw", "felt", "eyes", "legs", "moves", "name", "ask", "sound"]);
-export const STEP_LABELS = Object.freeze(["Draw", "Felt", "Eyes", "Legs", "Moves", "Name", "Ask", "Sound"]);
+export const STEP_LABELS = Object.freeze(["Body", "Felt", "Eyes", "Legs", "Moves", "Name", "Ask", "Sound"]);
 
 /** Size of a new thing in board units (x: board width, y: board height). */
 export const THING_SIZE = Object.freeze({ w: 0.24, h: 0.32 });

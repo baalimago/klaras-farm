@@ -15,6 +15,7 @@ Run on the base iPad (11th generation, A16) with iPadOS 18 or later before a rel
 | Hold to edit at the screen edges | `edit/hold.js`, `components/kf-board/` | Holds near the bottom edge and sides never start (system gestures win). |
 | Guided Access | `components/kf-settings/` | Follow the in-app guide; triple-click locks the app. |
 | Wake lock | `io/wake.js` | Screen stays on for 5 minutes of play. |
+| Editing drawn shapes | `components/kf-guided-add/shape-editor.js`, `components/kf-draw-pad/` | Draw a body and an ear from inside it, tap the body, drag it, pinch it bigger and pull the round handle: the shape stays under the finger with no lag, the felt updates on lift, a palm on the screen does nothing. |
 | Smoothness | `io/renderer.js`, `io/felt.js`, `play/` | Safari Web Inspector Timelines, 2 minutes of play with 4 things: no frame over 4 ms of script, idle board shows no rAF. |
 
 ## Log

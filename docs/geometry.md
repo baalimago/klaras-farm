@@ -4,12 +4,13 @@ Keep this file current: update it in the same commit as any change to this domai
 
 ## Purpose
 
-The geometry domain is the pure math behind drawing and tapping: cleaning up finger strokes, closing a drawn outline, merging several drawn shapes into one outline, polygon measures, keeping eyes inside a shape, fitting the 4:3 board into the screen, and deciding which thing a tap hits. It knows nothing about the farm data model beyond `Point`.
+The geometry domain is the pure math behind drawing and tapping: cleaning up finger strokes, closing a drawn outline, joining an open stroke onto the shapes its ends lie in, merging several drawn shapes into one outline, polygon measures, keeping eyes inside a shape, fitting the 4:3 board into the screen, and deciding which thing a tap hits. It knows nothing about the farm data model beyond `Point`.
 
 ## Files
 
 - `web/js/geometry/stroke.js`: stroke and polygon helpers, board and screen conversion, `closeGap`, `BOARD_ASPECT`.
 - `web/js/geometry/union.js`: `unionOutlines`, the raster union of several drawn shapes into one simple closed outline.
+- `web/js/geometry/join.js`: `joinOpenStroke`, closing an open stroke whose ends lie inside drawn shapes, so it joins them.
 - `web/js/geometry/hit.js`: `hitTest`, tap hit testing over things in drawing order.
 
 ## Units
@@ -45,6 +46,12 @@ The geometry domain is the pure math behind drawing and tapping: cleaning up fin
   - Deterministic. About 3 to 4 ms for five shapes at 192 cells.
   - Callers on the board must pass `aspect: BOARD_ASPECT`. The default of 1 is only right for square frames.
 
+`join.js`
+- `JOIN_TOL = 0.04`: how far outside a shape (board units) a stroke end may stop and still count as inside.
+- `shapeAt(pt, shapes, tol = JOIN_TOL)`: index of the smallest shape holding the point or within `tol` of its edge, or -1. Shapes with fewer than 3 points are skipped.
+- `joinOpenStroke(points, shapes, {tol})` returns `{points, from, to}` or `null`. When both ends of an open stroke lie in shapes (`from`, `to`: their indexes, the same or different), the stroke is closed by the straight segment back to its start; that polygon, unioned with the shapes, adds an ear or a head drawn from inside the body, or bridges two shapes. A stroke with almost no area (closed area under 2% of its length squared, such as a straight neck) is returned as a band instead (`thickenStroke`, half-width 6% of its length, at least 0.012). `null` when an end is outside every shape, the stroke has fewer than 2 points, or there are no shapes.
+- `thickenStroke(points, w)`: a closed band of half-width `w` around a polyline (left side out, right side back; normals averaged at each point). `[]` when it has no length.
+
 `hit.js`
 - `hitTest(targets, pt, {scale = 1.3, minRadius = 0, aspect = BOARD_ASPECT})` returns a target id or `null`.
   - `targets` are `{id, poly, x, y}` in drawing order (back to front): `poly` is the outline where the thing is now, `(x, y)` its anchor.
@@ -56,7 +63,8 @@ The geometry domain is the pure math behind drawing and tapping: cleaning up fin
 
 - `geometry/` is a pure domain. It imports only other pure domains and `types.js` (today it imports nothing but itself). No DOM, browser globals, time, randomness, timers or `fetch`. `tests/unit/boundaries.test.js` enforces this.
 - Callers:
-  - `components/kf-guided-add/drawing.js` (`ShapeDrawing`): merges each closed shape with `unionOutlines(shapes, {aspect: BOARD_ASPECT})`, then `fitOutline` to thing size.
+  - `components/kf-guided-add/drawing.js` (`ShapeDrawing`): merges the shapes with `unionOutlines(shapes, {aspect: BOARD_ASPECT})` (the host then uses `fitOutline` to thing size), joins open strokes with `joinOpenStroke`, hit tests shapes with `shapeAt`, and uses `bbox` for moving and resizing a shape.
+  - `components/kf-guided-add/shape-editor.js`: `toBoard`, `fromBoard`, `fitRect`, `bbox`, `BOARD_ASPECT`.
   - `components/kf-draw-pad/KfDrawPadElement.js`: `simplify`, `smooth`, `closeGap`, `pathLength`, `toBoard`, `fromBoard`, `fitRect`.
   - `components/kf-board/KfBoardElement.js`: `toBoard`, `fromBoard` for tap and drag coordinates.
   - `io/renderer.js`, `io/felt.js`: `bbox`, `centroid`, `signedArea` for painting.
@@ -72,10 +80,12 @@ The geometry domain is the pure math behind drawing and tapping: cleaning up fin
 - `signedArea` sign depends on winding; use `polygonArea` when only the size matters. `snapInside` handles both windings.
 - `geometry/hit.js` is not used by the app at runtime. `play-engine.js` imports `play/hit.js`, a private copy with the same contract (its header says to reconcile at integration). Change both together, or retire one.
 - Up to 6 shapes are allowed in guided add (enforced in the component, not here).
+- `unionOutlines` costs a few ms: callers run it when a change is committed, never per pointer move (see `ShapeDrawing.mergedWithout` for drag previews).
 
 ## Tests
 
 - `web/js/geometry/stroke.test.js`: `simplify`, `smooth`, `pathLength`, `closeGap` (including property tests on random gaps, overshoot, scribbles), area and centroid, `pointInPolygon` on concave shapes, `snapInside` properties, `fitOutline`, `toBoard`/`fromBoard`, `fitRect` letterboxing.
 - `web/js/geometry/union.test.js`: single shape passthrough, overlap area, touching and disjoint shapes become one piece, nested shapes, filled rings, self-intersecting scribbles, aspect, determinism, validity in a snapshot, speed, and a property test on random wobbly shapes.
+- `web/js/geometry/join.test.js`: `shapeAt` (tolerance, smallest wins, degenerate shapes), an ear drawn from inside the body joins it, a neck between two shapes is thickened and joins them, ends outside are refused, a stroke inside the body changes nothing, `thickenStroke`.
 - `web/js/geometry/hit.test.js`: inside hits, misses, the 1.3 times area, `minRadius` with aspect, topmost wins, nearest centre in overlapping margins, and a property test.
-- `tests/browser/shapes.test.js`: two shapes drawn with the pad save as one outline and reload; redraw on the thing card glues a shape on.
+- `tests/browser/shapes.test.js`: two shapes drawn with the pad save as one outline and reload; redraw on the thing card glues a shape on; an open stroke from inside the body joins it.

@@ -77,8 +77,7 @@ test("guided add: two overlapping shapes drawn with the pad become one outline t
   const page = await farmPage();
   await mount(page, "kf-guided-add", { holdMs: 150 });
   const next = page.getByRole("button", { name: "Next" });
-  const add = page.getByRole("button", { name: "+ Add a shape" });
-  const undo = page.getByRole("button", { name: "Undo last shape" });
+  const undo = page.getByRole("button", { name: "Undo", exact: true });
   assert.equal(await next.isDisabled(), true);
   assert.equal(await undo.isDisabled(), true);
 
@@ -88,12 +87,9 @@ test("guided add: two overlapping shapes drawn with the pad become one outline t
   await drag(page, loop(body.cx, body.cy, body.r));
   assert.equal(await shapesStatus(page), "1 shape");
   assert.equal(await next.isDisabled(), false);
-  assert.equal(await add.isDisabled(), false);
   const one = await page.evaluate(() => window.__el.thing.outline);
 
   // a stray third shape, undone
-  await add.click();
-  await page.getByText("Draw the next shape on the board").waitFor();
   await drag(page, loop(0.2, 0.25, 0.05));
   assert.equal(await shapesStatus(page), "2 shapes");
   await undo.click();
@@ -189,5 +185,184 @@ test("thing card redraw: starts from the current outline, a shape glues on, Done
   assert.notDeepEqual(after.outline, before);
   assert.ok(after.b.w > after.b.h * 0.9, `wider than the old upright box: ${JSON.stringify(after.b)}`);
   assert.deepEqual(after.eyesIn, [true]);
+  assert.deepEqual(page.errors, []);
+});
+
+// ---------- playtest 2: guidance, editing shapes one by one, open strokes that join the body ----------
+
+/** Board point → client point on the visible pad. */
+const client = (page, [x, y]) =>
+  page.evaluate(([x, y]) => {
+    const r = [...document.querySelectorAll("kf-draw-pad")].at(-1).boardRect();
+    return [r.left + x * r.width, r.top + y * r.height];
+  }, [x, y]);
+
+async function tap(page, pt) {
+  const [x, y] = await client(page, pt);
+  await page.mouse.click(x, y);
+}
+
+/** A straight drag between two client points (a move or a resize, not a drawn stroke). */
+async function pull(page, [ax, ay], [bx, by]) {
+  await page.mouse.move(ax, ay);
+  await page.mouse.down();
+  await page.mouse.move(bx, by, { steps: 8 });
+  await page.mouse.up();
+}
+
+const shapeBox = (page, i) =>
+  page.evaluate(async (i) => (await import("./js/geometry/stroke.js")).bbox((window.__el._drawing ?? window.__drawing).shapes[i]), i);
+
+test("draw step: the step bar says Body, and the guidance says to draw the body only", async () => {
+  const page = await farmPage();
+  await mount(page, "kf-guided-add", { holdMs: 150 });
+  assert.equal(await page.locator(".kf-ga-steps [aria-current=step]").textContent(), "Body");
+  await page.getByRole("heading", { name: "Draw the body" }).waitFor();
+  const guide = page.locator('[data-testid="body-guide"]');
+  assert.equal(await guide.locator("figcaption").textContent(), "Draw the body only. Eyes and legs come next.");
+  assert.equal(await guide.locator("svg").count(), 1, "with a small picture of a body without legs");
+  assert.deepEqual(page.errors, []);
+});
+
+test("draw step: tap a shape to select it, then move, resize, delete and draw it again; undo takes back any change", async () => {
+  const page = await farmPage();
+  await mount(page, "kf-guided-add", { holdMs: 150 });
+  const status = () => shapesStatus(page);
+  const row = page.locator(".kf-se-selection");
+  const handle = page.locator('[data-action="resize-shape"]');
+  const undo = page.getByRole("button", { name: "Undo", exact: true });
+
+  await drag(page, loop(0.4, 0.55, 0.12));
+  assert.equal(await status(), "1 shape");
+  assert.equal(await row.isHidden(), true);
+  // each shape is shown as its own stitched outline over the felt
+  assert.equal(await page.locator("kf-draw-pad .kf-se-outlines").count(), 1);
+
+  // tap inside: selected, with a big handle
+  await tap(page, [0.4, 0.55]);
+  await row.waitFor();
+  assert.equal(await handle.isVisible(), true);
+  const hb = await handle.boundingBox();
+  assert.ok(hb.width >= 44 && hb.height >= 44, `handle is a parent target: ${JSON.stringify(hb)}`);
+  await page.getByText("Drag the shape to move it").waitFor();
+
+  // move it right by 0.15 of the board (towards the panel: the handle moves to a free corner)
+  const before = await shapeBox(page, 0);
+  const outlineBefore = await page.evaluate(() => window.__el.thing.outline);
+  await pull(page, await client(page, [0.4, 0.55]), await client(page, [0.55, 0.55]));
+  const moved = await shapeBox(page, 0);
+  assert.ok(Math.abs(moved.x - before.x - 0.15) < 0.01, `moved: ${JSON.stringify([before, moved])}`);
+  assert.ok(Math.abs(moved.w - before.w) < 1e-6, "same size");
+  assert.equal(await row.isVisible(), true, "still selected after the move");
+
+  // resize with the corner handle: pull it outwards
+  const h0 = await handle.boundingBox();
+  const c0 = [h0.x + h0.width / 2, h0.y + h0.height / 2];
+  await pull(page, c0, [c0[0] + 60, c0[1] + 60]);
+  const bigger = await shapeBox(page, 0);
+  assert.ok(bigger.w > moved.w * 1.1, `bigger: ${JSON.stringify([moved, bigger])}`);
+
+  // undo takes back the resize, then the move
+  await undo.click();
+  assert.ok(Math.abs((await shapeBox(page, 0)).w - moved.w) < 1e-6);
+  await undo.click();
+  assert.ok(Math.abs((await shapeBox(page, 0)).x - before.x) < 1e-6);
+  assert.deepEqual(await page.evaluate(() => window.__el.thing.outline), outlineBefore, "the outline follows");
+
+  // a second shape (a head), then select it and delete it
+  await drag(page, loop(0.6, 0.35, 0.07));
+  assert.equal(await status(), "2 shapes");
+  await tap(page, [0.6, 0.35]);
+  await row.waitFor();
+  assert.equal(await page.evaluate(() => window.__el._editor.selected), 1, "the head, not the body");
+  await page.locator('[data-action="delete-shape"]').click();
+  assert.equal(await status(), "1 shape");
+  assert.equal(await row.isHidden(), true);
+  await undo.click();
+  assert.equal(await status(), "2 shapes", "undo brings a deleted shape back");
+
+  // tap outside every shape: nothing is selected, and drawing works again
+  await tap(page, [0.4, 0.55]);
+  await row.waitFor();
+  await tap(page, [0.9, 0.15]);
+  assert.equal(await row.isHidden(), true);
+
+  // draw it again: the next stroke takes the body's place
+  await tap(page, [0.38, 0.6]);
+  await row.waitFor();
+  await page.locator('[data-action="redraw-shape"]').click();
+  assert.equal(await page.locator('[data-action="redraw-shape"]').getAttribute("aria-pressed"), "true");
+  await page.getByText("It takes the place of the orange one").waitFor();
+  await drag(page, loop(0.3, 0.6, 0.08));
+  assert.equal(await status(), "2 shapes", "replaced, not added");
+  const redrawn = await shapeBox(page, 0);
+  assert.ok(Math.abs(redrawn.x + redrawn.w / 2 - 0.3) < 0.02 && redrawn.w < before.w, `redrawn: ${JSON.stringify(redrawn)}`);
+
+  // start over, then undo it
+  await page.locator('[data-action="start-over"]').click();
+  assert.equal(await page.getByRole("button", { name: "Next" }).isDisabled(), true);
+  await undo.click();
+  assert.equal(await status(), "2 shapes");
+  assert.deepEqual(page.errors, []);
+});
+
+test("draw step: an open stroke that starts and ends inside the body joins it; one that ends outside warns", async () => {
+  const page = await farmPage();
+  await mount(page, "kf-guided-add", { holdMs: 150 });
+  await drag(page, loop(0.45, 0.6, 0.15));
+  assert.equal(await shapesStatus(page), "1 shape");
+  // an ear: from inside the body, up and out, back down inside (the ends are far apart)
+  const ear = Array.from({ length: 24 }, (_, i) => {
+    const a = Math.PI * (i / 23);
+    return [0.45 - 0.07 * Math.cos(a), 0.5 - 0.3 * Math.sin(a)];
+  });
+  await drag(page, ear);
+  assert.equal(await shapesStatus(page), "2 shapes");
+  assert.equal(await page.locator(".kf-ga-panel .kf-warning[role=status]").isHidden(), true);
+  const inEar = await page.evaluate(async () => {
+    const g = await import("./js/geometry/stroke.js");
+    return g.pointInPolygon([0.45, 0.25], window.__el._drawing.merged);
+  });
+  assert.ok(inEar, "the ear is part of the body");
+  // the pad's open-stroke highlight was cleared
+  const highlighted = await page.evaluate(() => !![...document.querySelectorAll("kf-draw-pad")].at(-1)._gap);
+  assert.equal(highlighted, false);
+
+  // a stroke that leaves the body and stops outside: warn, nothing added
+  await drag(page, [[0.45, 0.6], [0.6, 0.4], [0.8, 0.2], [0.9, 0.15]]);
+  await page.getByText("Close the outline").waitFor();
+  assert.equal(await shapesStatus(page), "2 shapes");
+  assert.deepEqual(page.errors, []);
+});
+
+test("thing card redraw: the body opens as an editable shape, with the guidance; delete it and draw a new one", async () => {
+  const page = await farmPage({ things: 1 });
+  const id = await page.evaluate(() => window.__t.store.snapshot.things[0].id);
+  await mount(page, "kf-thing-card", { thingId: id });
+  await page.locator('[data-action="redraw"]').click();
+  await page.locator(".kf-tc-overlay kf-draw-pad").waitFor();
+  await page.locator('.kf-tc-overlay [data-testid="body-guide"]').getByText("Draw the body only").waitFor();
+  await page.evaluate(() => { window.__drawing = window.__el._overlay.editor.drawing; });
+  // the old box is shape 1 at drawing size around (0.5, 0.48): tap it, move it
+  await tap(page, [0.5, 0.48]);
+  await page.locator(".kf-tc-overlay .kf-se-selection").waitFor();
+  const b0 = await shapeBox(page, 0);
+  await pull(page, await client(page, [0.5, 0.48]), await client(page, [0.4, 0.48]));
+  const b1 = await shapeBox(page, 0);
+  assert.ok(Math.abs(b0.x - b1.x - 0.1) < 0.01, `moved: ${JSON.stringify([b0, b1])}`);
+  // delete it and draw a wide new body instead
+  await page.locator('.kf-tc-overlay [data-action="delete-shape"]').click();
+  assert.match(await page.locator(".kf-tc-shapes").textContent(), /^Draw a new shape/);
+  await drag(page, Array.from({ length: 40 }, (_, i) => [0.5 + 0.3 * Math.cos((i / 36) * 2 * Math.PI), 0.5 + 0.15 * Math.sin((i / 36) * 2 * Math.PI)]));
+  assert.match(await page.locator(".kf-tc-shapes").textContent(), /^1 shape/);
+  await page.locator('[data-action="redraw-done"]').click();
+  await page.waitForFunction(() => !document.querySelector(".kf-tc-overlay"));
+  const t = await page.evaluate(async () => {
+    const g = await import("./js/geometry/stroke.js");
+    const t = window.__t.store.snapshot.things[0];
+    return { b: g.bbox(t.outline), eyesIn: t.eyes.map((e) => g.pointInPolygon([e.x, e.y], t.outline)) };
+  });
+  assert.ok(t.b.w > t.b.h, `the new wide body: ${JSON.stringify(t.b)}`);
+  assert.deepEqual(t.eyesIn, [true]);
   assert.deepEqual(page.errors, []);
 });
