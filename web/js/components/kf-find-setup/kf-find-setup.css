@@ -13,7 +13,7 @@ kf-find-setup {
 .kf-fs-body { display: flex; flex-direction: column; gap: 18px; }
 .kf-fs-thing, .kf-fs-ask, .kf-fs-colors {
   padding: 12px 14px;
-  border: 2px dashed #eadcc6;
+  border: 2px dashed var(--stitch);
   border-radius: var(--radius-sm);
   background: rgb(255 255 255 / 0.5);
 }
@@ -28,4 +28,4 @@ kf-find-setup {
 .kf-fs-word { margin-top: 10px; }
 .kf-fs-word-title { margin: 0; font-weight: 700; text-transform: capitalize; }
 .kf-fs-status { margin: 0; }
-.kf-fs-foot { margin-top: 18px; padding-top: 12px; border-top: 2px dashed #eadcc6; }
+.kf-fs-foot { margin-top: 18px; padding-top: 12px; border-top: 2px dashed var(--stitch); }

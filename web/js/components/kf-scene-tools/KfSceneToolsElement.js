@@ -13,13 +13,19 @@
 //
 // No lag: a piece being dragged or resized is drawn by the board's renderer from its cached sprite
 // (services.board.setLift), with the board rect read once per drag. Nothing is written to the store
-// until the finger lifts; the lift stays until the store's change arrives, so the piece never jumps.
-// Every edit action plays one editing sound (kf-dialog/feedback.js).
-// Undo: a local stack of the place's previous {pieces, skyColor, groundColor, backdrop}.
+// until the finger lifts; the lift stays (state.lifted) until the store's change arrives, so the
+// piece never jumps. Every edit action plays one editing sound (kf-dialog/feedback.js).
+//
+// Edits show at once: each store intent is called synchronously in the tap (FarmStore applies it and
+// emits 'change' before returning; it queues the write itself), the undo entry is pushed and the
+// screen rendered in the same task. The intent's promise is only watched for a failed write, which
+// drops that undo entry and says so (the store has already rolled back and emitted 'reverted').
+// Undo: the entries in state.undo, each the place's previous {pieces, skyColor, groundColor, backdrop}.
+// Pointer handlers run each step guarded, so one failure never eats the tap (AGENTS rule 5).
 import { h, swatches, reportFailure, colorName } from "../kf-dialog/dom.js";
 import { editSound } from "../kf-dialog/feedback.js";
 import { THING_COLORS, SKY_COLORS, GROUND_COLORS, hex } from "../../farm/palette.js";
-import { initialSceneTools, nextSceneTools, isPaused, isDrawTool, templatePatch, TEMPLATES } from "../../edit/scene-tools.js";
+import { initialSceneTools, nextSceneTools, isPaused, isDrawTool, templatePatch, placeBefore, undoTop, canUndo, TEMPLATES } from "../../edit/scene-tools.js";
 import { clampDelta } from "../../geometry/transform.js";
 import { pickPiece, moveStroke, pathData, strokeBox, resizeScale, scaleStroke, sendToBack } from "./pieces.js";
 
@@ -33,7 +39,6 @@ const RAIL = [
   { id: "delete", label: "Delete", icon: "✕" },
 ];
 const TEMPLATE_LABELS = { blank: "Blank", meadow: "Meadow", sea: "Sea", room: "Room" };
-const UNDO_LIMIT = 50;
 const TAP_SLOP = 10;
 const MOVE_SLOP = 3;
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -44,10 +49,8 @@ export class KfSceneToolsElement extends HTMLElement {
     this.services = null;
     this.params = {};
     this.state = initialSceneTools();
-    this._undo = [];
-    this._chain = Promise.resolve();
     this._live = null; // the pointer gesture in progress on the stage (positions only; the mode is in state.drag)
-    this._liftPending = false; // a dropped piece is shown lifted until the store has its new stroke
+    this._lifting = false; // the board was last given a lift (device mirror, so render clears it once)
     this._note = ""; // a one-off hint ("Close the shape…") until the next event
     this._stageTool = null;
     this._raf = 0;
@@ -98,10 +101,6 @@ export class KfSceneToolsElement extends HTMLElement {
   }
 
   _storeChanged() {
-    if (this._liftPending) {
-      this._liftPending = false;
-      this._setLift(null); // the renderer now has the moved piece itself
-    }
     const ids = (this.place?.pieces ?? []).map((p) => p.id);
     if (!this.send({ type: "pieces", ids })) this.render();
   }
@@ -122,10 +121,7 @@ export class KfSceneToolsElement extends HTMLElement {
     this.group = document.createElementNS(SVG_NS, "g");
     this.svg.append(this.group);
     this.handle = h("button", { type: "button", class: "kf-st-handle", "aria-label": "Resize: drag to make it bigger or smaller", text: "⤡" });
-    this.handle.addEventListener("pointerdown", (e) => this.onHandleDown(e));
-    this.handle.addEventListener("pointermove", (e) => this.onMove(e));
-    this.handle.addEventListener("pointerup", (e) => this.onUp(e));
-    this.handle.addEventListener("pointercancel", () => this.cancelDrag());
+    this._listen(this.handle, (e) => this.onHandleDown(e));
     this.stage.append(this.input, this.svg, this.handle);
     this.sheet = h("div", { class: "kf-st-sheet", role: "dialog", "aria-modal": "false" });
     this.done = h("button", {
@@ -148,8 +144,13 @@ export class KfSceneToolsElement extends HTMLElement {
   }
 
   boardRect() {
-    const b = this.services?.board;
-    const r = b?.boardRect?.() ?? b?.getBoundingClientRect?.();
+    let r = null;
+    try {
+      const b = this.services?.board;
+      r = b?.boardRect?.() ?? b?.getBoundingClientRect?.();
+    } catch (e) {
+      console.warn("scene tools: board rect", e);
+    }
     if (r && r.width > 0) return r;
     // No board: a 4:3 letterbox in the viewport.
     const vw = innerWidth;
@@ -171,6 +172,7 @@ export class KfSceneToolsElement extends HTMLElement {
     this.panel.replaceChildren(...(place ? this.panelContent(s, place) : []));
     this.renderSheet(s, place);
     this.renderSelection();
+    if (this._lifting && !s.drag && !s.lifted) this._setLift(null); // the renderer has the piece itself now
   }
 
   renderRail(s) {
@@ -185,7 +187,7 @@ export class KfSceneToolsElement extends HTMLElement {
         h("span", { class: "kf-st-icon", "aria-hidden": "true", text: "✦" }),
         h("span", { text: "Start" }),
       ]),
-      h("button", { type: "button", class: "kf-st-tool kf-st-extra", disabled: this._undo.length === 0, "data-tool": "undo", onclick: () => this.undo() }, [
+      h("button", { type: "button", class: "kf-st-tool kf-st-extra", disabled: !canUndo(s), "data-tool": "undo", onclick: () => this.undo() }, [
         h("span", { class: "kf-st-icon", "aria-hidden": "true", text: "↶" }),
         h("span", { text: "Undo" }),
       ]),
@@ -209,10 +211,7 @@ export class KfSceneToolsElement extends HTMLElement {
         this.input.replaceChildren(pad);
       } else {
         const overlay = h("div", { class: "kf-st-overlay" });
-        overlay.addEventListener("pointerdown", (e) => this.onDown(e));
-        overlay.addEventListener("pointermove", (e) => this.onMove(e));
-        overlay.addEventListener("pointerup", (e) => this.onUp(e));
-        overlay.addEventListener("pointercancel", () => this.cancelDrag());
+        this._listen(overlay, (e) => this.onDown(e));
         overlay.addEventListener("contextmenu", (e) => e.preventDefault());
         this.input.replaceChildren(overlay);
       }
@@ -344,6 +343,27 @@ export class KfSceneToolsElement extends HTMLElement {
 
   // ---------------------------------------------------------------- pointer (Move, Colour, Delete)
 
+  /** Pointer listeners on a stage target, each guarded so a thrown step never eats the tap. */
+  _listen(el, onDown) {
+    el.addEventListener("pointerdown", (e) => this._guard(() => onDown(e)));
+    el.addEventListener("pointermove", (e) => this._guard(() => this.onMove(e)));
+    el.addEventListener("pointerup", (e) => this._guard(() => this.onUp(e)));
+    el.addEventListener("pointercancel", () => this._guard(() => this.cancelDrag()));
+  }
+
+  _guard(fn) {
+    try {
+      fn();
+    } catch (err) {
+      console.warn("scene tools:", err);
+    }
+  }
+
+  /** Keeps the finger's events on this target; a failure only loses the capture, not the drag. */
+  _capture(e) {
+    this._guard(() => e.currentTarget?.setPointerCapture?.(e.pointerId));
+  }
+
   onDown(e) {
     if (!e.isPrimary || !this.place || isPaused(this.state)) return;
     e.preventDefault();
@@ -354,7 +374,7 @@ export class KfSceneToolsElement extends HTMLElement {
     if (this.state.tool !== "move" || !piece) return;
     const wasSelected = this.state.selected === piece.id;
     if (!this.send({ type: "drag-start", mode: "move", id: piece.id })) return;
-    e.currentTarget.setPointerCapture?.(e.pointerId);
+    this._capture(e);
     this._live.box = strokeBox(piece.stroke).box;
     editSound(this.services, wasSelected ? "pick" : "select");
   }
@@ -366,7 +386,7 @@ export class KfSceneToolsElement extends HTMLElement {
     e.preventDefault();
     e.stopPropagation();
     if (!this.send({ type: "drag-start", mode: "resize", id: piece.id })) return;
-    e.currentTarget.setPointerCapture?.(e.pointerId);
+    this._capture(e);
     const rect = this.boardRect();
     const { cx, cy } = strokeBox(piece.stroke);
     this._live = {
@@ -400,10 +420,9 @@ export class KfSceneToolsElement extends HTMLElement {
     if (!live || e.pointerId !== live.id) return;
     const drag = this.state.drag;
     if (drag) {
-      if (live.moved) this.onMove({ pointerId: live.id, clientX: e.clientX, clientY: e.clientY }); // the last position counts
-      this.send({ type: "drag-end" });
-      if (live.moved) this.dropPiece(drag.mode, live);
-      else this._setLift(null);
+      if (!live.moved) return void this.send({ type: "drag-end" });
+      this._guard(() => this.onMove({ pointerId: live.id, clientX: e.clientX, clientY: e.clientY })); // the last position counts
+      this.dropPiece(drag.mode, live);
       return;
     }
     if (Math.hypot(e.clientX - live.x, e.clientY - live.y) > TAP_SLOP) return;
@@ -412,9 +431,7 @@ export class KfSceneToolsElement extends HTMLElement {
 
   cancelDrag() {
     this._live = null;
-    this._setLift(null);
-    this.send({ type: "drag-cancel" });
-    this.renderSelection();
+    if (!this.send({ type: "drag-cancel" })) this.render();
   }
 
   tap(piece) {
@@ -447,6 +464,7 @@ export class KfSceneToolsElement extends HTMLElement {
   }
 
   _setLift(lift) {
+    this._lifting = lift !== null;
     try {
       this.services?.board?.setLift?.(lift);
     } catch (e) {
@@ -460,20 +478,16 @@ export class KfSceneToolsElement extends HTMLElement {
     const piece = live.piece;
     const stroke = mode === "resize" ? scaleStroke(piece.stroke, live.s) : moveStroke(piece.stroke, live.dx, live.dy);
     editSound(this.services, "drop");
-    this._liftPending = true; // keep showing it where it was put until the store has it
-    this.commit((place) => this.store.updatePiece({ placeId: place.id, pieceId: piece.id, patch: { stroke } })).then((ok) => {
-      if (ok || !this._liftPending) return;
-      this._liftPending = false;
-      this._setLift(null);
-      this.renderSelection();
-    });
+    this.send({ type: "drop" }); // shown lifted where it was put until the store's change arrives
+    const applied = this.edit((place) => this.store.updatePiece({ placeId: place.id, pieceId: piece.id, patch: { stroke } }));
+    if (!applied) this.send({ type: "lift-done" });
   }
 
   addPiece(kind, points) {
     if (!Array.isArray(points) || points.length < (kind === "shape" ? 3 : 2)) return;
     const color = this.state.colors[kind === "yarn" ? "line" : "shape"];
     editSound(this.services, "add");
-    this.commit((place) => this.store.addPiece({ placeId: place.id, piece: { kind, stroke: points, color } }));
+    this.edit((place) => this.store.addPiece({ placeId: place.id, piece: { kind, stroke: points, color } }));
   }
 
   pickColour(key) {
@@ -484,7 +498,7 @@ export class KfSceneToolsElement extends HTMLElement {
       this.send({ type: "close-sheet" }); // picked: back to drawing
       return;
     }
-    this.commit((place) => {
+    this.edit((place) => {
       if (s.sheet === "sky") return this.store.updatePlace({ placeId: place.id, patch: { skyColor: key } });
       if (s.sheet === "ground") return this.store.updatePlace({ placeId: place.id, patch: { groundColor: key } });
       return this.store.updatePiece({ placeId: place.id, pieceId: s.selected, patch: { color: key } });
@@ -493,7 +507,7 @@ export class KfSceneToolsElement extends HTMLElement {
 
   toBack(pieceId) {
     editSound(this.services, "drop");
-    this.commit((place) => {
+    this.edit((place) => {
       const pieces = sendToBack(place.pieces, pieceId);
       return pieces === place.pieces ? null : this.store.updatePlace({ placeId: place.id, patch: { pieces } });
     });
@@ -513,7 +527,7 @@ export class KfSceneToolsElement extends HTMLElement {
     }
     editSound(this.services, "save");
     this.send({ type: "close-sheet" });
-    this.commit((place) => this.store.updatePlace({ placeId: place.id, patch }));
+    this.edit((place) => this.store.updatePlace({ placeId: place.id, patch }));
   }
 
   async confirmDelete(piece) {
@@ -526,47 +540,61 @@ export class KfSceneToolsElement extends HTMLElement {
     });
     if (!ok) return;
     editSound(this.services, "poof");
-    this.commit((place) => this.store.removePiece({ placeId: place.id, pieceId: piece.id }));
+    this.edit((place) => this.store.removePiece({ placeId: place.id, pieceId: piece.id }));
   }
 
-  /** Runs one change after the previous one, remembering the place as it was for Undo. Resolves true when saved. */
-  commit(change) {
-    const run = this._chain.then(async () => {
-      const place = this.place;
-      if (!place) return false;
-      const before = { pieces: structuredClone(place.pieces), skyColor: place.skyColor, groundColor: place.groundColor, backdrop: place.backdrop };
-      try {
-        const result = await change(place);
-        if (result === null) return false; // nothing to change
-        this._undo.push(before);
-        if (this._undo.length > UNDO_LIMIT) this._undo.shift();
-        this.render();
-        return true;
-      } catch (e) {
-        reportFailure(this.services, e);
-        this.render();
-        return false;
-      }
+  /**
+   * Applies one edit now: `change(place)` calls a store intent, which updates the snapshot and emits
+   * 'change' synchronously and returns the write's promise (or null when there is nothing to change).
+   * The undo entry is pushed in the same task; a failed write drops it again. True when applied.
+   */
+  edit(change) {
+    const place = this.place;
+    if (!place) return false;
+    const before = placeBefore(place);
+    let saving;
+    try {
+      saving = change(place);
+    } catch (e) {
+      this._failed(e);
+      return false;
+    }
+    if (!saving) return false; // nothing to change
+    this.send({ type: "edited", placeId: place.id, before });
+    const seq = this.state.seq;
+    Promise.resolve(saving).catch((e) => {
+      this.send({ type: "edit-failed", seq });
+      this.send({ type: "lift-done" });
+      this._failed(e);
     });
-    this._chain = run;
-    return run;
+    return true;
   }
 
+  /** Takes back the newest edit at once; if its write fails, the edit (and its entry) come back. */
   undo() {
-    if (this._undo.length === 0) return this._chain;
+    const entry = undoTop(this.state);
+    if (!entry) return false;
     editSound(this.services, "undo");
-    this._chain = this._chain.then(async () => {
-      const place = this.place;
-      const prev = this._undo.pop();
-      if (!place || !prev) return;
-      try {
-        await this.store.updatePlace({ placeId: place.id, patch: prev });
-      } catch (e) {
-        this._undo.push(prev);
-        reportFailure(this.services, e);
-      }
-      this.render();
-    });
-    return this._chain;
+    this.send({ type: "undo" });
+    const seq = entry.seq;
+    let saving;
+    try {
+      saving = this.store.updatePlace({ placeId: entry.placeId, patch: entry.before });
+    } catch (e) {
+      saving = Promise.reject(e);
+    }
+    Promise.resolve(saving).then(
+      () => this.send({ type: "undo-saved", seq }),
+      (e) => {
+        this.send({ type: "undo-failed", seq });
+        this._failed(e);
+      },
+    );
+    return true;
+  }
+
+  _failed(e) {
+    reportFailure(this.services, e);
+    this.render();
   }
 }

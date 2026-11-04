@@ -269,3 +269,115 @@ test("delete: tap a piece and confirm; Keep it keeps it; a deleted selection is 
   assert.equal(await selectedShown(page), false);
   assert.ok((await chimes(page)).includes("poof"));
 });
+
+/** Every repository write now takes `ms`, and fails while `window.__disk.fail` is set (a busy or full iPad). */
+const slowDisk = (page, ms = 400) =>
+  page.evaluate((ms) => {
+    const repo = window.services.store.repo;
+    const write = repo.write.bind(repo);
+    window.__disk = { fail: false, done: 0 };
+    repo.write = (w) =>
+      new Promise((ok) => setTimeout(ok, ms)).then(() => {
+        window.__disk.done++;
+        if (window.__disk.fail) throw new Error("disk full");
+        return write(w);
+      });
+  }, ms);
+
+test("slow disk: quick edits and Undo show at once, without waiting for the writes", async () => {
+  const page = await open();
+  await slowDisk(page);
+  // Three shapes in one go: each is in the store and Undo is on, in the same task as its stroke.
+  const seen = await page.evaluate(() => {
+    const pad = document.querySelector("kf-draw-pad");
+    const undo = () => document.querySelector('kf-scene-tools [data-tool="undo"]');
+    const out = [];
+    for (let i = 0; i < 3; i++) {
+      const x = 0.3 + i * 0.15;
+      pad.stroke([[x, 0.6], [x + 0.1, 0.6], [x + 0.1, 0.7], [x, 0.7]]);
+      out.push([window.services.store.currentPlace.pieces.length, undo().disabled]);
+    }
+    return out;
+  });
+  assert.deepEqual(seen, [[3, false], [4, false], [5, false]]);
+  // Colour and Undo are just as quick, and the sheet shows the new colour at once.
+  await tools(page).getByRole("button", { name: "Move", exact: true }).click();
+  const [sx, sy] = toClient([0.8, 0.2]);
+  await page.mouse.click(sx, sy);
+  await tools(page).getByRole("button", { name: "Colour", exact: true }).click();
+  const shown = await page.evaluate(() => {
+    const sun = () => window.services.store.currentPlace.pieces.find((p) => p.id === "sun");
+    const undo = () => document.querySelector('kf-scene-tools [data-tool="undo"]');
+    document.querySelector('.kf-st-sheet [data-color="blue"]').click();
+    const out = { colour: sun().color, pressedNow: document.querySelector('.kf-st-sheet [data-color="blue"]').getAttribute("aria-pressed") };
+    undo().click();
+    out.undone = sun().color;
+    undo().click();
+    out.count = window.services.store.currentPlace.pieces.length;
+    return out;
+  });
+  assert.deepEqual(shown, { colour: "blue", pressedNow: "true", undone: "yellow", count: 4 });
+  // Every write still reaches the disk, one after another.
+  await until(page, () => window.__disk.done === 6);
+  assert.equal((await place(page)).pieces.length, 4);
+  assert.deepEqual(page.errors, []);
+});
+
+test("slow disk: a write that fails takes its edit and its Undo step back, and says so", async () => {
+  const page = await open();
+  await slowDisk(page, 200);
+  await page.evaluate(() => { window.__disk.fail = true; });
+  const undo = tools(page).getByRole("button", { name: "Undo", exact: true });
+  const shown = await page.evaluate(() => {
+    document.querySelector("kf-draw-pad").stroke([[0.4, 0.6], [0.5, 0.6], [0.5, 0.7], [0.4, 0.7]]);
+    return [window.services.store.currentPlace.pieces.length, document.querySelector('kf-scene-tools [data-tool="undo"]').disabled];
+  });
+  assert.deepEqual(shown, [3, false], "shown at once");
+  await until(page, () => window.services.store.currentPlace.pieces.length === 2);
+  await until(page, () => document.querySelector('kf-scene-tools [data-tool="undo"]').disabled);
+  await page.locator("kf-dialog").first().waitFor();
+  // The disk is back: the next edit saves and can be undone.
+  await page.evaluate(() => { window.__disk.fail = false; });
+  await page.evaluate(() => document.querySelector("kf-draw-pad").stroke([[0.4, 0.6], [0.5, 0.6], [0.5, 0.7], [0.4, 0.7]]));
+  assert.equal(await undo.isDisabled(), false);
+  await until(page, () => window.__disk.done === 2);
+  assert.equal((await place(page)).pieces.length, 3);
+  await undo.click();
+  assert.equal((await place(page)).pieces.length, 2);
+  assert.equal(await undo.isDisabled(), true);
+});
+
+test("slow disk: a dropped piece is where the finger left it at once, and its lift ends", async () => {
+  const page = await open();
+  await slowDisk(page);
+  await tools(page).getByRole("button", { name: "Move", exact: true }).click();
+  const from = toClient([0.8, 0.2]);
+  await drag(page, from, [from[0] - 90, from[1] + 60]);
+  const sun = await pieceById(page, "sun");
+  assert.ok(Math.abs(sun.stroke[0][0] - (0.75 - 90 / B.width)) < 0.0011, "moved in the store at once");
+  assert.equal(await page.evaluate(() => window.services.board.lifts.at(-1)), null, "no lift left over");
+  assert.equal(await tools(page).getByRole("button", { name: "Undo", exact: true }).isDisabled(), false);
+  assert.deepEqual(page.errors, []);
+});
+
+test("pointer steps are guarded: a failing capture or board rect never eats the tap or the drag", async () => {
+  const page = await open();
+  await page.evaluate(() => {
+    Element.prototype.setPointerCapture = () => { throw new DOMException("no active pointer", "NotFoundError"); };
+  });
+  await tools(page).getByRole("button", { name: "Move", exact: true }).click();
+  const from = toClient([0.8, 0.2]);
+  await drag(page, from, [from[0] - 90, from[1]]);
+  const sun = await pieceById(page, "sun");
+  assert.ok(Math.abs(sun.stroke[0][0] - (0.75 - 90 / B.width)) < 0.0011, "the drag still moved it");
+  assert.equal(await selectedShown(page), true);
+  // The board throws when asked for its rect: the stage falls back to a letterbox and taps still land.
+  await page.evaluate(() => { window.services.board.boardRect = () => { throw new Error("detached"); }; });
+  await tools(page).getByRole("button", { name: "Let go" }).click();
+  assert.equal(await selectedShown(page), false);
+  const [bx, by] = toClient([0.2, 0.5]);
+  await page.mouse.click(bx, by);
+  await tools(page).getByRole("button", { name: "Shape", exact: true }).click();
+  assert.deepEqual(await pressed(page), ["shape"]);
+  assert.deepEqual(page.errors, []);
+});

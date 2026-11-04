@@ -1,13 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { initialSceneTools, nextSceneTools, isPaused, isDrawTool, templatePatch, TEMPLATES, TOOLS } from "./scene-tools.js";
+import { initialSceneTools, nextSceneTools, isPaused, isDrawTool, templatePatch, placeBefore, undoTop, canUndo, TEMPLATES, TOOLS, UNDO_LIMIT } from "./scene-tools.js";
 
 const run = (s, ...events) => events.reduce(nextSceneTools, s);
 const start = (over = {}) => ({ ...initialSceneTools(), ...over });
 
 test("starts on Shape with nothing selected, no sheet, not paused", () => {
   const s = initialSceneTools();
-  assert.deepEqual(s, { tool: "shape", selected: null, sheet: null, drag: null, colors: { shape: "yellow", line: "brown" } });
+  assert.deepEqual(s, { tool: "shape", selected: null, sheet: null, drag: null, colors: { shape: "yellow", line: "brown" }, lifted: null, undo: [], undoing: [], seq: 0 });
+  assert.equal(canUndo(s), false);
+  assert.equal(undoTop(s), null);
   assert.equal(isPaused(s), false);
   assert.equal(isDrawTool("shape") && isDrawTool("line") && !isDrawTool("move"), true);
   assert.deepEqual(TOOLS, ["shape", "line", "move", "colour", "sky", "ground", "delete"]);
@@ -135,4 +137,97 @@ test("unknown events change nothing; templates give backdrop, colours and no pie
   assert.deepEqual(templatePatch("sea"), { backdrop: "sea", skyColor: "sky", groundColor: "water", pieces: [] });
   assert.equal(templatePatch("moon"), null);
   assert.deepEqual(Object.keys(TEMPLATES), ["blank", "meadow", "sea", "room"]);
+});
+
+// ---------------------------------------------------------------- lift after a drop
+
+test("drop: a moved piece stays lifted until the store's change arrives, or lift-done", () => {
+  const dragging = start({ tool: "move", selected: "a", drag: { mode: "move", id: "a" } });
+  const dropped = run(dragging, { type: "drop" });
+  assert.equal(dropped.drag, null);
+  assert.equal(dropped.lifted, "a");
+  assert.equal(run(dropped, { type: "pieces", ids: ["a"] }).lifted, null, "the store has the new stroke");
+  assert.equal(run(dropped, { type: "pieces", ids: ["a"] }).selected, "a", "and it stays selected");
+  assert.equal(run(dropped, { type: "lift-done" }).lifted, null);
+  const idle = start({ tool: "move" });
+  assert.equal(run(idle, { type: "drop" }), idle, "no drag, nothing to drop");
+  assert.equal(run(idle, { type: "lift-done" }), idle);
+  assert.equal(run(dropped, { type: "drag-cancel" }), dropped, "a drop is not a drag");
+});
+
+// ---------------------------------------------------------------- undo
+
+const place = (over = {}) => ({ id: "farm", pieces: [{ id: "a" }], skyColor: "sky", groundColor: "grass", backdrop: "meadow", ...over });
+const edit = (s, p = place()) => run(s, { type: "edited", placeId: p.id, before: placeBefore(p) });
+
+test("edited: pushes an entry with the place as it was, numbered in order", () => {
+  const p = place();
+  const before = placeBefore(p);
+  assert.deepEqual(before, { pieces: [{ id: "a" }], skyColor: "sky", groundColor: "grass", backdrop: "meadow" });
+  assert.notEqual(before.pieces, p.pieces, "its own list");
+  const one = edit(start());
+  const two = edit(one, place({ skyColor: "lilac" }));
+  assert.equal(canUndo(two), true);
+  assert.deepEqual(two.undo.map((u) => u.seq), [1, 2]);
+  assert.equal(undoTop(two).before.skyColor, "lilac");
+  assert.equal(undoTop(two).placeId, "farm");
+  assert.equal(run(one, { type: "edited" }), one, "nothing to remember");
+  assert.equal(run(one, { type: "edited", placeId: "farm" }), one);
+});
+
+test("edited: keeps at most UNDO_LIMIT entries, dropping the oldest", () => {
+  let s = start();
+  for (let i = 0; i < UNDO_LIMIT + 5; i++) s = edit(s, place({ skyColor: `c${i}` }));
+  assert.equal(s.undo.length, UNDO_LIMIT);
+  assert.equal(s.undo[0].before.skyColor, "c5");
+  assert.equal(undoTop(s).before.skyColor, `c${UNDO_LIMIT + 4}`);
+  assert.equal(s.seq, UNDO_LIMIT + 5);
+});
+
+test("undo: the newest entry moves to undoing; saved it is gone; failed it is back on top", () => {
+  const s = edit(edit(start()), place({ backdrop: "sea" }));
+  const u = run(s, { type: "undo" });
+  assert.deepEqual(u.undo.map((x) => x.seq), [1]);
+  assert.deepEqual(u.undoing.map((x) => x.seq), [2]);
+  assert.equal(canUndo(u), true);
+  const saved = run(u, { type: "undo-saved", seq: 2 });
+  assert.deepEqual(saved.undoing, []);
+  assert.equal(run(saved, { type: "undo-saved", seq: 2 }), saved, "only once");
+  const failed = run(u, { type: "undo-failed", seq: 2 });
+  assert.deepEqual(failed.undo.map((x) => x.seq), [1, 2]);
+  assert.deepEqual(failed.undoing, []);
+  assert.equal(run(failed, { type: "undo-failed", seq: 2 }), failed);
+  const empty = start();
+  assert.equal(run(empty, { type: "undo" }), empty, "nothing to undo");
+  const both = run(s, { type: "undo" }, { type: "undo" });
+  assert.equal(canUndo(both), false);
+  assert.deepEqual(both.undoing.map((x) => x.seq), [2, 1]);
+});
+
+test("edit-failed: the store no longer has that edit, so its entry goes, wherever it is", () => {
+  const s = edit(edit(edit(start())));
+  const f = run(s, { type: "edit-failed", seq: 2 });
+  assert.deepEqual(f.undo.map((x) => x.seq), [1, 3]);
+  assert.equal(run(f, { type: "edit-failed", seq: 2 }), f, "unknown entry");
+  // The edit was undone before its write failed: the Undo fails after it and brings nothing back.
+  const u = run(s, { type: "undo" }, { type: "edit-failed", seq: 3 }, { type: "undo-failed", seq: 3 });
+  assert.deepEqual(u.undo.map((x) => x.seq), [1, 2]);
+  assert.deepEqual(u.undoing, []);
+  // A saved edit whose Undo failed while a newer edit was queued: the newer edit fails too.
+  const queued = edit(run(s, { type: "undo" }), place({ skyColor: "pink" }));
+  assert.deepEqual(queued.undo.map((x) => x.seq), [1, 2, 4]);
+  const back = run(queued, { type: "undo-failed", seq: 3 }, { type: "edit-failed", seq: 4 });
+  assert.deepEqual(back.undo.map((x) => x.seq), [1, 2, 3]);
+});
+
+test("undo after a template Start gives back the drawn pieces and the old backdrop", () => {
+  const drawn = place({ pieces: [{ id: "a" }, { id: "b" }], backdrop: "meadow" });
+  const s = run(edit(start({ tool: "move", selected: "a" }), drawn), { type: "pieces", ids: [] });
+  assert.equal(s.selected, null, "the template took the selected piece");
+  const top = undoTop(s);
+  assert.deepEqual(top.before, { pieces: [{ id: "a" }, { id: "b" }], skyColor: "sky", groundColor: "grass", backdrop: "meadow" });
+  const u = run(s, { type: "undo" }, { type: "pieces", ids: ["a", "b"] }, { type: "undo-saved", seq: top.seq });
+  assert.equal(canUndo(u), false);
+  assert.deepEqual(u.undoing, []);
+  assert.equal(u.selected, null, "undo brings the pieces back, not the selection");
 });
