@@ -16,6 +16,7 @@ import { THING_COLORS, hex } from "../../farm/palette.js";
 import { cueLines } from "../../farm/scripts.js";
 import { clipSlot } from "./clip-slot.js";
 import { questionsSection } from "./questions.js";
+import { pressGuard } from "../kf-dialog/press-guard.js";
 
 const KIND_LABEL = { name: "name", prompt: "question", sound: "sound" };
 
@@ -59,7 +60,9 @@ export class ThingCardElement extends HTMLElement {
     this.geo = geo;
     this.lang ??= this.languages[0];
     for (const id of audio?.failedClips ?? []) this._failed.add(id);
-    this._onStore = () => this._storeChanged();
+    // A render asked for mid-tap waits until that tap's click has run (press-guard.js).
+    this._guard = pressGuard(this, () => this._storeChanged());
+    this._onStore = () => this._guard.request();
     this._onDecodeFailed = (e) => {
       if (e.detail?.clipId) this._failed.add(e.detail.clipId);
       this._storeChanged();
@@ -67,7 +70,7 @@ export class ThingCardElement extends HTMLElement {
     store.addEventListener("change", this._onStore);
     audio?.addEventListener?.("decode-failed", this._onDecodeFailed);
     // A field that was being typed in has let go: now the words column can catch up too.
-    this.addEventListener("focusout", () => queueMicrotask(() => { if (this._dirty && this._canRenderAll()) this._render(); }));
+    this.addEventListener("focusout", () => queueMicrotask(() => { if (this._dirty) this._guard.request(); }));
     if (!this.thing) return this._close();
     this._render();
   }
@@ -197,6 +200,7 @@ export class ThingCardElement extends HTMLElement {
         scripts: this.services.scripts,
         thing,
         lang,
+        busy: !!this._recording,
         slot: (take) => this._clipControls("prompt", take),
         onArticle: (article) => this._setCue({ article }),
         onError: (e) => this._error(e),
@@ -354,11 +358,18 @@ export class ThingCardElement extends HTMLElement {
     const { clip, blob } = detail ?? {};
     if (!clip) return;
     const old = this._clips({ kind, take })[0];
+    let saved;
     try {
-      await this.services.store.saveClip({ clip: { ...stripClip(clip), thingId: this.thingId, language: this.lang, kind, take }, blob });
-      if (old) this._failed.delete(old.id);
-      this._recording = null;
-      this._render();
+      saved = this.services.store.saveClip({ clip: { ...stripClip(clip), thingId: this.thingId, language: this.lang, kind, take }, blob });
+    } catch (e) {
+      saved = Promise.reject(e);
+    }
+    // The store already shows the new take: close the recorder now, never after the disk write.
+    if (old) this._failed.delete(old.id);
+    this._recording = null;
+    this._render();
+    try {
+      await saved;
     } catch (e) {
       this._error(e);
     }

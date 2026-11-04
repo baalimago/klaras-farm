@@ -104,5 +104,6 @@ export class MemoryRepo {
   close() {}
 }
 
-// The clip uniqueness key (thing clips by thing, colour game clips by colour), as IndexedDB enforces it.
+// The clip uniqueness key (thing clips by thing, colour game clips by colour). IndexedDB enforces it
+// for thing clips only (its compound index skips a null thingId); saveClip and validation cover the rest.
 const uniq = (c) => clipKey(c);

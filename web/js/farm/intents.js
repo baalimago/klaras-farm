@@ -218,10 +218,14 @@ export function deleteThing(s, { thingId }, env) {
   };
 }
 
-/** Undo of deleteThing. Blobs survive because the orphan sweep only removes blobs older than 24 h. */
+/**
+ * Undo of deleteThing. Blobs survive because the orphan sweep only removes blobs older than 24 h.
+ * It checks the hard limit, not the family's cap: lowering the cap keeps the things already there,
+ * so undoing a delete in such a scene only restores a count it already had.
+ */
 export function restoreThing(s, { thing, clips, index = -1 }, env) {
   const old = findPlace(s, thing.placeId);
-  if (!canAddThing(s, old.id)) throw new FarmError("place-full");
+  if (old.thingOrder.length >= MAX_THINGS_LIMIT) throw new FarmError("place-full");
   const order = [...old.thingOrder];
   order.splice(index < 0 ? order.length : index, 0, thing.id);
   const place = { ...old, thingOrder: order, updatedAt: env.now() };
@@ -317,13 +321,16 @@ export function addQuestion(s, { thingId, language, text = "" }, env) {
 
 /**
  * Removes question `index` (at least one stays) with its recording; later recordings move up one
- * take so each stays with its line. Blobs are left for the orphan sweep.
+ * take so each stays with its line. An empty line means "the example at this position", so moving
+ * it up would change what it says: with `examples` (scripts.js cueLines), every empty line after
+ * `index` keeps its example as written text. Blobs are left for the orphan sweep.
  */
-export function removeQuestion(s, { thingId, language, index }, env) {
+export function removeQuestion(s, { thingId, language, index, examples = [] }, env) {
   const thing = findThing(s, thingId);
   const lines = linesOf(thing, language);
   if (lines.length <= 1) throw new FarmError("invalid", "at least one question");
   if (!Number.isInteger(index) || index < 0 || index >= lines.length) throw new FarmError("invalid", "question index");
+  for (let i = index + 1; i < lines.length; i++) if (!lines[i]) lines[i] = String(examples[i] ?? "").trim();
   lines.splice(index, 1);
   const r = withLines(s, thing, language, lines, env);
   const take = index + 1;

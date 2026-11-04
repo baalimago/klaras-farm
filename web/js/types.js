@@ -51,7 +51,7 @@
 
 /**
  * @typedef {Object} Cue   The parent's edits to the "Where is the…" scripts for one language.
- * @property {string[]=} lines     overrides for the 3 filled lines (cue text only)
+ * @property {string[]=} lines     1–6 free-text questions (format 4); an empty line means the script's example
  * @property {string=} article     chosen article for languages that need one (der/die/das)
  */
 
@@ -73,10 +73,11 @@
 /**
  * @typedef {Object} Clip
  * @property {string} id
- * @property {string} thingId
+ * @property {string|null} thingId   null for colour game clips (format 4)
  * @property {Lang} language
- * @property {'name'|'prompt'|'sound'} kind
- * @property {number} take             1 for name/sound; 1–3 for prompt
+ * @property {'name'|'prompt'|'sound'|'color-word'|'color-question'} kind
+ * @property {string=} color           simple colour key, color-word only
+ * @property {number} take             1 for name/sound/color-word; 1–6 for prompt (question line n) and color-question
  * @property {string} blobSha256
  * @property {string} mime
  * @property {number} durationMs
@@ -102,13 +103,14 @@
  * @property {number} sleepMinutes       0 = off
  * @property {'keypad'|'sum'} gateKind
  * @property {boolean} reduceMotion
+ * @property {number} maxThings          things per scene, 1–12, default 8 (format 4)
  * @property {string|null} currentPlaceId
  * @property {boolean} welcomed          first-run card dismissed
  * @property {string} updatedAt
  */
 
 /**
- * @typedef {Object} Snapshot   Format version FORMAT_VERSION (farm/snapshot.js, now 3). Also the export manifest.
+ * @typedef {Object} Snapshot   Format version FORMAT_VERSION (farm/snapshot.js, now 4). Also the export manifest.
  * @property {number} formatVersion
  * @property {number} minReaderFormat
  * @property {string} appVersion

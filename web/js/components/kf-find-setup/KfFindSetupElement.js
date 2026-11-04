@@ -13,6 +13,7 @@ import { h, ensureElement, languageName } from "../kf-guided-add/dom.js";
 import { clipSlot } from "../kf-thing-card/clip-slot.js";
 import { questionsSection } from "../kf-thing-card/questions.js";
 import { stripClip } from "../kf-guided-add/steps.js";
+import { pressGuard } from "../kf-dialog/press-guard.js";
 import { initialSetup, nextSetup, isRecording, askSlots, colorMissing, missingText } from "./setup.js";
 import { SIMPLE_COLORS, hex } from "../../farm/palette.js";
 import { colorGroup, groupHex } from "../../play/colors.js";
@@ -26,7 +27,8 @@ export class KfFindSetupElement extends HTMLElement {
     this.ready = null;
     this.state = null;
     this._recorder = null; // {key, el}: the open recorder, reused while the same slot records
-    this._onStore = () => this._render();
+    this._guard = null; // holds a store-driven render until the tap in progress has landed
+    this._onStore = () => (this._guard ? this._guard.request() : this._render());
     this._onPointer = () => this.services?.session?.activity?.();
     this._onKey = (e) => { if (e.key === "Escape" && !this.state?.recording) this._close(); };
   }
@@ -50,6 +52,7 @@ export class KfFindSetupElement extends HTMLElement {
   async _start() {
     await ensureElement("kf-recorder", () => import("../kf-recorder/define.js"));
     this.state = initialSetup(this.params?.game, this.languages[0]);
+    this._guard ??= pressGuard(this, () => this._render());
     this.store.addEventListener("change", this._onStore);
     this.addEventListener("pointerdown", this._onPointer);
     this.addEventListener("keydown", this._onKey);
@@ -89,6 +92,7 @@ export class KfFindSetupElement extends HTMLElement {
         h("p", { class: "kf-note kf-fs-intro", text: color
           ? "When Klara taps the colour button, she hears your question and a colour, then taps any animal of that colour. Record the question once, then each colour word."
           : "When Klara taps 🔍, she hears one of these questions (picked at random), then the animal's sound, and taps that animal." }),
+        this.state.error ? h("p", { class: "kf-warning kf-fs-error", role: "alert", text: this.state.error === "quota" ? "The iPad is out of space, so this couldn't be saved." : "Something went wrong saving this. Try again." }) : null,
         this._tabs(),
         h("div", { class: "kf-fs-body" }, color ? this._colorGame() : this._animalGame()),
         h("div", { class: "kf-row kf-fs-foot" },
@@ -123,6 +127,7 @@ export class KfFindSetupElement extends HTMLElement {
           thing,
           lang: this.state.lang,
           heading: false,
+          busy: !!this.state.recording,
           slot: (take, line) => this._slot({ kind: "prompt", thingId: thing.id, take }, line, `question ${take} for the ${this._name(thing)}`),
           onArticle: (article) => this._setArticle(thing, article),
           onError: (e) => this._error(e),
@@ -144,7 +149,7 @@ export class KfFindSetupElement extends HTMLElement {
         h("h3", { text: "1. The question" }),
         h("p", { class: "kf-note", text: `Say it so a colour can follow, for example “${said}”` }),
         Array.from({ length: slots }, (_, i) => this._slot({ kind: "color-question", take: i + 1 }, said, `colour question ${i + 1}`)),
-        h("button", { class: "kf-btn", type: "button", "data-action": "add-ask", text: "+ Another way to ask", disabled: slots >= 6, onclick: () => this.dispatch({ type: "add-ask" }) })),
+        h("button", { class: "kf-btn", type: "button", "data-action": "add-ask", text: "+ Another way to ask", disabled: slots >= 6, onclick: () => this.dispatch({ type: "add-ask", shown: slots }) })),
       h("section", { class: "kf-fs-colors" },
         h("h3", { text: "2. The colours" }),
         h("p", { class: "kf-note", text: "Tap an animal, or a colour, then say just the colour word." }),
@@ -224,17 +229,20 @@ export class KfFindSetupElement extends HTMLElement {
     return this.store.gameClips({ kind: "color-question", language: lang }).find((c) => c.take === slot.take) ?? null;
   }
 
-  /** A finished take replaces the old clip at once; the recorder closes (US-4.7). */
-  async _save(slot, lang, { clip, blob } = {}) {
+  /** A finished take replaces the old clip at once and the recorder closes (US-4.7), without
+   *  waiting for the disk; a save that does not stick rolls back in the store and shows why. */
+  _save(slot, lang, { clip, blob } = {}) {
     if (!clip) return;
     const record = { ...stripClip(clip), thingId: slot.thingId ?? null, language: lang, kind: slot.kind, take: slot.take ?? 1 };
     if (slot.color) record.color = slot.color;
+    let saved;
     try {
-      await this.store.saveClip({ clip: record, blob });
-      this.dispatch({ type: "saved" });
+      saved = this.store.saveClip({ clip: record, blob });
     } catch (e) {
-      this._error(e);
+      saved = Promise.reject(e);
     }
+    this.dispatch({ type: "saved" });
+    Promise.resolve(saved).catch((e) => this._error(e));
   }
 
   async _setArticle(thing, article) {
@@ -254,10 +262,6 @@ export class KfFindSetupElement extends HTMLElement {
 
   _error(e) {
     console.warn("kf-find-setup:", e);
-    const sheet = this.querySelector(".kf-fs");
-    if (!sheet) return;
-    let box = sheet.querySelector(".kf-fs-error");
-    if (!box) sheet.prepend((box = h("p", { class: "kf-warning kf-fs-error", role: "alert" })));
-    box.textContent = e?.code === "quota" ? "The iPad is out of space, so this couldn't be saved." : "Something went wrong saving this. Try again.";
+    this.dispatch({ type: "failed", code: e?.code });
   }
 }

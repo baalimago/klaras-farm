@@ -97,7 +97,7 @@ Invariants checked by `validateSnapshot` (never throws, returns `{ok}` or `{ok:f
 - `addThing` and `updateThing` keep at most 2 eyes and 8 legs, rounded to 3 decimals.
 - Lowering `settings.maxThings` below a scene's count keeps every thing; `canAddThing` (and Undo of a delete) refuses until the scene is under the cap again.
 - `migrate` keeps a newer readable file's `formatVersion`; `exportSnapshot` restamps it with this app's version.
-- `motion.preset` is validated only as a string. `MOTION_PRESETS` lists walk and float, while `web/data/motions/` also has hop, scuttle and swim, and the parent UI offers hop and scuttle. Nothing reads `MOTION_PRESETS`; update it with the next format change.
+- `motion.preset` is validated only as a string. `MOTION_PRESETS` lists the shipped presets (walk, hop, scuttle, float, swim), the same as `motion/pose.js` `PRESET_IDS`.
 
 ## Tests
 

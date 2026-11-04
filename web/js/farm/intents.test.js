@@ -44,7 +44,11 @@ test("maxThings is a setting from 1 to 12; lowering it keeps the things and only
   valid(s);
   assert.equal(s.things.length, 3);
   assert.equal(I.canAddThing(s, placeId), false);
-  assert.throws(() => I.restoreThing(s, I.deleteThing(s, { thingId: s.things[0].id }, env()).change.removed, env()), { code: "place-full" });
+  // Undo of a delete in a scene over the cap puts the thing back (it only restores a count it had).
+  const del = I.deleteThing(s, { thingId: s.things[0].id }, env());
+  const back = I.restoreThing(del.snapshot, del.change.removed, env()).snapshot;
+  valid(back);
+  assert.equal(back.things.length, 3);
   s = I.updateSettings(s, { patch: { maxThings: 12 } }, env()).snapshot;
   assert.equal(I.canAddThing(s, placeId), true);
   for (const bad of [0, 13, 1.5, "4", null]) assert.throws(() => I.updateSettings(s, { patch: { maxThings: bad } }, env()), { code: "invalid" }, String(bad));
@@ -90,6 +94,34 @@ test("removing a question deletes its recording and moves later recordings up on
   assert.deepEqual(r.writes.map((w) => [w.store, w.op, w.key ?? w.value.id]), [["things", "put", thingId], ["clips", "delete", "p2"], ["clips", "put", "p4"]]);
 });
 
+test("removing a question keeps what each later empty line said (its example becomes its text)", () => {
+  const s = aSnapshot().withPlace(aPlace().withThing(aThing({ cues: { en: { lines: ["", "", ""] } } }))).build();
+  const thingId = s.things[0].id;
+  const examples = ["Where is the hen?", "Can you find the hen?", "Show me the hen!"];
+  const r = I.removeQuestion(s, { thingId, language: "en", index: 0, examples }, env());
+  assert.deepEqual(r.snapshot.things[0].cues.en.lines, ["Can you find the hen?", "Show me the hen!"]);
+  const keepFirst = I.removeQuestion(s, { thingId, language: "en", index: 2, examples }, env());
+  assert.deepEqual(keepFirst.snapshot.things[0].cues.en.lines, ["", ""], "lines before the removed one stay examples");
+});
+
+test("editing or removing a question keeps the chosen article", () => {
+  const s = aSnapshot().withPlace(aPlace().withThing(aThing({ cues: { de: { article: "der", lines: ["", "", ""] } } }))).build();
+  const thingId = s.things[0].id;
+  const edited = I.setQuestionLine(s, { thingId, language: "de", index: 0, text: "Wo ist er?" }, env()).snapshot;
+  assert.equal(edited.things[0].cues.de.article, "der");
+  const removed = I.removeQuestion(edited, { thingId, language: "de", index: 1 }, env()).snapshot;
+  assert.equal(removed.things[0].cues.de.article, "der");
+});
+
+test("questions 4 to 6 can be recorded: prompt takes go up to 6, not past it", () => {
+  let s = aSnapshot().withPlace(aPlace().withThing(aThing({ cues: { en: { lines: ["a", "b", "c", "d", "e", "f"] } } }))).build();
+  const thingId = s.things[0].id;
+  s = I.saveClip(s, { clip: aClip({ thingId, kind: "prompt", take: 6 }).build() }, env()).snapshot;
+  valid(s);
+  assert.deepEqual(I.clipsFor(s, thingId, { kind: "prompt" }).map((c) => c.take), [6]);
+  assert.throws(() => I.saveClip(s, { clip: aClip({ thingId, kind: "prompt", take: 7 }).build() }, env()), { code: "invalid" });
+});
+
 // ---------- colour game clips ----------
 
 test("saveClip keeps colour game clips per language and colour, and replaces the same key", () => {
@@ -125,6 +157,15 @@ test("updateThing keeps recordings when redrawing and rejects unknown colours", 
   assert.equal(r.snapshot.clips.length, 1);
   assert.equal(r.snapshot.things[0].names.en, "Hog");
   assert.throws(() => I.updateThing(s, { thingId: id, patch: { color: "neon" } }, env()), { code: "invalid" });
+});
+
+test("restoreThing never goes past the hard limit of 12 things per scene", () => {
+  let p = aPlace();
+  for (let i = 0; i < 12; i++) p = p.withThing(aThing());
+  const s = aSnapshot().withPlace(p).build();
+  const del = I.deleteThing(s, { thingId: s.things[0].id }, env());
+  const refilled = I.addThing(I.updateSettings(del.snapshot, { patch: { maxThings: 12 } }, env()).snapshot, { placeId: s.places[0].id, outline: square(), color: "red" }, env()).snapshot;
+  assert.throws(() => I.restoreThing(refilled, del.change.removed, env()), { code: "place-full" });
 });
 
 test("deleteThing removes clips and carries what restoreThing needs to undo", () => {

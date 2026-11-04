@@ -29,7 +29,8 @@ export const THING_CLIP_KINDS = Object.freeze(["name", "prompt", "sound"]);
 export const GAME_CLIP_KINDS = Object.freeze(["color-word", "color-question"]);
 export const CLIP_KINDS = Object.freeze([...THING_CLIP_KINDS, ...GAME_CLIP_KINDS]);
 export const BACKDROPS = Object.freeze(["meadow", "sea", "room", "blank"]);
-export const MOTION_PRESETS = Object.freeze(["walk", "float"]);
+/** The shipped motion presets (web/data/motions/, motion/pose.js PRESET_IDS). `motion.preset` is validated only as a string. */
+export const MOTION_PRESETS = Object.freeze(["walk", "hop", "scuttle", "float", "swim"]);
 
 /** @param {import('../types.js').Env} env @param {string} appVersion */
 export function emptySnapshot(env, appVersion = "dev") {

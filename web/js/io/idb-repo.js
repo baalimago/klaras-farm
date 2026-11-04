@@ -6,7 +6,10 @@
 // Store names, keys and the clip uniqueness index are one-way doors. Upgrades are additive only.
 
 export const DB_NAME = "klaras-farm";
-export const DB_VERSION = 1;
+// 2 (format 4): no schema change. The bump makes an older app (format 3) fail to open the database
+// with VersionError and show "update needed", instead of reading format 4 records as corrupt and
+// inviting an import that would replace them.
+export const DB_VERSION = 2;
 const SETTINGS_KEY = "settings";
 const KEYED = { places: "id", things: "id", clips: "id", blobs: "sha256", drafts: "id", meta: "key" };
 const ALL_STORES = ["places", "things", "clips", "blobs", "settings", "drafts", "usage", "meta"];
@@ -69,7 +72,7 @@ function upgrade(db, oldVersion) {
     db.createObjectStore("usage");
     db.createObjectStore("meta", { keyPath: "key" });
   }
-  // Future versions: `if (oldVersion < 2) { ...additive changes... }`
+  // 2: no schema change (see DB_VERSION). Future versions: `if (oldVersion < 3) { ...additive... }`
 }
 
 export class IdbRepo {

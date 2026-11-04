@@ -68,7 +68,8 @@ export class KfDialogElement extends HTMLElement {
           text: undoLabel,
           onclick: () => {
             try {
-              undo();
+              // An undo that is refused or fails to save must not vanish silently.
+              Promise.resolve(undo()).catch((err) => console.error("undo failed", err));
             } finally {
               this._finish(true);
             }

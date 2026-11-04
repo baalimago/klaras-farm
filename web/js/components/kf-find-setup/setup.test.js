@@ -5,7 +5,7 @@ import { initialSetup, nextSetup, isRecording, askSlots, colorMissing, missingTe
 const run = (events, s = initialSetup("color", "en")) => events.reduce(nextSetup, s);
 
 test("starts on the game it was opened for, nothing recording or picked", () => {
-  assert.deepEqual(initialSetup("animal", "sv"), { game: "animal", lang: "sv", recording: null, picked: null, extraAsks: 0 });
+  assert.deepEqual(initialSetup("animal", "sv"), { game: "animal", lang: "sv", recording: null, picked: null, asks: 0, error: null });
   assert.equal(initialSetup("anything", "en").game, "animal");
   assert.equal(initialSetup("color", "en").game, "color");
 });
@@ -31,7 +31,7 @@ test("switching language closes the recorder and the extra slots; the same tab c
   const sv = nextSetup(s, { type: "lang", lang: "sv" });
   assert.equal(sv.lang, "sv");
   assert.equal(sv.recording, null);
-  assert.equal(sv.extraAsks, 0);
+  assert.equal(sv.asks, 0);
   assert.equal(nextSetup(s, { type: "lang", lang: "en" }), s);
 });
 
@@ -54,6 +54,13 @@ test("colour question slots: recorded takes plus added ones, at least 1, at most
   assert.equal(askSlots(run(Array(9).fill({ type: "add-ask" })), [2]), 6);
 });
 
+test("recording into an added slot leaves no empty slot behind; adding after recorded takes adds one", () => {
+  const added = run([{ type: "add-ask", shown: 1 }, { type: "record", slot: { kind: "color-question", take: 2 } }, { type: "saved" }]);
+  assert.equal(askSlots(added, [1, 2]), 2, "take 2 recorded: two slots, not three");
+  const more = run([{ type: "add-ask", shown: 3 }]);
+  assert.equal(askSlots(more, [1, 2, 3]), 4, "three recorded, + Another way to ask shows a fourth");
+});
+
 test("what is missing: the question and the scene's colours without a word, per language", () => {
   const words = [{ language: "en", color: "pink" }, { language: "sv", color: "white" }];
   const m = colorMissing({ needed: ["white", "pink", "red"], words, questions: [{ language: "sv" }], lang: "en" });
@@ -63,4 +70,21 @@ test("what is missing: the question and the scene's colours without a word, per 
   assert.deepEqual(sv, { question: false, colors: [] });
   assert.equal(missingText(sv), null);
   assert.equal(missingText({ question: false, colors: ["red"] }), "Still to record: red.");
+});
+
+test("one animal's question slot is not another's: the recorder opens on one thing only", () => {
+  const s = run([{ type: "record", slot: { kind: "prompt", thingId: "hen", take: 2 } }]);
+  assert.equal(isRecording(s, { kind: "prompt", thingId: "hen", take: 2 }), true);
+  assert.equal(isRecording(s, { kind: "prompt", thingId: "pig", take: 2 }), false);
+  assert.equal(isRecording(s, { kind: "prompt", thingId: "hen", take: 1 }), false);
+});
+
+test("a failed save shows until the parent does something else", () => {
+  let s = run([{ type: "failed", code: "quota" }]);
+  assert.equal(s.error, "quota");
+  assert.equal(run([{ type: "failed", code: "storage" }]).error, "failed");
+  s = nextSetup(s, { type: "saved" });
+  assert.equal(s.error, "quota", "the recorder closing does not hide why the take was lost");
+  s = nextSetup(s, { type: "record", slot: { kind: "color-question", take: 1 } });
+  assert.equal(s.error, null);
 });

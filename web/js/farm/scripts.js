@@ -3,6 +3,8 @@
 //   { "lang": "de", "articles": ["der","die","das"], "templates": ["Wo ist {the} {name}?", …] }
 // Placeholders: {name}; {the} is the chosen article (dropped with its space when there is none).
 
+import { MAX_QUESTIONS } from "./snapshot.js";
+
 export const FALLBACK_LANG = "en";
 
 /**
@@ -26,7 +28,7 @@ export function fillTemplate(template, { name, article = "" }) {
 /** Questions a thing has in a language before the parent adds or removes any (the script examples). */
 export const DEFAULT_QUESTIONS = 3;
 /** The most questions per thing and language (matches MAX_QUESTIONS in snapshot.js). */
-export const MAX_CUE_LINES = 6;
+export const MAX_CUE_LINES = MAX_QUESTIONS;
 
 /**
  * How many questions a thing has in `lang`: the length of the parent's lines, else the default 3.

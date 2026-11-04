@@ -157,6 +157,33 @@ test("find game setup: record a question per animal, edit the example lines free
   assert.deepEqual(page.errors, []);
 });
 
+test("find game setup: typing a question then tapping a button straight away keeps the tap (no lost Done)", async () => {
+  const page = await setupPage("animal");
+  const hen = page.locator(`.kf-fs-thing[data-thing="${await page.evaluate(() => window.__t.hen)}"]`);
+  // No Tab first: the field commits on blur, inside this very tap.
+  await hen.locator('input[name="cue-2"]').fill("Where is my little hen?");
+  await hen.getByRole("button", { name: "+ Add a question" }).click();
+  await hen.locator('input[name="cue-4"]').waitFor({ timeout: 2000 });
+  assert.equal(await page.evaluate(() => window.__t.store.snapshot.things.find((t) => t.id === window.__t.hen).cues.en.lines[1]), "Where is my little hen?");
+  await hen.locator('input[name="cue-1"]').fill("Peekaboo, hen!");
+  await page.getByRole("button", { name: "Done" }).click();
+  assert.equal(await page.evaluate(() => window.__closed), 1, "one tap on Done closes the panel");
+  assert.equal(await page.evaluate(() => window.__t.store.snapshot.things.find((t) => t.id === window.__t.hen).cues.en.lines[0]), "Peekaboo, hen!");
+  assert.deepEqual(page.errors, []);
+});
+
+test("find game setup: while a question records, removing questions waits (it would move the recordings)", async () => {
+  const page = await setupPage("animal");
+  const hen = page.locator(`.kf-fs-thing[data-thing="${await page.evaluate(() => window.__t.hen)}"]`);
+  await hen.locator('.kf-tc-clip[data-take="3"] [data-action="record"]').click();
+  await page.locator("kf-recorder").waitFor();
+  for (let i = 1; i <= 3; i++) assert.equal(await hen.getByRole("button", { name: `Remove question ${i}` }).isDisabled(), true);
+  await page.locator('kf-recorder [data-stub="take"]').click();
+  await page.locator("kf-recorder").waitFor({ state: "detached" });
+  assert.equal(await hen.getByRole("button", { name: "Remove question 2" }).isDisabled(), false);
+  assert.deepEqual(page.errors, []);
+});
+
 test("colour game setup: record the question, tap an animal to record its colour word; missing colours show", async () => {
   const page = await setupPage("color");
   await page.getByRole("heading", { name: "Colour game" }).waitFor();

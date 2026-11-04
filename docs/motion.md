@@ -107,7 +107,6 @@ None. Every function here is a pure function of time and parameters. State (moti
 - Tuning a preset or a block changes the golden pose tables. That diff is the review. Update the table in the same commit.
 - Every preset is loaded at boot. A new preset needs its JSON file, an entry in `PRESET_IDS`, a golden table, and, to offer it to parents, an entry in `MOTIONS`.
 - Mark every preset `ground: true` or `false`. The renderer asks `isGrounded`; never compare preset ids there.
-- `farm/snapshot.js` `MOTION_PRESETS` still lists only walk and float, but validation checks `motion.preset` only as a string, so hop and scuttle things save, export and import.
 - Performance budget on the base iPad (A16): under 2 ms of frame work with 8 things moving. `tests/browser/animals.test.js` runs eight walkers on the real engine and renderer. Blocks are a few `sin` calls each. Keep them that way.
 
 ## Tests

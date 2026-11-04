@@ -34,7 +34,7 @@ Keep this file current: update it in the same commit as any change to this domai
 - `clear()`. `failOn(writes, n)` is a test hook that injects a failure on the nth write.
 - Clips are unique on `[thingId, language, kind, take]`. A batch that breaks this rejects and applies nothing; delete then put in one batch is allowed.
 - Both implementations must pass `tests/contracts/repository.contract.js`.
-- IndexedDB rules: database `klaras-farm` version 1. Hashing and `blob.arrayBuffer()` happen before a transaction opens. One transaction per call; readwrite ones use `durability: 'strict'` and resolve only on `complete`. Blobs are stored as `ArrayBuffer`, never `Blob`. `onversionchange` closes the connection. `openIdbRepo` rejects with IndexedDB's own error (`VersionError` unchanged). Store names, keys and the clip index are one-way doors; upgrades are additive only.
+- IndexedDB rules: database `klaras-farm` version 2 (`DB_VERSION`; version 2 has no schema change, it only makes a format 3 app stop with VersionError and "update needed" instead of misreading format 4 records). The clip `key` index skips colour game clips (null `thingId`), so `saveClip` and validation enforce their uniqueness. Hashing and `blob.arrayBuffer()` happen before a transaction opens. One transaction per call; readwrite ones use `durability: 'strict'` and resolve only on `complete`. Blobs are stored as `ArrayBuffer`, never `Blob`. `onversionchange` closes the connection. `openIdbRepo` rejects with IndexedDB's own error (`VersionError` unchanged). Store names, keys and the clip index are one-way doors; upgrades are additive only.
 
 ### AudioEngine (`audio.js`)
 
