@@ -43,7 +43,7 @@ Elements (one folder per tag):
 Helper modules inside element folders:
 
 - `kf-dialog/dom.js`: `h()` DOM builder, `newId`, `plural`, `joinAnd`, `swatches`, `reportFailure`, `languageName`.
-- `kf-dialog/press-guard.js`: `pressGuard(el, render)`. `request()` renders now, or, while a press is in progress inside `el`, once that press's click has run (fallback `RELEASE_MS` 400 ms after pointerup, or at pointercancel). The thing card and the find setup route store-driven renders through it, because a text field commits on blur inside the tap and a rebuild before `click` would swallow the tap. Both also keep their sheet's scroll position across renders.
+- `kf-dialog/press-guard.js`: `pressGuard(el, render)`. `request()` renders now, or, while a press is in progress inside `el`, once that press's click has run (fallback `RELEASE_MS` 400 ms after pointerup, or at pointercancel); a press whose target has left the DOM (a hold that closed an overlay) holds nothing. The thing card and the find setup route store-driven renders through it, because a text field commits on blur inside the tap and a rebuild before `click` would swallow the tap. Both also keep their sheet's scroll position across renders.
 - `kf-dialog/feedback.js`: `editSound(services, kind)`, the one helper every edit action plays its sound through (unlocks audio, then `audio.chime(kind)`; never throws). Kinds are `dsp/chimes.js` `EDIT_CHIMES` plus `poof` for a delete.
 - `kf-guided-add/`: `dom.js` (`h`, `ensureElement`), `drawing.js` (`ShapeDrawing`, pure: up to 6 shapes merged with `geometry/union.js`, each editable, with an undo history), `shape-edit.js` (pure shape editing state machine), `shape-editor.js` (`ShapeEditor`, the shape editing UI over the pad), `guide.js` (the "Draw the body only" guidance with its picture), `eyes.js` (`EyeStamper`, `attachEyeDrag`), `legs.js` (`LegPlacer`, a view over `edit/leg-flow.js`), `preview.js` (`ThingPreview`; `legMarkRadius(thing, count)` shrinks the numbered leg rings above 4 legs to fit the spread spacing, while taps still use `legRadius`), `steps.js` (pure step helpers; `cleanCues` keeps every question line, dropping only three empty ones), `draft-questions.js` (pure: `setDraftLine`, `addDraftQuestion`, `removeDraftQuestion`, `draftClips`, the store's question rules applied to a draft's cues and clips), `geometry.js` and `shape.js` (geometry loader and fallback).
 - `kf-scene-tools/pieces.js` (pure hit testing, moving, resizing (`resizeScale`, `scaleStroke`, `strokeBox`) and reordering (`sendToBack`) of pieces), `kf-scenes/thumbnail.js`, `kf-thing-card/languages.js`.
@@ -180,7 +180,7 @@ Helper modules inside element folders:
 
 ## Tests
 
-- Unit (Node, `npm test`): pure helpers next to their element: `kf-guided-add/drawing.test.js`, `draft-questions.test.js`, `shape-edit.test.js`, `shape.test.js`, `steps.test.js`, `kf-scene-tools/pieces.test.js`, `kf-find-buttons/press.test.js`, `kf-find-setup/setup.test.js`.
+- Unit (Node, `npm test`): pure helpers next to their element: `kf-dialog/press-guard.test.js`, `kf-guided-add/drawing.test.js`, `draft-questions.test.js`, `shape-edit.test.js`, `shape.test.js`, `steps.test.js`, `kf-scene-tools/pieces.test.js`, `kf-find-buttons/press.test.js`, `kf-find-setup/setup.test.js`.
 - Browser (`npm run test:browser`, Playwright Chromium against the real Python app):
   - `app.test.js`: the whole app booted and driven like a parent and a child.
   - `package-a.test.js`: `kf-board` and `kf-draw-pad`.

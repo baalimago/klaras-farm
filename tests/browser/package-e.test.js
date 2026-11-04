@@ -112,7 +112,7 @@ describe("IdbRepo specifics", () => {
       return { ...res, blobRejected };
     });
     assert.deepEqual(out, {
-      version: 1,
+      version: 2, // DB_VERSION 2 (format 4): no schema change, it stops a format 3 app with VersionError
       stores: ["blobs", "clips", "drafts", "meta", "places", "settings", "things", "usage"],
       thingIndexes: ["placeId"],
       clipIndexes: ["key", "thingId"],
@@ -126,14 +126,14 @@ describe("IdbRepo specifics", () => {
 
   it("closes when another window upgrades, then a newer database rejects with VersionError unchanged", async () => {
     const out = await page.evaluate(async () => {
-      const { openIdbRepo } = await import("./js/io/idb-repo.js");
+      const { openIdbRepo, DB_VERSION } = await import("./js/io/idb-repo.js");
       let changed = 0;
       const repo = await openIdbRepo({ name: "versions", onVersionChange: () => changed++ });
       await repo.write([{ store: "meta", op: "put", value: { key: "k", value: 1 } }]);
       // A newer app version in another window: its upgrade must not be blocked by us.
       let blocked = 0;
       await new Promise((ok, fail) => {
-        const r = indexedDB.open("versions", 2);
+        const r = indexedDB.open("versions", DB_VERSION + 1);
         r.onblocked = () => blocked++;
         r.onsuccess = () => { r.result.close(); ok(); };
         r.onerror = () => fail(r.error);

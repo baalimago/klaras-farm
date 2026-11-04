@@ -6,7 +6,8 @@
 // Contract: request() renders now when no press is in progress inside `el`; otherwise it renders
 // once, right after that press's click has run its handler (or, when no click follows, after
 // RELEASE_MS from pointerup, or at pointercancel). The screen still follows the state within one
-// tap; nothing is dropped. flush() renders a pending request at once.
+// tap; nothing is dropped. A press whose target has left the DOM (a hold that closed an overlay)
+// holds nothing: no click can land on it. flush() renders a pending request at once.
 
 /** How long after pointerup a pending render waits for a click that may not come (a drag away). */
 export const RELEASE_MS = 400;
@@ -18,24 +19,33 @@ export const RELEASE_MS = 400;
  */
 export function pressGuard(el, render, timers = globalThis) {
   let down = false;
+  let target = null;
   let pending = false;
   let timer = 0;
   const flush = () => {
     timers.clearTimeout(timer);
     down = false;
+    target = null;
     if (!pending) return;
     pending = false;
     render();
   };
-  el.addEventListener("pointerdown", (e) => { if (e.isPrimary !== false) down = true; }, true);
+  el.addEventListener("pointerdown", (e) => {
+    if (e.isPrimary === false) return;
+    down = true;
+    target = e.target;
+  }, true);
   el.addEventListener("pointerup", () => { timers.clearTimeout(timer); timer = timers.setTimeout(flush, RELEASE_MS); }, true);
   el.addEventListener("pointercancel", flush, true);
   // Bubble phase on the host: the button's own click handler has already run on the old DOM.
   el.addEventListener("click", () => queueMicrotask(flush));
   return {
     request() {
-      if (down) pending = true;
-      else render();
+      if (down && target?.isConnected !== false) pending = true;
+      else {
+        pending = false;
+        render();
+      }
     },
     flush,
     get pressing() { return down; },
