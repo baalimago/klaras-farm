@@ -25,10 +25,10 @@ Elements (one folder per tag):
 - `kf-hold-ring`: felt ring that fills during hold-to-edit; created by `session.js`, attribute driven.
 - `kf-adult-check`: the parental gate (keypad code or sum, keys at least 64 px).
 - `kf-edit-layer`: edit bar (Scenes, Change scene, + Add, Settings, Done) and per-thing badges.
-- `kf-guided-add`: add a thing in eight steps: Draw, Felt, Eyes, Legs, Moves, Name, Ask, Sound.
+- `kf-guided-add`: add a thing in eight steps. The step bar reads Body, Felt, Eyes, Legs, Moves, Name, Ask, Sound (the first step's id is still `draw`).
 - `kf-thing-card`: one card per thing: languages, names, clips, cues, colour, motion, Redraw, Re-stamp eyes, Place legs, Delete.
 - `kf-recorder`: one recording slot; keeps every passing take and offers Play and Re-record.
-- `kf-draw-pad`: overlay that captures one stroke at a time (`outline`, `shape`, `yarn`).
+- `kf-draw-pad`: overlay that captures one stroke at a time (`outline`, `shape`, `yarn`); a touch too short to be a stroke is reported as `kf-tap`.
 - `kf-scenes`: the scenes shelf with felt thumbnails, switch, rename, delete, new scene.
 - `kf-scene-tools`: change the scene: Shape, Yarn, Paint, Move, Delete, Undo.
 - `kf-settings`: languages, sleep timer, gate kind, music, export and import, storage, delete all data, update, version.
@@ -38,7 +38,7 @@ Elements (one folder per tag):
 Helper modules inside element folders:
 
 - `kf-dialog/dom.js`: `h()` DOM builder, `newId`, `plural`, `joinAnd`, `swatches`, `reportFailure`, `languageName`.
-- `kf-guided-add/`: `dom.js` (`h`, `ensureElement`), `drawing.js` (`ShapeDrawing`, up to 6 shapes merged with `geometry/union.js`), `eyes.js` (`EyeStamper`, `attachEyeDrag`), `legs.js` (`LegPlacer`, a view over `edit/leg-flow.js`), `preview.js` (`ThingPreview`), `steps.js` (pure step helpers), `geometry.js` and `shape.js` (geometry loader and fallback).
+- `kf-guided-add/`: `dom.js` (`h`, `ensureElement`), `drawing.js` (`ShapeDrawing`, pure: up to 6 shapes merged with `geometry/union.js`, each editable, with an undo history), `shape-edit.js` (pure shape editing state machine), `shape-editor.js` (`ShapeEditor`, the shape editing UI over the pad), `guide.js` (the "Draw the body only" guidance with its picture), `eyes.js` (`EyeStamper`, `attachEyeDrag`), `legs.js` (`LegPlacer`, a view over `edit/leg-flow.js`), `preview.js` (`ThingPreview`), `steps.js` (pure step helpers), `geometry.js` and `shape.js` (geometry loader and fallback).
 - `kf-scene-tools/pieces.js` (pure hit testing and moving of pieces), `kf-scenes/thumbnail.js`, `kf-thing-card/languages.js`.
 
 ## Public API / contracts
@@ -50,7 +50,7 @@ Helper modules inside element folders:
 - Services are injected as a property before connecting: `el.services = services`, and panels also get `el.params`. Elements must not import `main.js` or reach for globals.
 - Components read state from `services.store`, `services.session` and `services.engine`, and change it only through store intents and session methods.
 - A panel dispatches `kf-close` (bubbling) when done. The Shell then calls `session.closePanel()`.
-- Other events: `kf-thing-tap {thingId}` (board, edit mode), `kf-stroke {points, closed}` and `kf-stroke-open {points, gap}` (draw pad), `kf-recorded {clip, blob}` (recorder), `kf-added {thingId}` (guided add).
+- Other events: `kf-thing-tap {thingId}` (board, edit mode), `kf-stroke {points, closed}`, `kf-stroke-open {points, gap}` and `kf-tap {point}` (draw pad), `kf-recorded {clip, blob}` (recorder), `kf-added {thingId}` (guided add).
 - Lazy children: guided add and thing card load `kf-draw-pad` and `kf-recorder` with `ensureElement(tag, () => import(define.js))`.
 
 ### Shell
@@ -97,6 +97,20 @@ Helper modules inside element folders:
 ### kf-settings
 
 - Re-renders on every store change. The sheet's scroll position and which Help sections are open are view state kept in the element (`_scrollTop`, `_openHelp`) and restored on each render, so a change never jumps the sheet back to the top.
+### Drawing a body (guided add Draw step, thing card Redraw)
+
+- Both screens show `bodyGuide()` (guide.js): "Draw the body only. Eyes and legs come next." with a small SVG of a body without legs (`data-testid="body-guide"`). The Redraw copy says the eyes and legs come back by themselves.
+- The drawing is a `ShapeDrawing` (drawing.js). Redraw starts from the thing's outline as shape 1, scaled to `DRAWING_SIZE`, and it is editable like any shape. The stored Thing keeps ONE outline (the merged drawing fitted to `THING_SIZE`); the separate shapes live only while the screen is open (guided add keeps them across Back and Next), never in the draft or the snapshot.
+- `ShapeDrawing`: `add(points)`, `addOpen(points, {replace})` (an open stroke whose ends lie in other shapes, closed through them by `geometry/join.js`), `replace(i, points)`, `remove(i)`, `transform(i, {dx, dy, k})` (scale about the shape's box centre, clamped so its longer side stays 0.04 to 1.2), `clear()`, `undo()` (takes back the last change of any kind, Start over included; up to 50), `hit(pt, tol)` (smallest shape under the point), `merged` and `mergedWithout(i)` (both cached until the next change), `canUndo`, `count`, `full`.
+- `ShapeEditor` (shape-editor.js) is shared by both screens. Its mode is the pure reducer `editReducer` in shape-edit.js:
+  - `idle`: strokes draw new shapes; `kf-tap` on a shape selects it.
+  - `selected`: the shape has an orange stitch, a dashed box and a 56 px round resize handle (on the bottom-right corner, or the next corner a panel does not cover). The row "Draw it again" / "Delete shape" shows. Drag inside the box (grown by 28 px) to move; drag the handle or pinch to resize; a press on another shape picks that one; a press on nothing deselects.
+  - `dragging`: `gesture = {kind: move|resize|pinch|hold, t, lifted}`. On release the transform is committed with `ShapeDrawing.transform`.
+  - `redrawing`: "Draw it again" pressed; the next stroke (closed, or open and joined) takes the shape's place. Pressing again keeps the shape.
+  - `warn`: an open stroke that could not be joined shows "Close the outline: end where you started, or end inside the body." until the next accepted change.
+  - Every event dispatches and `render()` draws buttons, handle and outlines from the state; hosts render their notes from `noteText()` in the `onRender` callback.
+- Its layer sits inside the `kf-draw-pad`. With a shape selected the layer takes the touches (a gesture is followed on `window`, so it continues over the panel); otherwise touches go to the pad.
+- No lag: `unionOutlines` runs only on commit (stroke end, drag end). During a drag the host paints `mergedWithout(i)` once and the overlay canvas repaints the moving shape (a flat fill) once per animation frame.
 
 ### kf-recorder
 
@@ -132,7 +146,7 @@ Helper modules inside element folders:
 
 ## Tests
 
-- Unit (Node, `npm test`): pure helpers next to their element: `kf-guided-add/drawing.test.js`, `shape.test.js`, `steps.test.js`, `kf-scene-tools/pieces.test.js`.
+- Unit (Node, `npm test`): pure helpers next to their element: `kf-guided-add/drawing.test.js`, `shape-edit.test.js`, `shape.test.js`, `steps.test.js`, `kf-scene-tools/pieces.test.js`.
 - Browser (`npm run test:browser`, Playwright Chromium against the real Python app):
   - `app.test.js`: the whole app booted and driven like a parent and a child.
   - `package-a.test.js`: `kf-board` and `kf-draw-pad`.
@@ -142,6 +156,7 @@ Helper modules inside element folders:
   - `package-f2.test.js`: scenes, scene tools, settings, welcome, dialogs (`tests/browser/stubs/f2-stubs.js`).
   - `shapes.test.js`: multi-shape drawing in guided add and Redraw. `legs.test.js`: leg placing and format migration.
   - `playtest2.test.js`: the playtest 2 bugs, each element mounted alone: changing the leg count while placing, eight close legs, drag, Undo, Clear, Spread evenly, stray taps; the eye screen's way out and hint; thing card and settings edits visible in the same task with a slow disk; an overlay surviving a focus change.
+  - `shapes.test.js`: multi-shape drawing in guided add and Redraw; the body guidance and step bar; selecting, moving, resizing, deleting and redrawing a shape, Undo and Start over; an open stroke inside the body joins it; Redraw opens with the body as an editable shape. `legs.test.js`: leg placing and format migration.
 - Harness: `tests/browser/harness.js` gives `setup({fakeMedia})`, `newPage()` (boots the app and waits for `data-ready`) and `modulePage(html)` (base and CSS only). Elements written into `modulePage` HTML do not upgrade; import `define.js` and create them with `document.createElement`, then set `services` before appending.
 - `tests/unit/docs.test.js` checks that each domain has its doc and that `CLAUDE.md` links to `AGENTS.md`.
 - Device-only checks go in `tests/manual-ipad.md`.

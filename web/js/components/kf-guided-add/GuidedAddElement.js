@@ -1,5 +1,5 @@
 // <kf-guided-add>: add a thing in eight steps (flow 1; US-3.1–3.5, 3.10, 4.1, 4.2, 4.8).
-// Draw (one or more shapes glued into one outline) → Felt → Eyes → Legs → Moves → Name → Ask → Sound, with a step bar, Back and ✕ (Keep draft / Discard)
+// Body (draw one or more shapes, glued into one outline, each editable) → Felt → Eyes → Legs → Moves → Name → Ask → Sound, with a step bar, Back and ✕ (Keep draft / Discard)
 // on every step. The draft is saved after every step and every kept recording, and an open draft for
 // the place is resumed. Props: `services`, `params = {placeId?, at?: [x, y], holdMs?}`.
 // Events: `kf-close` when done (bubbles), `kf-added {thingId}` after a thing was added.
@@ -12,6 +12,8 @@ import { loadGeometry, snapPoint } from "./geometry.js";
 import { ThingPreview, viewFor, FULL_VIEW } from "./preview.js";
 import { EyeStamper, attachEyeDrag } from "./eyes.js";
 import { ShapeDrawing } from "./drawing.js";
+import { ShapeEditor } from "./shape-editor.js";
+import { bodyGuide } from "./guide.js";
 import { LegPlacer } from "./legs.js";
 import { THING_COLORS, hex } from "../../farm/palette.js";
 import { cueLines } from "../../farm/scripts.js";
@@ -44,6 +46,7 @@ export class GuidedAddElement extends HTMLElement {
 
   disconnectedCallback() {
     this._stamper?.unmount();
+    this._editor?.detach();
   }
 
   get step() { return STEPS[this.draft?.step ?? 0]; }
@@ -89,6 +92,8 @@ export class GuidedAddElement extends HTMLElement {
     this._stamper = null;
     this._legs?.detach();
     this._legs = null;
+    this._editor?.detach();
+    this._editor = null;
     this.replaceChildren();
     const step = this.step;
     const index = this.draft.step;
@@ -118,11 +123,7 @@ export class GuidedAddElement extends HTMLElement {
     const motion = step === "moves" ? this.thing.motion?.preset : null;
     this.preview.canvas.classList.toggle("walk", motion === "walk");
     this.preview.canvas.classList.toggle("float", motion === "float");
-    if (step === "draw") {
-      // the shapes so far, merged, at the size they were drawn, in felt (tan until a felt is picked)
-      const outline = this._drawing?.merged ?? [];
-      return this.preview.draw({ ...this.thing, outline: outline.length ? outline : null, eyes: [], legs: [], color: this.thing.color ?? DRAW_FELT }, { backdrop: false });
-    }
+    if (step === "draw") return this._paintDrawing(this._drawing?.merged);
     if (step === "legs" && this._legs) return this._legs.redraw();
     return this.preview.draw(this.thing, { backdrop: false });
   }
@@ -172,7 +173,7 @@ export class GuidedAddElement extends HTMLElement {
   // ---------- steps ----------
 
   _step_draw(panel) {
-    // Several shapes, glued into one outline (drawing.js): every closed stroke is another shape.
+    // Several shapes, glued into one outline (drawing.js); each stays editable (shape-editor.js).
     this._drawing ??= ShapeDrawing.fromOutline(this.thing.outline);
     const drawing = this._drawing;
     const pad = document.createElement("kf-draw-pad");
@@ -182,43 +183,42 @@ export class GuidedAddElement extends HTMLElement {
     pad.services = this.services;
     pad.classList.add("kf-ga-pad");
     this.stage.append(pad);
-    const warn = h("p", { class: "kf-warning", role: "status", hidden: true, text: "Close the outline: the two ends are too far apart. Draw it again." });
     const note = h("p", { class: "kf-note" });
     const status = h("p", { class: "kf-note kf-ga-shapes", role: "status" });
     const next = this._nextBtn();
-    const add = h("button", { class: "kf-btn", type: "button", text: "+ Add a shape", "data-action": "add-shape", onclick: () => { addHint = true; sync(); } });
-    const undo = h("button", { class: "kf-btn", type: "button", text: "Undo last shape", "data-action": "undo-shape", onclick: () => { if (drawing.undo()) this._applyDrawing(); addHint = false; sync(); } });
-    let addHint = false;
     const sync = () => {
       const n = drawing.count;
-      note.textContent = !n
+      note.textContent = editor.noteText() ?? (!n
         ? "Draw a big shape with a finger or a pencil. Small gaps close by themselves."
-        : addHint && !drawing.full
-          ? "Draw the next shape on the board, touching the others: a head, ears, a tail…"
-          : "Add more shapes that touch it, like a head or ears. They stick together into one.";
+        : "Add a head or ears that touch it, or start and end a line inside the body. Tap a shape to change it.");
       status.textContent = !n ? "" : drawing.full ? `${n} shapes: that's the most.` : n === 1 ? "1 shape" : `${n} shapes`;
       status.hidden = !n;
-      add.disabled = !n || drawing.full;
-      undo.disabled = !n;
       next.disabled = !canAdvance("draw", this.thing);
     };
-    pad.addEventListener("kf-stroke", (e) => {
-      const pts = e.detail?.points;
-      if (!Array.isArray(pts) || pts.length < 3) return;
-      warn.hidden = true;
-      addHint = false;
-      if (drawing.add(pts)) this._applyDrawing();
-      sync();
+    const editor = new ShapeEditor({
+      drawing,
+      pad,
+      color: this.thing.color ?? DRAW_FELT,
+      paint: (outline) => this._paintDrawing(outline),
+      onChange: () => this._applyDrawing(),
+      onRender: sync,
     });
-    pad.addEventListener("kf-stroke-open", () => { warn.hidden = false; });
-    sync();
+    this._editor = editor;
     fill(panel,
-      h("h2", { text: "Draw its shape" }),
+      h("h2", { text: "Draw the body" }),
+      bodyGuide(),
       note,
       status,
-      warn,
-      h("div", { class: "kf-row end" }, add, undo, next),
+      editor.warn,
+      editor.selectionRow,
+      h("div", { class: "kf-row end" }, editor.undoBtn, editor.restartBtn, next),
     );
+    editor.mount();
+  }
+
+  /** The drawing so far, at the size it was drawn, in felt (tan until a felt is picked). */
+  _paintDrawing(outline) {
+    return this.preview.draw({ ...this.thing, outline: outline?.length ? outline : null, eyes: [], legs: [], color: this.thing.color ?? DRAW_FELT }, { backdrop: false });
   }
 
   /** Fits the merged drawing to thing size at the spot and keeps the eyes on it, then repaints. */

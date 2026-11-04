@@ -11,6 +11,7 @@ Live: https://klaras-farm.wasmer.app
 - **Music:** a soft generated lullaby plays under play (starts with the first tap), dips while a name is said, and fades out in edit mode and when the things fall asleep. Switch it off in Settings → Play.
 - **Edit mode (grown-ups):** press and hold an empty spot or a thing for 1.5 s, then tap the code shown. Things wiggle; pencil edits, cross deletes. The bar has Scenes, Change scene, + Add, Settings and Done. Edit mode closes by itself after a minute.
 - **Eyes and legs:** when adding a thing, Klara stamps the eyes by tapping; hold Done (or Cancel) at the top for 1 second to take over. For legs, pick how many (0 to 8), then tap where each goes or tap Spread evenly; drag a leg to move it, Undo and Clear are there, and you can pick another number at any time. The thing card has Re-stamp eyes and Place legs.
+- **Drawing a thing:** draw the body only; eyes and legs come in later steps. Add a head or ears as more shapes that touch it, or draw a line that starts and ends inside the body. Tap a shape to move it, make it bigger or smaller (round handle or pinch), draw it again or delete it. Undo takes back the last change; Start over clears the drawing.
 - **Settings:** languages (one, or "Mix languages" for a random recorded language on each tap), sleep timer, adult-check kind, export/import (share sheet), privacy, Guided Access guide, delete all data.
 
 ## Run locally

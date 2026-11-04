@@ -4,6 +4,8 @@
 // Emits (bubbling, composed):
 //   kf-stroke       {points, closed}   board coords, simplified and smoothed; outline/shape are closed loops
 //   kf-stroke-open  {points, gap:{a,b}}  outline/shape whose ends are too far apart; both ends stay highlighted
+//                   until the next stroke or clear() (a listener that accepts the stroke calls clear())
+//   kf-tap          {point}           a touch too short to be a stroke (shape editing selects with it)
 // Placement: with `services.board` (and no `inline` attribute) it sits exactly over the board; otherwise it
 // fills its own box and treats the largest centred 4:3 rect in it as the board.
 import { hex, INK } from "../../farm/palette.js";
@@ -169,7 +171,11 @@ export class KfDrawPadElement extends HTMLElement {
 
   /** Turns raw board points into a stroke event. */
   _finish(raw) {
-    if (pathLength(raw) < MIN_LENGTH) { this.clear(); return; }
+    if (pathLength(raw) < MIN_LENGTH) {
+      this.clear();
+      this._emit("kf-tap", { point: raw[0] });
+      return;
+    }
     if (this.mode === "yarn") {
       const pts = dedupe(roundPoints(simplify(smooth(simplify(raw, 0.002), 2), 0.0008)));
       this.clear();
