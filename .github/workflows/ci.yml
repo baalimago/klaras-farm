@@ -1,23 +1,32 @@
 name: CI
+# Deploys are gated on tests: work is pushed to `develop`; when every check below passes,
+# the `promote` job fast-forwards `main` to that commit, and Wasmer deploys `main`.
+# Never push to `main` by hand (AGENTS.md, "Running and deploying").
 on:
   push:
-    branches: [main]
+    branches: [develop, main]
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Pinned: Playwright's Chromium needs a supported Ubuntu (ubuntu-latest moved past it).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-node@v5
         with:
           node-version: "22"
       - name: Install
         run: |
           uv sync --locked
-          npm install --no-save playwright@1.56.1
+          npm install --no-save playwright@1.63.0
           npx playwright install --with-deps chromium
       - name: Python lint and format (ruff)
         run: |
@@ -32,5 +41,26 @@ jobs:
         run: npm test
       - name: Backend unit and e2e tests with coverage (fails under 70%)
         run: uv run pytest -q
-      - name: Browser tests (Chromium against the real Python app)
+      - name: Browser tests (Playwright, Chromium against the real Python app)
         run: uv run npm run test:browser
+
+  promote:
+    # Only a fully green develop reaches main (and so the live app).
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Fast-forward main to the tested commit
+        run: |
+          git fetch origin main
+          if git merge-base --is-ancestor origin/main "$GITHUB_SHA"; then
+            git push origin "$GITHUB_SHA:refs/heads/main"
+          else
+            echo "::error::main has commits that are not on develop; merge main into develop first."
+            exit 1
+          fi

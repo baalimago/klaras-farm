@@ -74,6 +74,7 @@ Use Astral's tools for everything Python:
 ## Running and deploying
 
 - Run anything in a sandbox or CI, not on the owner's machine. `uv sync && uv run python main.py` serves on port 8000.
-- `main` auto-deploys to Wasmer Edge (`python main.py`, uvicorn). After pushing, check the live asset hash in `<base href>` of https://klaras-farm.wasmer.app matches a local run, and that `/healthz` is ok.
+- **Deploys are gated on the tests, including Playwright.** Push work to `develop`, never to `main`. CI runs every suite on `develop`; only when all pass does its `promote` job fast-forward `main`, and `main` auto-deploys to Wasmer Edge (`python main.py`, uvicorn). Run the suites locally first anyway, and add a Playwright test for every interaction feature or bug fix.
+- After a promote, check the live asset hash in `<base href>` of https://klaras-farm.wasmer.app matches a local run, and that `/healthz` is ok.
 - Client errors from devices are posted to `/api/client-log` and appear in the Wasmer app logs as `client-log ...` lines. Read them before guessing at device-only bugs.
 - Database migrations run as a deploy step (`uv run python -m backend.migrate`), never on boot.
