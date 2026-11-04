@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { starterSnapshot, baseLanguage } from "./starter.js";
-import { validateSnapshot, MAX_THINGS_PER_PLACE } from "../farm/snapshot.js";
+import { validateSnapshot, DEFAULT_MAX_THINGS } from "../farm/snapshot.js";
 import { pointInPolygon, bbox, signedArea } from "../geometry/stroke.js";
 import { fixedEnv } from "../../../tests/builders.js";
 import { starterJson, STARTER_PATH, STARTER_MAX, buildStarter } from "../../../tools/make-starter.mjs";
@@ -18,10 +18,8 @@ test("starter.json is what tools/make-starter.mjs generates", () => {
 
 test("the template itself is a valid snapshot", () => {
   assert.deepEqual(validateSnapshot(template), { ok: true });
-  // the eight-thing scenes are valid too, apart from a per-place cap below eight
-  const v = validateSnapshot(full);
-  if (MAX_THINGS_PER_PLACE >= 8) assert.deepEqual(v, { ok: true });
-  else assert.match(v.error, /more than/);
+  // the full eight-thing scenes are valid too
+  assert.deepEqual(validateSnapshot(full), { ok: true });
 });
 
 test("starterSnapshot gives fresh ids and passes validateSnapshot", () => {
@@ -55,7 +53,7 @@ const full = buildStarter({ maxPerPlace: 8 });
 const namesIn = (s) => Object.fromEntries(s.places.map((p) => [p.name, p.thingOrder.map((id) => s.things.find((t) => t.id === id).names.en)]));
 
 test("Farm, Sea and Kitchen with the planned things, as many as a place may hold", () => {
-  assert.equal(STARTER_MAX, Math.min(8, MAX_THINGS_PER_PLACE - 1), "room left for the first own thing");
+  assert.equal(STARTER_MAX, Math.min(8, DEFAULT_MAX_THINGS - 1), "room left for the first own thing");
   const expected = Object.fromEntries(Object.entries(DESIGNED).map(([k, v]) => [k, v.slice(0, STARTER_MAX)]));
   assert.deepEqual(namesIn(template), expected);
   assert.deepEqual(namesIn(full), DESIGNED, "with room for eight, every designed thing is there");
@@ -69,7 +67,7 @@ test("Farm, Sea and Kitchen with the planned things, as many as a place may hold
   assert.equal(motion.Octopus, "float");
   const shipped = readdirSync(new URL("../../data/motions/", import.meta.url)).map((f) => f.replace(/\.json$/, ""));
   for (const t of full.things) assert.ok(shipped.includes(t.motion.preset), `${t.names.en}: ${t.motion.preset} ships`);
-  for (const p of template.places) assert.ok(p.thingOrder.length <= MAX_THINGS_PER_PLACE);
+  for (const p of template.places) assert.ok(p.thingOrder.length <= DEFAULT_MAX_THINGS);
 });
 
 test("every starter thing has its real number of legs, hips inside the body near the bottom", () => {

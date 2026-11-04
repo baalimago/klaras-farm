@@ -221,6 +221,13 @@ test("settings: sleep timer, languages with alternate, adult check kind", async 
 
   await s.getByLabel("Adult check").selectOption("sum");
   await until(page, () => window.services.store.settings.gateKind === "sum");
+
+  // Things per scene: 8 by default, 1 to 12; the store's cap follows at once.
+  assert.equal(await s.getByLabel("Things per scene").inputValue(), "8");
+  assert.equal(await s.getByLabel("Things per scene").locator("option").count(), 12);
+  await s.getByLabel("Things per scene").selectOption("3");
+  await until(page, () => window.services.store.maxThings === 3);
+  assert.equal(await s.getByLabel("Things per scene").inputValue(), "3", "the screen shows the saved value");
   assert.match(await s.textContent(), /test-1/, "shows the app version");
 });
 

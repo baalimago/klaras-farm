@@ -13,13 +13,13 @@ import { simplify, smooth, snapInside, pointInPolygon, signedArea } from "../web
 import * as snapshot from "../web/js/farm/snapshot.js";
 import { bottomAt } from "../web/js/farm/legs.js";
 
-const { roundPoints, FORMAT_VERSION, MIN_READER_FORMAT } = snapshot;
+const { roundPoints, FORMAT_VERSION, MIN_READER_FORMAT, DEFAULT_MAX_THINGS } = snapshot;
 /**
  * The most things a starter scene holds. The scenes list up to eight (meeting 2: "eight animals is
  * more fun"), best spread first, and keep as many as the snapshot allows per place while leaving
  * room for the parent's first own thing (a full scene would refuse "+ Add" on day one).
  */
-export const STARTER_MAX = Math.min(8, (snapshot.MAX_THINGS_PER_PLACE ?? 9) - 1);
+export const STARTER_MAX = Math.min(8, DEFAULT_MAX_THINGS - 1);
 
 // Shapes are designed on a virtual 1200 × 900 board (4:3, square pixels), then normalised to 0..1.
 const VW = 1200, VH = 900;
@@ -361,7 +361,7 @@ export function buildStarter({ maxPerPlace = STARTER_MAX } = {}) {
   ];
   return {
     formatVersion: FORMAT_VERSION, minReaderFormat: MIN_READER_FORMAT, appVersion: "starter", exportedAt: T0, deviceId: "starter",
-    settings: { languages: ["en"], playLanguage: "alternate", sleepMinutes: 8, gateKind: "keypad", reduceMotion: false, currentPlaceId: "place-farm", welcomed: false, updatedAt: T0 },
+    settings: { languages: ["en"], playLanguage: "alternate", sleepMinutes: 8, gateKind: "keypad", reduceMotion: false, maxThings: DEFAULT_MAX_THINGS, currentPlaceId: "place-farm", welcomed: false, updatedAt: T0 },
     places,
     things: [...farmThings, ...seaThings, ...kitchenThings],
     clips: [],

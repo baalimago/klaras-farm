@@ -1,4 +1,5 @@
 { "lang": "sv", "articles": [], "templates": ["Var är {name}?", "Kan du hitta {name}?", "Visa mig {name}!"],
-  "note": "Use the definite form when typing the name, e.g. hunden, katten. Colour words are neuter to fit 'något'.",
-  "colorTemplates": ["Hitta något {color}!", "Var finns något {color}?", "Kan du hitta något {color}?"],
+  "note": "Use the definite form when typing the name, e.g. hunden, katten. Colour words are neuter to fit 'ett djur'.",
+  "colorQuestion": "Tryck på ett djur som är…",
+  "colorTemplates": ["Tryck på ett djur som är {color}!", "Vilket djur är {color}?", "Kan du hitta ett djur som är {color}?"],
   "colors": { "red": "rött", "orange": "orange", "yellow": "gult", "green": "grönt", "blue": "blått", "purple": "lila", "pink": "rosa", "brown": "brunt", "white": "vitt", "grey": "grått", "black": "svart" } }

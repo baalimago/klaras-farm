@@ -19,7 +19,7 @@ Edit is how a grown-up gets from the toddler's play board into edit mode and bac
 ### Session state (`edit/session.js`)
 
 ```
-state = {mode: 'play'|'gate'|'edit'|'scene', panel: null | {name, params}, lastActivityAt, graceUntil}
+state = {mode: 'play'|'gate'|'edit'|'scene', panel: null | {name, params}, then: null | {name, params}, lastActivityAt, graceUntil}
 
 play ──hold-armed──▶ gate ──gate-pass──▶ edit ⇄ scene ──done──▶ play
   │                   └──gate-fail──▶ play        (scene-tools / scene-done)
@@ -29,9 +29,9 @@ edit|scene ──tick, 60 s no activity, no panel──▶ play, grace for 5 min
 
 - `AUTO_CLOSE_MS = 60000`, `GRACE_MS = 300000`.
 - `initialSession(nowMs)`, `nextSession(state, event, nowMs)`. Returns the same object when nothing changed.
-- Events: `hold-armed`, `gate-pass`, `gate-fail`, `done` (to play, clears grace), `activity`, `open-panel {name, params}`, `close-panel`, `scene-tools` (edit to scene), `scene-done` (scene to edit), `tick`, `play-tap` (cancels grace).
+- Events: `hold-armed {then?}` (a panel to open once in: the find buttons pass `find-setup`), `gate-pass` (opens `then` as the panel), `gate-fail`, `done` (to play, clears grace), `activity`, `open-panel {name, params}`, `close-panel`, `scene-tools` (edit to scene), `scene-done` (scene to edit), `tick`, `play-tap` (cancels grace).
 - Panels open only in edit or scene. An open panel pauses auto-close.
-- During grace the hold alone reopens edit. A play tap cancels grace.
+- During grace the hold alone reopens edit (with `then` as its panel). A play tap cancels grace. `gate-fail` drops `then`.
 - Panel names in use: `card`, `guided`, `scenes`, `settings`. `shell.js` maps them to components.
 
 ### Scene tools (`edit/scene-tools.js`)
@@ -85,18 +85,18 @@ placing|done ──Clear──▶ placing (leg 1 of n)      placing ──Spread
 | Member | What it does |
 |---|---|
 | `state` | The current session state. |
-| `holdArmed()`, `gatePassed()`, `gateFailed()`, `done()`, `activity()` | Session transitions. |
+| `holdArmed(then?)`, `gatePassed()`, `gateFailed()`, `done()`, `activity()` | Session transitions. |
 | `openPanel(name, params)`, `closePanel()`, `sceneTools()`, `sceneDone()`, `playTap()` | Panel and view transitions. |
-| `holdStart(pointerEvent, boardEl)` | Called by `<kf-board>` on every primary `pointerdown`. Drives `edit/hold.js`, the `<kf-hold-ring>` and `audio.holdTone(on)`. |
+| `holdStart(pointerEvent, el, {then, holdMs, edges}?)` | Called by `<kf-board>` on every primary `pointerdown`, and by `<kf-find-buttons>` with `then` (the setup panel), `holdMs` 1000 and `edges: false` (the buttons sit in the corners, where board holds are refused). Drives `edit/hold.js`, the `<kf-hold-ring>` and `audio.holdTone(on)`. |
 
 Events:
 
 - `change` `{from, to}`: only when mode or panel changes. `shell.js` remounts on it. `<kf-find-buttons>` re-renders on it.
-- `hold-armed` `{x, y}`: a hold completed.
+- `hold-armed` `{x, y, then}`: a hold completed.
 
 Side effects on a mode change: `audio.chime('enter')` going into edit or scene, `chime('leave')` coming out; `engine.setMode(...)` with `gate` mapped to `play`; a 1 s ticker runs only while in edit or scene.
 
-Hold behaviour: holds start only in play, or in edit with no panel open. The ring refreshes every 32 ms with attribute writes only, and lingers up to 1.5 s after arming. In play, an armed hold opens the gate. In edit, holding an empty spot opens guided add at that spot. Holding a thing does nothing. A full scene (4 things) shows a toast instead.
+Hold behaviour: holds start only in play, or in edit with no panel open. The ring refreshes every 32 ms with attribute writes only, and lingers up to 1.5 s after arming. In play, an armed hold opens the gate. In edit, holding an empty spot opens guided add at that spot. Holding a thing does nothing. A full scene (`settings.maxThings`, 8 by default) shows a toast instead. A find button hold in edit does nothing.
 
 Ways in without the hold (US-7.6): the `e` key on a keyboard (not in a text field), and a visually hidden "Edit" button for VoiceOver, present only in play.
 
@@ -125,8 +125,8 @@ Ways in without the hold (US-7.6): the `e` key on a keyboard (not in a text fiel
 - `web/js/edit/adult-check.test.js`: shuffles, seeded determinism, edge rng values, pass, wrong key, missed tap, idle timeout, sum kind.
 - `web/js/edit/leg-flow.test.js`: every transition: count changes midway, eight close legs, grab and drag, stray presses, cancel, Spread evenly, Clear, Undo (also after a smaller count), bounded history.
 - `web/js/edit/scene-tools.test.js`: every transition: tools, sheets, pausing, tap-away, deselect, drags, colours, pieces going away, templates.
-- `web/js/edit/session.test.js`: gate flow, Done, auto-close in edit and scene, grace, panels pause auto-close, play tap.
-- `web/js/session.test.js`: `Session` with fake timers and window. Ring and soft tone, cancels, no timers left in play, chimes, engine mode, hold in edit opens guided add.
+- `web/js/edit/session.test.js`: gate flow, Done, auto-close in edit and scene, grace, panels pause auto-close, play tap, `then` through the gate and grace.
+- `web/js/session.test.js`: `Session` with fake timers and window. Ring and soft tone, cancels, no timers left in play, chimes, engine mode, hold in edit opens guided add, find button holds, the full-scene toast uses `maxThings`.
 - `tests/browser/package-c.test.js`: edit mode in Chromium. Run with `npm test` and `npm run test:browser`.
 
 Keep this file current: update it in the same commit as any change to this domain.

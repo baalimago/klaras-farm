@@ -78,7 +78,8 @@ async function boot() {
     music.update();
   });
   // Music starts with the first tap (iOS unlocks audio on a gesture) and after waking from sleep.
-  document.addEventListener("pointerup", () => music.update(), { passive: true });
+  // pointerup is a user activation on iOS: the first one also unlocks the device voice for later questions.
+  document.addEventListener("pointerup", () => { music.update(); audio.primeSpeech(); }, { passive: true });
   audio.addEventListener("statechange", () => music.update());
   wake.request();
   document.addEventListener("visibilitychange", () => {

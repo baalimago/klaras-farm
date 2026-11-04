@@ -21,18 +21,22 @@ Boot and shell:
 Elements (one folder per tag):
 
 - `kf-board`: the child's 4:3 letterboxed felt canvas, the `Renderer`, pointer handling.
-- `kf-find-buttons`: the child's two 96 px icon buttons that start the find games (animal, colour).
+- `kf-find-buttons`: the child's two 96 px icon buttons. A tap starts a find game (animal, colour) on the finger's lift; a hold of `FIND_HOLD_MS` (1 s, flag `findHoldMs`) shows the hold ring and, after the adult check, opens that game's setup panel. The tap/hold machine is pure (`press.js`: `idle → down → held`); the hold itself runs through `session.holdStart(e, el, {then: {name: 'find-setup', params: {game}}, holdMs, edges: false})`.
+- `kf-find-setup`: the grown-ups' find game setup, panel `find-setup` with `params.game`.
+  - "Find game" (`animal`): per thing in the scene, its questions (the shared questions section below) with a recording per line.
+  - "Colour game" (`color`): the colour question per language (takes 1 to 6, "+ Another way to ask"), then tap a thing (its colour) or a swatch of the scene's colours to record that colour word. Swatches show ✓ when recorded and an orange ring when missing; a status line and the language tabs ("English · 2 to record") say what is still missing.
+  - Pure state in `setup.js` (`initialSetup`, `nextSetup`: `lang`, `pick`, `record`, `cancel`, `saved`, `add-ask`; `askSlots`, `colorMissing`, `missingText`). The element renders from that state and the store after every event; clips are saved through `store.saveClip` with `thingId: null`.
 - `kf-hold-ring`: felt ring that fills during hold-to-edit; created by `session.js`, attribute driven.
 - `kf-adult-check`: the parental gate (keypad code or sum, keys at least 64 px).
 - `kf-edit-layer`: edit bar (Scenes, Change scene, + Add, Settings, Done) and per-thing badges.
 - `kf-guided-add`: add a thing in eight steps (the step bar reads Body for the first step, whose id is still `draw`): Body, Felt (felt colour and Size: Small, Medium, Big), Eyes, Legs, Moves (Walks, Hops, Scuttles, Floats, with a live CSS preview), Name, Ask, Sound.
-- `kf-thing-card`: one card per thing: languages, names, clips, cues, colour, motion (the same four), Size, Redraw, Re-stamp eyes, Place legs, Delete.
+- `kf-thing-card`: one card per thing: languages, names, clips, questions (1 to 6 editable lines, "Examples, change them freely", each with its recording), colour, motion (the same four), Size, Redraw, Re-stamp eyes, Place legs, Delete.
 - Size has no field in the Thing; it is baked into the outline. `kf-guided-add/steps.js` owns it: `THING_SIZES` (Small 0.7, Medium 1, Big 1.3 of `THING_SIZE`), `sizeScale(outline)` reads it back, `nearestSize` picks the pressed button, `resizeThing(thing, scale)` scales outline, eyes and legs about the bottom centre (the feet stay put) and keeps them on the board, `sizeBox(scale)` is the box `fitOutline` fills, and `sizedFill` makes the Felt-step and card previews show the size. A redraw (more shapes in Draw, or Redraw on the card) keeps the current size.
 - `kf-recorder`: one recording slot; keeps every passing take and offers Play and Re-record.
 - `kf-draw-pad`: overlay that captures one stroke at a time (`outline`, `shape`, `yarn`); a touch too short to be a stroke is reported as `kf-tap`.
 - `kf-scenes`: the scenes shelf with felt thumbnails, switch, rename, delete, new scene.
 - `kf-scene-tools`: draw and arrange the scene: Shape, Line, Move (with resize handle, To back, Let go), Colour, Sky, Ground, Delete, Start (template: Blank, Meadow, Sea, Room), Undo, Done. UI state is the pure machine `edit/scene-tools.js`.
-- `kf-settings`: languages, sleep timer, gate kind, music, export and import, storage, delete all data, update, version.
+- `kf-settings`: languages, sleep timer, things per scene (1 to 12, `maxThings`), gate kind, music, export and import, storage, delete all data, update, version.
 - `kf-welcome`: one-time first-run card for the parent.
 - `kf-dialog`: shared confirm dialog and toast with Undo; removes itself.
 
@@ -42,6 +46,9 @@ Helper modules inside element folders:
 - `kf-dialog/feedback.js`: `editSound(services, kind)`, the one helper every edit action plays its sound through (unlocks audio, then `audio.chime(kind)`; never throws). Kinds are `dsp/chimes.js` `EDIT_CHIMES` plus `poof` for a delete.
 - `kf-guided-add/`: `dom.js` (`h`, `ensureElement`), `drawing.js` (`ShapeDrawing`, pure: up to 6 shapes merged with `geometry/union.js`, each editable, with an undo history), `shape-edit.js` (pure shape editing state machine), `shape-editor.js` (`ShapeEditor`, the shape editing UI over the pad), `guide.js` (the "Draw the body only" guidance with its picture), `eyes.js` (`EyeStamper`, `attachEyeDrag`), `legs.js` (`LegPlacer`, a view over `edit/leg-flow.js`), `preview.js` (`ThingPreview`), `steps.js` (pure step helpers), `geometry.js` and `shape.js` (geometry loader and fallback).
 - `kf-scene-tools/pieces.js` (pure hit testing, moving, resizing (`resizeScale`, `scaleStroke`, `strokeBox`) and reordering (`sendToBack`) of pieces), `kf-scenes/thumbnail.js`, `kf-thing-card/languages.js`.
+- `kf-thing-card/clip-slot.js`: `clipSlot()`, one recording slot (`.kf-tc-clip[data-kind][data-take][data-color]`, Play, Record, Cancel), shared by the thing card and the find setup.
+- `kf-thing-card/questions.js`: `questionsSection()`, a thing's questions in one language: article, one input per line (the value is the parent's text, the placeholder the example), remove (at least 1) and "+ Add a question" (up to 6), each line with its prompt recording. It calls `setQuestionLine`, `addQuestion` and `removeQuestion` on the store.
+- `kf-find-buttons/press.js`, `kf-find-setup/setup.js`: pure state machines (above).
 
 ## Public API / contracts
 
@@ -153,7 +160,7 @@ Helper modules inside element folders:
 ## Rules and gotchas
 
 - The child view has no text and no failure states. Child buttons are icon only and at least 88 px (`kf-find-buttons` uses 96 px). Parent targets are at least 44 px (`--tap`).
-- iOS audio: call `audio.unlock()` synchronously inside the gesture. Start speech inside the tap. `kf-find-buttons` acts on `pointerdown` for this reason.
+- iOS audio: call `audio.unlock()` synchronously inside the gesture (`kf-find-buttons` unlocks on `pointerdown`). Speech must start from an activation event: `pointerdown` of a touch is not one, so `kf-find-buttons` starts the game on `pointerup`, and `main.js` primes speech on the first `pointerup`. Starting the question on `pointerdown` was why the iPad stayed silent and played only the animal sound.
 - Never `await` before closing UI after a gesture. `kf-welcome` dispatches `kf-close` without waiting for `requestPersist()`, which can hang on iPad.
 - Settings builds the export when it opens, so the share sheet opens inside the tap.
 - CSP is `script-src 'self'`: no inline scripts and no inline event handler attributes. Inline styles are allowed.
@@ -166,7 +173,7 @@ Helper modules inside element folders:
 
 ## Tests
 
-- Unit (Node, `npm test`): pure helpers next to their element: `kf-guided-add/drawing.test.js`, `shape-edit.test.js`, `shape.test.js`, `steps.test.js`, `kf-scene-tools/pieces.test.js`.
+- Unit (Node, `npm test`): pure helpers next to their element: `kf-guided-add/drawing.test.js`, `shape-edit.test.js`, `shape.test.js`, `steps.test.js`, `kf-scene-tools/pieces.test.js`, `kf-find-buttons/press.test.js`, `kf-find-setup/setup.test.js`.
 - Browser (`npm run test:browser`, Playwright Chromium against the real Python app):
   - `app.test.js`: the whole app booted and driven like a parent and a child.
   - `package-a.test.js`: `kf-board` and `kf-draw-pad`.
@@ -181,6 +188,7 @@ Helper modules inside element folders:
   - `shapes.test.js`: multi-shape drawing in guided add and Redraw. `legs.test.js`: leg placing and format migration.
   - `playtest2.test.js`: the playtest 2 bugs, each element mounted alone: changing the leg count while placing, eight close legs, drag, Undo, Clear, Spread evenly, stray taps; the eye screen's way out and hint; thing card and settings edits visible in the same task with a slow disk; an overlay surviving a focus change.
   - `shapes.test.js`: multi-shape drawing in guided add and Redraw; the body guidance and step bar; selecting, moving, resizing, deleting and redrawing a shape, Undo and Start over; an open stroke inside the body joins it; Redraw opens with the body as an editable shape. `legs.test.js`: leg placing and format migration.
+  - `find-games.test.js` (emulated iPad, 1180x820, touch; screenshots in `tests/browser/.shots/`): the buttons alone (tap starts, hold opens setup), each setup panel alone, and two journeys (the question is spoken before the sound; long-press, adult check, record the colour question and word with the fake mic, then a colour round plays both).
 - Harness: `tests/browser/harness.js` gives `setup({fakeMedia})`, `newPage()` (boots the app and waits for `data-ready`) and `modulePage(html)` (base and CSS only). Elements written into `modulePage` HTML do not upgrade; import `define.js` and create them with `document.createElement`, then set `services` before appending.
 - `tests/unit/docs.test.js` checks that each domain has its doc and that `CLAUDE.md` links to `AGENTS.md`.
 - Device-only checks go in `tests/manual-ipad.md`.

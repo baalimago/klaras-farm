@@ -7,6 +7,7 @@ import { FarmStore } from "../../web/js/farm-store.js";
 import { MemoryRepo } from "../../web/js/io/memory-repo.js";
 import { FIND } from "../../web/js/play/find.js";
 import { COLOR_GROUPS } from "../../web/js/play/colors.js";
+import { SIMPLE_COLORS } from "../../web/js/farm/palette.js";
 import { colorLine } from "../../web/js/farm/scripts.js";
 import { fixedEnv, square, aSnapshot, aPlace, aThing, aClip } from "../builders.js";
 
@@ -21,6 +22,9 @@ class FakeAudio {
   pending = [];
   _later(entry) { this.calls.push(entry); return new Promise((r) => this.pending.push(r)); }
   playThing(clips) { return this._later(["playThing", clips.map((c) => `${c.language}:${c.kind}`).join(",")]); }
+  playSequence(clips) { return this._later(["playSequence", clips.map((c) => `${c.language}:${c.kind}${c.color ? `:${c.color}` : ""}`).join(",")]); }
+  /** Resolves the latest pending call with `value` (true: heard; false: not heard). */
+  async finishNext(value = true) { this.pending.pop()?.(value); await flush(); }
   playClip(clip) { return this._later(["playClip", `${clip.language}:${clip.kind}:${clip.take}`]); }
   speak(text, lang) { return this._later(["speak", `${lang}:${text}`]); }
   chime(kind) { this.calls.push(["chime", kind]); }
@@ -247,7 +251,89 @@ test("colour round: asks for a colour in the scene; any thing of that colour is 
 test("the colour question is in the play language", async () => {
   const { engine, audio } = await setup({ lang: "sv" });
   engine.startFind("color");
-  assert.match(audio.last("speak"), /^sv:(Hitta|Var|Kan)/);
+  assert.match(audio.last("speak"), /^sv:(Tryck|Vilket|Kan)/);
+});
+
+// ---------- playtest round 3: the question is always heard, and before the sound ----------
+
+test("animal round without a recorded question: the device voice asks, and only then the sound plays", async () => {
+  const { audio, store, roundOn } = await setup();
+  const cowSound = aClip({ language: "en", kind: "sound" }).build();
+  await store.saveClip({ clip: { ...cowSound, thingId: "cow" } });
+  await roundOn("cow");
+  const n = audio.calls.findLastIndex((c) => c[0] === "speak");
+  assert.match(audio.calls[n][1], /cow/);
+  assert.ok(!audio.since(n).some((c) => c[0] === "playClip"), "no sound while the question is being asked");
+  await audio.finishNext(true);
+  assert.deepEqual(audio.since(n + 1), [["playClip", "en:sound:1"]], "the sound follows the question");
+});
+
+test("a device voice that never starts falls back to the recorded name; the sound still waits for it", async () => {
+  const { audio, store, roundOn } = await setup();
+  await store.saveClip({ clip: { ...aClip({ language: "en", kind: "name" }).build(), thingId: "cow" } });
+  await store.saveClip({ clip: { ...aClip({ language: "en", kind: "sound" }).build(), thingId: "cow" } });
+  await roundOn("cow");
+  const n = audio.calls.findLastIndex((c) => c[0] === "speak");
+  await audio.finishNext(false); // iPad: the utterance was dropped (never started)
+  assert.deepEqual(audio.since(n + 1), [["playClip", "en:name:1"]], "the name asks instead, not the sound");
+  await audio.finishNext(true);
+  assert.deepEqual(audio.since(n + 2), [["playClip", "en:sound:1"]]);
+});
+
+test("a question cut short by a tap never plays the sound afterwards", async () => {
+  const { audio, engine, store, advance, tapThing, roundOn } = await setup();
+  await store.saveClip({ clip: { ...aClip({ language: "en", kind: "sound" }).build(), thingId: "cow" } });
+  await roundOn("cow");
+  advance(0.5);
+  const question = audio.pending.at(-1);
+  tapThing("pig");
+  const n = audio.calls.length;
+  question(true); // the cut-off question settles after the tap
+  await flush();
+  assert.ok(!audio.since(n).some((c) => c[1] === "en:sound:1"), "the cow's sound is not played over the pig");
+  assert.equal(engine.asking, "cow");
+});
+
+test("recorded questions: a random take each time, never the same take twice in a row", async () => {
+  const { audio, store, engine, roundOn } = await setup();
+  for (const take of [2, 3]) await store.saveClip({ clip: { ...aClip({ language: "en", kind: "prompt", take }).build(), thingId: "pig" } });
+  await roundOn("pig");
+  const takes = [audio.last("playClip")];
+  for (let i = 0; i < 6; i++) { engine.startFind("animal"); takes.push(audio.last("playClip")); }
+  for (let i = 1; i < takes.length; i++) assert.notEqual(takes[i], takes[i - 1]);
+  assert.ok(new Set(takes).size >= 2);
+});
+
+async function withColorClips(setupOpts, clips) {
+  const t = await setup({ withHen: true, ...setupOpts });
+  for (const c of clips) await t.store.saveClip({ clip: aClip({ thingId: null, ...c }).build() });
+  return t;
+}
+
+const pinkRound = (engine) => {
+  for (let i = 0; i < 20; i++) { engine.stopFind(); engine.startFind("color"); if (engine.findRound.color === "pink") return; }
+  throw new Error("never asked for pink");
+};
+
+test("colour round: the recorded colour question and colour word play as one sequence; any pink thing is right", async () => {
+  const { engine, audio, events, tapThing } = await withColorClips({}, [
+    { kind: "color-question", language: "en" },
+    { kind: "color-word", color: "pink", language: "en" },
+    { kind: "color-word", color: "white", language: "en" },
+  ]);
+  pinkRound(engine);
+  assert.equal(audio.last("playSequence"), "en:color-question,en:color-word:pink", "question first, then the colour word");
+  audio.finishAll();
+  await flush();
+  tapThing("hen");
+  assert.equal(events.filter(([k]) => k === "answer").at(-1)[1].outcome, "correct", "any thing of that colour, not one specific");
+});
+
+test("colour round: with the word missing the device voice says the whole line", async () => {
+  const { engine, audio } = await withColorClips({}, [{ kind: "color-question", language: "en" }]);
+  pinkRound(engine);
+  assert.match(audio.last("speak"), /^en:.*pink/);
+  assert.equal(audio.last("playSequence"), undefined);
 });
 
 test("edit mode and deleting the target end a round", async () => {
@@ -280,6 +366,8 @@ test("every script language has a word for every simple colour and colour questi
       assert.ok(!line.text.includes("{"), line.text);
     }
     assert.equal(scripts[lang].colorTemplates.length, 3);
+    assert.ok(scripts[lang].colorQuestion.endsWith("…"), `${lang} has a colour question to record`);
   }
-  assert.deepEqual(colorLine(scripts, "blue", "nl"), { text: "Find something blue!", lang: "en" });
+  assert.deepEqual(colorLine(scripts, "blue", "nl"), { text: "Tap on an animal that is blue!", lang: "en" });
+  assert.deepEqual(Object.keys(COLOR_GROUPS), [...SIMPLE_COLORS], "the colour game's colours are the palette's simple colours");
 });

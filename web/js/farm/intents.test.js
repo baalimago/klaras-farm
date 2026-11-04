@@ -24,16 +24,98 @@ test("intents never mutate their input", () => {
   assert.equal(JSON.stringify(s), frozen);
 });
 
-test("addThing enforces the cap of 4 and attaches clips", () => {
+test("addThing enforces the family's things-per-scene cap (default 8) and attaches clips", () => {
   let s = aSnapshot().withPlace(aPlace()).build();
   const placeId = s.places[0].id;
   const e = env();
-  for (let i = 0; i < 4; i++) s = I.addThing(s, { placeId, outline: square(), color: "red", clips: i === 0 ? [aClip().build()] : [] }, e).snapshot;
+  assert.equal(I.maxThings(s), 8);
+  for (let i = 0; i < 8; i++) s = I.addThing(s, { placeId, outline: square(), color: "red", clips: i === 0 ? [aClip().build()] : [] }, e).snapshot;
   valid(s);
-  assert.equal(s.places[0].thingOrder.length, 4);
+  assert.equal(s.places[0].thingOrder.length, 8);
   assert.equal(s.clips[0].thingId, s.things[0].id);
   assert.equal(I.canAddThing(s, placeId), false);
-  assert.throws(() => I.addThing(s, { placeId, outline: square(), color: "red" }, e), { code: "place-full" });
+  assert.throws(() => I.addThing(s, { placeId, outline: square(), color: "red" }, e), { code: "place-full", message: /at most 8/ });
+});
+
+test("maxThings is a setting from 1 to 12; lowering it keeps the things and only stops adding", () => {
+  let s = aSnapshot().withPlace(aPlace().withThing(aThing()).withThing(aThing()).withThing(aThing())).build();
+  const placeId = s.places[0].id;
+  s = I.updateSettings(s, { patch: { maxThings: 2 } }, env()).snapshot;
+  valid(s);
+  assert.equal(s.things.length, 3);
+  assert.equal(I.canAddThing(s, placeId), false);
+  assert.throws(() => I.restoreThing(s, I.deleteThing(s, { thingId: s.things[0].id }, env()).change.removed, env()), { code: "place-full" });
+  s = I.updateSettings(s, { patch: { maxThings: 12 } }, env()).snapshot;
+  assert.equal(I.canAddThing(s, placeId), true);
+  for (const bad of [0, 13, 1.5, "4", null]) assert.throws(() => I.updateSettings(s, { patch: { maxThings: bad } }, env()), { code: "invalid" }, String(bad));
+  assert.equal(I.maxThings({ settings: {} }), 8, "missing (never stored) means the default");
+});
+
+// ---------- questions ----------
+
+const promptsOf = (s, id, language = "en") => I.clipsFor(s, id, { kind: "prompt", language }).map((c) => [c.take, c.id]);
+
+test("questions: add up to 6, edit free text (empty is the example), remove down to 1", () => {
+  let s = aSnapshot().withPlace(aPlace().withThing(aThing())).build();
+  const thingId = s.things[0].id;
+  s = I.setQuestionLine(s, { thingId, language: "en", index: 1, text: "  Where is our piggy?  " }, env()).snapshot;
+  assert.deepEqual(s.things[0].cues.en.lines, ["", "Where is our piggy?", ""], "starts from the 3 examples");
+  for (let i = 0; i < 3; i++) s = I.addQuestion(s, { thingId, language: "en", text: i === 0 ? "Peekaboo pig?" : "" }, env()).snapshot;
+  assert.equal(s.things[0].cues.en.lines.length, 6);
+  valid(s);
+  assert.throws(() => I.addQuestion(s, { thingId, language: "en" }, env()), { code: "invalid" });
+  assert.throws(() => I.setQuestionLine(s, { thingId, language: "en", index: 6, text: "x" }, env()), { code: "invalid" });
+  assert.equal(s.things[0].cues.sv, undefined, "other languages are untouched");
+  let one = s;
+  for (let i = 0; i < 5; i++) one = I.removeQuestion(one, { thingId, language: "en", index: 0 }, env()).snapshot;
+  assert.equal(one.things[0].cues.en.lines.length, 1);
+  assert.throws(() => I.removeQuestion(one, { thingId, language: "en", index: 0 }, env()), { code: "invalid" });
+  assert.throws(() => I.removeQuestion(s, { thingId, language: "en", index: 9 }, env()), { code: "invalid" });
+});
+
+test("removing a question deletes its recording and moves later recordings up one take", () => {
+  const thing = aThing({ cues: { en: { lines: ["one", "two", "three", "four"] } } })
+    .withClip(aClip({ id: "p1", kind: "prompt", take: 1 }))
+    .withClip(aClip({ id: "p2", kind: "prompt", take: 2 }))
+    .withClip(aClip({ id: "p4", kind: "prompt", take: 4 }))
+    .withClip(aClip({ id: "sv2", kind: "prompt", take: 2, language: "sv" }))
+    .withClip(aClip({ id: "n", kind: "name" }));
+  const s = aSnapshot().withPlace(aPlace().withThing(thing)).build();
+  const thingId = s.things[0].id;
+  const r = I.removeQuestion(s, { thingId, language: "en", index: 1 }, env());
+  valid(r.snapshot);
+  assert.deepEqual(r.snapshot.things[0].cues.en.lines, ["one", "three", "four"]);
+  assert.deepEqual(promptsOf(r.snapshot, thingId), [[1, "p1"], [3, "p4"]]);
+  assert.deepEqual(promptsOf(r.snapshot, thingId, "sv"), [[2, "sv2"]], "other languages keep their takes");
+  assert.deepEqual(r.writes.map((w) => [w.store, w.op, w.key ?? w.value.id]), [["things", "put", thingId], ["clips", "delete", "p2"], ["clips", "put", "p4"]]);
+});
+
+// ---------- colour game clips ----------
+
+test("saveClip keeps colour game clips per language and colour, and replaces the same key", () => {
+  const e = env();
+  let s = aSnapshot().withPlace(aPlace().withThing(aThing())).build();
+  const base = { thingId: null, language: "en", take: 1, blobSha256: "a".repeat(64), mime: "audio/mp4", durationMs: 500, trimStartMs: 0, trimEndMs: 500, gainDb: 0 };
+  s = I.saveClip(s, { clip: { ...base, kind: "color-word", color: "yellow" } }, e).snapshot;
+  s = I.saveClip(s, { clip: { ...base, kind: "color-word", color: "red" } }, e).snapshot;
+  const q = I.saveClip(s, { clip: { ...base, kind: "color-question", color: "red", take: 2 } }, e);
+  s = q.snapshot;
+  assert.deepEqual(q.change.ids, [s.clips.at(-1).id], "no thing id for a family clip");
+  valid(s);
+  assert.equal(I.gameClips(s, { kind: "color-question" })[0].color, undefined, "a question has no colour");
+  const again = I.saveClip(s, { clip: { ...base, kind: "color-word", color: "yellow", blobSha256: "b".repeat(64) } }, e);
+  assert.equal(again.writes.filter((w) => w.op === "delete").length, 1, "the old yellow is replaced in the same batch");
+  s = again.snapshot;
+  assert.deepEqual(I.gameClips(s, { kind: "color-word" }).map((c) => c.color).sort(), ["red", "yellow"]);
+  assert.equal(I.gameClips(s, { color: "yellow" })[0].blobSha256, "b".repeat(64));
+  assert.deepEqual(I.clipsFor(s, s.things[0].id), [], "a thing's clips never include family clips");
+  assert.throws(() => I.saveClip(s, { clip: { ...base, kind: "color-word", color: "sun" } }, e), { code: "invalid" });
+  assert.throws(() => I.saveClip(s, { clip: { ...base, kind: "name" } }, e), { code: "invalid" });
+  assert.throws(() => I.saveClip(s, { clip: { ...base, thingId: s.things[0].id, kind: "color-word", color: "red" } }, e), { code: "invalid" });
+  assert.throws(() => I.saveClip(s, { clip: { ...base, kind: "color-question", take: 7 } }, e), { code: "invalid" });
+  const del = I.deleteClip(s, { clipId: I.gameClips(s, { color: "red" })[0].id });
+  assert.equal(del.change.ids.length, 1);
+  assert.equal(I.gameClips(del.snapshot, { kind: "color-word" }).length, 1);
 });
 
 test("updateThing keeps recordings when redrawing and rejects unknown colours", () => {

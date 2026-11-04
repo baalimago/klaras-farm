@@ -27,3 +27,24 @@ test("the v1 fixture imports to the expected canonical snapshot and blobs", asyn
   for (const b of out.blobs) assert.equal(sha(new Uint8Array(b.bytes)), b.sha256);
   assert.deepEqual(out.counts, { places: 2, things: 3, clips: 4 });
 });
+
+// Golden export of format 3, written once by the format 3 build (9caba36) with an edited cue line
+// and a prompt in take 3. Never regenerate it. Format 4 adds settings.maxThings on import.
+const DIR3 = resolve(import.meta.dirname, "../fixtures/exports/v3");
+const ZIP3_SHA256 = "4383deb0093f20172a893e07f1112167d1e8ceb52354632ee1a30510ea5ffab7";
+
+test("the v3 fixture file never changes", () => {
+  assert.equal(sha(readFileSync(`${DIR3}/basic.zip`)), ZIP3_SHA256);
+});
+
+test("the v3 fixture imports to format 4: maxThings 8, cue lines and prompt takes kept", async () => {
+  const bytes = readFileSync(`${DIR3}/basic.zip`);
+  const expected = JSON.parse(readFileSync(`${DIR3}/basic.expected.json`, "utf8"));
+  const out = await readImport(new Uint8Array(bytes), { now: "2026-11-03T12:00:00.000Z" });
+  assert.equal(canonicalJson(canonicalSnapshot(out.snapshot)), canonicalJson(expected.snapshot));
+  assert.equal(out.snapshot.formatVersion, 4);
+  assert.equal(out.snapshot.settings.maxThings, 8);
+  assert.deepEqual(out.snapshot.things[0].cues.en.lines, ["Where is our hen?", "", ""]);
+  assert.deepEqual(out.snapshot.clips.filter((c) => c.kind === "prompt").map((c) => c.take).sort(), [1, 3]);
+  assert.deepEqual(out.counts, { places: 1, things: 1, clips: 4 });
+});

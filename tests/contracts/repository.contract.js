@@ -53,6 +53,30 @@ export function repositoryContract({ describe, it, assert, makeRepo, supportsFau
       assert.equal(d.clips.length, 1);
     });
 
+    it("keeps colour game clips (thingId null) for several colours and languages, through replaceAll and the sweep", async () => {
+      const repo = await makeRepo();
+      const word = (color, language) => aClip({ thingId: null, kind: "color-word", color, language }).build();
+      const question = aClip({ thingId: null, kind: "color-question", language: "en", take: 2 }).build();
+      const clips = [word("yellow", "en"), word("red", "en"), word("yellow", "sv"), question];
+      await repo.write(clips.map((value) => ({ store: "clips", op: "put", value })));
+      const byId = (a, b) => (a.id < b.id ? -1 : 1);
+      assert.deepEqual((await repo.load()).clips.sort(byId), [...clips].sort(byId));
+      const s = { ...aSnapshot().withPlace(aPlace()).build(), clips };
+      const blobs = clips.map((c) => ({ ...aBlob(c.blobSha256), createdAt: "2000-01-01T00:00:00.000Z" }));
+      await repo.replaceAll(s, blobs);
+      assert.equal((await repo.load()).clips.length, 4);
+      assert.equal(await repo.sweepOrphanBlobs("2100-01-01T00:00:00.000Z"), 0, "game clips keep their blobs");
+    });
+
+    it("renumbers clips in one batch (a removed question moves later takes up)", async () => {
+      const repo = await makeRepo();
+      const s = aSnapshot().withPlace(aPlace().withThing(aThing().withClip(aClip({ kind: "prompt", take: 2 })).withClip(aClip({ kind: "prompt", take: 3 })))).build();
+      const [two, three] = s.clips;
+      await repo.write(s.clips.map((value) => ({ store: "clips", op: "put", value })));
+      await repo.write([{ store: "clips", op: "put", value: { ...two, take: 1 } }, { store: "clips", op: "put", value: { ...three, take: 2 } }]);
+      assert.deepEqual((await repo.load()).clips.map((c) => c.take).sort(), [1, 2]);
+    });
+
     it("allows replacing a clip with the same key in one batch (delete then put)", async () => {
       const repo = await makeRepo();
       const s = aSnapshot().withPlace(aPlace().withThing(aThing().withClip(aClip()))).build();

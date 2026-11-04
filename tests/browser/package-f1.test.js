@@ -281,11 +281,13 @@ test("✕ → Discard removes the draft; reopening starts fresh", async () => {
   assert.equal(await page.evaluate(() => window.__el.thing.outline), null);
 });
 
-test("+ Add is refused when the place already has 4 things", async () => {
+test("+ Add is refused when the place already has as many things as Settings allows", async () => {
   const page = await farmPage({ things: 4 });
+  await page.evaluate(() => window.__t.store.updateSettings({ patch: { maxThings: 4 } }));
   await mount(page, "kf-guided-add");
   assert.equal(await step(page), "full");
   await page.getByText("This scene is full").waitFor();
+  await page.getByText("already has 4 things").waitFor();
   assert.equal(await page.locator("kf-draw-pad").count(), 0);
   await page.getByRole("button", { name: "OK" }).click();
   assert.equal(await closedCount(page), 1);

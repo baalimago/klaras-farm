@@ -193,7 +193,7 @@ test("adult check fails after 10 s idle", async () => {
   await page.waitForFunction(() => !document.querySelector("kf-adult-check"));
 });
 
-test("edit layer: bar, badges at the things, + Add disabled with a reason at 4 things", async () => {
+test("edit layer: bar, badges at the things, + Add disabled with a reason when the scene is full (Settings: 4 things)", async () => {
   const page = await open({ things: 2 });
   await toEdit(page);
   const labels = await page.locator("kf-edit-layer .kf-edit-bar button").allInnerTexts();
@@ -222,6 +222,7 @@ test("edit layer: bar, badges at the things, + Add disabled with a reason at 4 t
   await page.evaluate(async () => {
     const { store } = window.t;
     const sq = (cx) => [[cx - 0.05, 0.5], [cx + 0.05, 0.5], [cx + 0.05, 0.6], [cx - 0.05, 0.6]];
+    await store.updateSettings({ patch: { maxThings: 4 } });
     await store.addThing({ placeId: store.currentPlace.id, names: { en: "Hen" }, outline: sq(0.6), color: "red" });
     await store.addThing({ placeId: store.currentPlace.id, names: { en: "Cat" }, outline: sq(0.8), color: "red" });
   });

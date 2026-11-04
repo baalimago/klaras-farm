@@ -5,7 +5,6 @@
 // never per frame. Hidden while a panel is open over edit mode, and while a thing is dragged.
 // Selection: the thing last tapped or dragged on the board is selected (a dashed felt ring). Tapping
 // empty board never drops it; only selecting another thing changes it.
-import { MAX_THINGS_PER_PLACE } from "../../farm/snapshot.js";
 import { editSound } from "../kf-dialog/feedback.js";
 
 const BADGE = 52; // px, ≥ 44 pt target
@@ -70,7 +69,7 @@ export class KfEditLayerElement extends HTMLElement {
     const reason = document.createElement("p");
     reason.className = "kf-edit-reason";
     reason.id = "kf-edit-reason";
-    reason.textContent = `A scene holds ${MAX_THINGS_PER_PLACE} things at most. Delete one to add another.`;
+
 
     const bar = document.createElement("nav");
     bar.className = "kf-edit-bar";
@@ -130,6 +129,7 @@ export class KfEditLayerElement extends HTMLElement {
     this._add_.disabled = full;
     if (full) this._add_.setAttribute("aria-describedby", "kf-edit-reason");
     else this._add_.removeAttribute("aria-describedby");
+    this._reason.textContent = `This scene holds ${s.store?.maxThings ?? 8} things at most. Delete one, or allow more in Settings.`;
     this._reason.hidden = !full || panelOpen;
     this._empty.hidden = panelOpen || !place || things.length > 0;
     this._dot.hidden = !s.updateReady;

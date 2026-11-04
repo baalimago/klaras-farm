@@ -57,7 +57,7 @@ test("first run: starter farm, welcome once, a child view without text or button
     things: window.__kf.store.thingsIn(window.__kf.store.currentPlace.id).length,
   }));
   assert.deepEqual(s.places.sort(), ["Farm", "Kitchen", "Sea"]);
-  assert.ok(s.things >= 2 && s.things <= 4);
+  assert.ok(s.things >= 2 && s.things <= 7);
 
   // US-5.2: the child sees no text and no buttons (the VoiceOver "Edit" button is visually hidden),
   // except the two icon-only find game buttons (playtest round 2), each at least 88 px.
@@ -149,7 +149,7 @@ test("find games: the 🔍 button asks for an animal, tapping it celebrates; hid
 test("a parent adds a thing with a recorded name, and it survives a reload", async () => {
   const page = await h.newPage();
   await dismissWelcome(page);
-  // Make room: the Farm starts with 3 things, so the 4th is allowed.
+  // The Farm starts with 3 things; a scene holds 8 by default.
   const before = await kf(page, () => window.__kf.store.thingsIn(window.__kf.store.currentPlace.id).length);
   await enterEdit(page);
   await page.locator('[data-action="add"]').click();
@@ -193,7 +193,9 @@ test("a parent adds a thing with a recorded name, and it survives a reload", asy
     return { count: s.thingsIn(s.currentPlace.id).length, name: t.names.en, color: t.color, clips: s.clipsFor(t.id).map((c) => c.kind) };
   });
   assert.deepEqual(after, { count: before + 1, name: "Bird", color: "blue", clips: ["name"] });
-  assert.equal(await page.locator('[data-action="add"]').isDisabled(), true, "the place is full at 4");
+  // A scene holds 8 by default (meeting 2); the starter leaves room for exactly one own thing.
+  assert.equal(after.count, 8);
+  assert.equal(await page.locator('[data-action="add"]').isDisabled(), true, "the eighth thing fills the scene");
 
   await page.reload();
   await page.waitForFunction(() => document.documentElement.dataset.ready === "true");

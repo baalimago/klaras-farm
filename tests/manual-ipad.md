@@ -12,6 +12,9 @@ Run on the base iPad (11th generation, A16) with iPadOS 18 or later before a rel
 | Add to Home Screen and offline | `sw.template.js`, `io/storage.js`, `index.html` | Install, enable Airplane Mode, cold-launch: plays. |
 | Storage persistence | `io/idb-repo.js`, `io/storage.js` | Data still there after a week of not opening the app. |
 | Export and import through the share sheet | `io/share.js`, `components/kf-settings/` | Export to Files, delete all data, import: everything back, recordings play. |
+| Find question speaks on the first press | `io/audio.js`, `play/ask.js`, `play-engine.js`, `components/kf-find-buttons/`, `main.js` | Cold-launch, remove all prompt recordings for one thing, tap 🔍 as the very first touch: you hear "Where is the …?" in the iPad voice, then the animal's sound. Repeat with a recorded question: your voice, then the sound. |
+| Find game setup by long-press | `components/kf-find-buttons/`, `components/kf-find-setup/`, `session.js` | Hold 🔍 for a second: the ring fills, the adult check opens, then "Find game". Hold the colour dots: "Colour game". A short tap still starts a round. |
+| Colour question then colour word | `io/audio.js`, `components/kf-find-setup/` | Record the colour question and "yellow", tap the colour dots until yellow: your question and the word play back to back without a gap; tapping any yellow animal is right. |
 | Hold to edit at the screen edges | `edit/hold.js`, `components/kf-board/` | Holds near the bottom edge and sides never start (system gestures win). |
 | Eye stamping way out | `components/kf-guided-add/eyes.js` | Stamp eyes, hold Done 1 s with a finger (no callout, no text selection, the fill completes); a quick tap shows "Keep holding"; Cancel restores the old eyes. |
 | Leg placing by touch | `components/kf-guided-add/legs.js`, `edit/leg-flow.js` | Pick 8, place them close together with a fingertip, drag one, change the count midway: the panel follows every tap. |

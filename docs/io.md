@@ -9,7 +9,7 @@ Keep this file current: update it in the same commit as any change to this domai
 ## Files
 
 - `idb-repo.js`: `openIdbRepo()` and `IdbRepo`, the IndexedDB Repository; `closeAllConnections()`.
-- `memory-repo.js`: `MemoryRepo`, the in-memory Repository (tests, and fallback when IndexedDB is unavailable).
+- `memory-repo.js`: `MemoryRepo`, the in-memory Repository (tests, and fallback when IndexedDB is unavailable). Its clip uniqueness uses `clipKey`, so colour game clips (`thingId` null) are unique too, and a clip put under a new key (a renumbered take) frees its old key.
 - `audio.js`: `AudioEngine` (one AudioContext for voices, chimes and music), device TTS, chime synthesis.
 - `mic.js`: `Recorder`, one take from the microphone with live level, auto-stop and analysis.
 - `music.js`: `MusicPlayer`, schedules the generated lullaby on the music bus; `renderMusic()`.
@@ -48,8 +48,9 @@ music notes -> music bus (faded by MusicPlayer) -> duck ────┘
 - `unlock()`: create, resume and prime the output. Call it synchronously in a gesture handler. `resume()` after visibility changes.
 - `state`: `'unsupported' | 'locked' | 'running' | 'suspended' | 'interrupted' | 'closed'`.
 - `setSessionType('playback' | 'play-and-record')` sets `navigator.audioSession.type` where supported.
-- `preload(clips)`, `playThing(clips)` (name then sound, stops anything playing, resolves true when all played), `playClip(clip, {bytes?})`, `stop()`.
-- `speak(text, lang)`: device text-to-speech fallback while a thing has no recording. Picks a voice with `pickVoice`. Call it inside the tap. Never rejects; a safety timeout resolves it. `canSpeak`, `stopSpeaking()`.
+- `preload(clips)`, `playThing(clips)` (name then sound, stops anything playing, resolves true when all played), `playSequence(clips)` (the same without the failure chime: the colour game's question then colour word; all clips decode up front so the second follows the first without a gap), `playClip(clip, {bytes?})`, `stop()`.
+- `speak(text, lang)`: device text-to-speech fallback while there is no recording. Call it synchronously inside the gesture. Resolves `true` only when the voice started and finished, `false` when it was not heard: an idle synthesiser is never cancelled first (cancel then speak in one tick drops the utterance on WebKit); an utterance that ends or errors without starting is tried once more after `SPEECH_RETRY_MS` (120 ms); one that has not started after `SPEECH_START_MS` (2.5 s, option `speechStartMs`) is cancelled and counts as not heard. Voices come from `getVoices()`, refreshed on `voiceschanged` (empty at first on iOS), picked with `pickVoice`. Never rejects.
+- `stopSpeaking()`: pending `speak()` calls resolve `false`, without a retry. `primeSpeech()`: once, in an activation event (`pointerup`), a silent utterance that unlocks iOS speech for later questions; skipped when something already spoke. `canSpeak`.
 - `chime(kind)` returns its length in seconds, or 0 when skipped: an editing sound (`EDIT_CHIMES`) of the same kind again within `CHIME_REPEAT_S` (40 ms, `performance.now`) plays once (mash-safe); the child's chimes are never skipped here. Any kind in `dsp/chimes.js` `CHIMES`, including the editing family. Components play edit sounds through `components/kf-dialog/feedback.js` `editSound`. `holdTone(on)`.
 - `musicBus` (null before the context exists). `talking` is true while a clip or speech plays; the duck dips to `MUSIC_DUCK_DB` in 0.12 s and comes back over 0.9 s.
 - `decode(arrayBuffer)` decodes a copy. `isBroken(clip)` after a decode failure (US-4.5).
@@ -90,7 +91,7 @@ music notes -> music bus (faded by MusicPlayer) -> duck ────┘
 - Zip layout: `manifest.json` (canonical snapshot) and `blobs/<sha256>`, stored not compressed (vendored `fflate`).
 - `storage.js`: `deviceId()`, `requestPersist()`, `isPersisted()`, `estimate()`, `isStandalone()`, `deleteAllData()` returning `{blocked}`, `registerServiceWorker()` for `/sw.js`, `watchForUpdates(onReady)`, `applyUpdate()` (posts `skip-waiting`, reloads on `controllerchange`).
 - `starter.js`: `starterSnapshot(template, env, lang, appVersion)` gives fresh ids and timestamps; `loadStarter(env, lang)` fetches `data/starter.json`; `baseLanguage(tag)`.
-- `web/data/starter.json` comes from `tools/make-starter.mjs` (`--check` says when it is stale). Scenes as designed: Farm with eight animals (pig, cow, chicken, sheep, horse, duck, dog, bunny), Sea (fish, octopus, crab), Kitchen (teapot, cat, chair, spoon, mouse, spider). Every thing has its real number of legs (chicken and duck 2, crab and spider 8, chair 4, fish 0), sizes vary, and things stand apart so each keeps a 120 px tap target. Each scene keeps its first `STARTER_MAX = min(8, MAX_THINGS_PER_PLACE - 1)` things, best spread first, so a fresh scene always has room for the parent's first own thing: while the snapshot cap is 4 the file holds three per scene; raise the cap to 9 or more and regenerate to get all eight.
+- `web/data/starter.json` comes from `tools/make-starter.mjs` (`--check` says when it is stale). Scenes as designed: Farm with eight animals (pig, cow, chicken, sheep, horse, duck, dog, bunny), Sea (fish, octopus, crab), Kitchen (teapot, cat, chair, spoon, mouse, spider). Every thing has its real number of legs (chicken and duck 2, crab and spider 8, chair 4, fish 0), sizes vary, and things stand apart so each keeps a 120 px tap target. Each scene keeps its first `STARTER_MAX = min(8, DEFAULT_MAX_THINGS - 1)` things (seven), best spread first, so a fresh scene with the default of 8 things per scene always has room for the parent's first own thing. The Farm has seven animals on day one; the bunny is left out.
 - `wake.js`: `request()` and `release()`, never throw. The browser drops the lock when hidden; `main.js` requests again on `visibilitychange`.
 - `report.js`: `report(kind, detail)` (at most 8 per page load, text only, no farm data, `sendBeacon` then `fetch`), `installErrorReporting(win)` hooks `error`, `unhandledrejection` and `console.error`.
 
@@ -103,7 +104,8 @@ music notes -> music bus (faded by MusicPlayer) -> duck ────┘
 
 ## Rules and gotchas
 
-- iOS audio: `unlock()` must run synchronously inside `pointerdown` or `pointerup`. The first unlock plays a one-sample buffer to open the output. `speak()` must also start inside the tap.
+- iOS audio: `unlock()` must run synchronously inside `pointerdown` or `pointerup`. The first unlock plays a one-sample buffer to open the output. `speak()` must also start inside the gesture, and the first utterance of a page only plays from an activation event (`pointerup`, `click`), which is why the find buttons start on `pointerup` and `main.js` calls `primeSpeech()` on the first `pointerup`.
+- Root cause of the silent "Where is the …?" (playtest round 3): the find button started the device voice on `pointerdown`, which is not a user activation for touch, so iOS dropped the utterance without any event; `speak()` then resolved `true` from its safety timeout and the engine played the animal's sound as if the question had been asked. The engine's `stop()` before asking also cancelled an idle synthesiser right before speaking. Fixed by starting on `pointerup`, priming speech, not cancelling an idle synthesiser, the heard/not-heard result with a retry, and the engine falling back to a recorded clip when the voice is not heard.
 - WebKit `interrupted` and unexpected `suspended` states: the engine tries to resume when visible; otherwise the next tap's `unlock()` does it.
 - Use `playback` while playing so the mute switch does not silence voices. Use `play-and-record` only while recording, and always switch back.
 - Never `await` device promises (`storage.persist()`, permission queries) before closing UI after a gesture. They can hang on iPad.

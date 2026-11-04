@@ -61,7 +61,7 @@
     ],
     "deviceId": "device-fixture",
     "exportedAt": "2026-11-01T09:40:00.000Z",
-    "formatVersion": 3,
+    "formatVersion": 4,
     "minReaderFormat": 1,
     "places": [
       {
@@ -142,6 +142,7 @@
         "sv",
         "en"
       ],
+      "maxThings": 8,
       "playLanguage": "alternate",
       "reduceMotion": false,
       "sleepMinutes": 8,

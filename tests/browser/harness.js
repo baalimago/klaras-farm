@@ -58,10 +58,11 @@ export async function setup({ fakeMedia = false, serverEnv } = {}) {
   return {
     server,
     browser,
-    /** A fresh context (empty storage) with an iPad-landscape viewport and touch. */
-    async newPage({ viewport = { width: 1180, height: 820 }, waitReady = true, permissions = [] } = {}) {
+    /** A fresh context (empty storage) with an iPad-landscape viewport and touch. `init`: a script run before the app (e.g. a speech stub). */
+    async newPage({ viewport = { width: 1180, height: 820 }, waitReady = true, permissions = [], init = null } = {}) {
       const context = await browser.newContext({ viewport, hasTouch: true, deviceScaleFactor: 1, permissions });
       contexts.push(context);
+      if (init) await context.addInitScript(init);
       const page = await context.newPage();
       page.errors = [];
       page.on("pageerror", (e) => page.errors.push(e.message));

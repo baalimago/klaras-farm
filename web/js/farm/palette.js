@@ -39,6 +39,12 @@ export const THING_COLORS = Object.freeze([
 export const SKY_COLORS = Object.freeze(["sky", "window", "cream", "wall", "lilac", "pink"]);
 export const GROUND_COLORS = Object.freeze(["grass", "leaf", "sand", "water", "deep", "floor", "wood", "rock"]);
 
+/**
+ * The simple colour words a toddler knows. The colour game asks for these, and play/colors.js folds
+ * felt keys into them. A one-way door: colour game clips store these names.
+ */
+export const SIMPLE_COLORS = Object.freeze(["red", "orange", "yellow", "green", "blue", "purple", "pink", "brown", "white", "grey", "black"]);
+
 export function isColorKey(key) {
   return typeof key === "string" && Object.hasOwn(SUNNY, key);
 }

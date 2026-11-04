@@ -1,3 +1,4 @@
 { "lang": "en", "articles": [], "templates": ["Where is the {name}?", "Can you find the {name}?", "Show me the {name}!"],
-  "colorTemplates": ["Find something {color}!", "Where is something {color}?", "Can you find something {color}?"],
+  "colorQuestion": "Tap on an animal that is…",
+  "colorTemplates": ["Tap on an animal that is {color}!", "Which animal is {color}?", "Can you find an animal that is {color}?"],
   "colors": { "red": "red", "orange": "orange", "yellow": "yellow", "green": "green", "blue": "blue", "purple": "purple", "pink": "pink", "brown": "brown", "white": "white", "grey": "grey", "black": "black" } }

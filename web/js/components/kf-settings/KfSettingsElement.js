@@ -1,5 +1,5 @@
 // <kf-settings>: the parent settings panel (US-5.4, 7.3, 7.4, 7.5, 8.2, 8.3, 9.1, 11.2).
-// Languages (add/remove, which plays or a random mix), sleep timer, adult check kind,
+// Languages (add/remove, which plays or a random mix), sleep timer, things per scene, adult check kind,
 // export (pre-built so the share sheet opens inside the tap), import (confirm with counts,
 // replace, Undo until next boot), storage status, privacy, Guided Access guide, delete all data,
 // "Update ready", app version. Props: services, params. Dispatches kf-close.
@@ -12,6 +12,8 @@ const SLEEP_OPTIONS = [
   [8, "8 minutes"],
   [15, "15 minutes"],
 ];
+/** Things per scene (Settings.maxThings): 1 to 12, 8 by default. */
+const MAX_THINGS_OPTIONS = Array.from({ length: 12 }, (_, i) => i + 1);
 const GATE_OPTIONS = [
   ["keypad", "Keypad code (tap 3 digits)"],
   ["sum", "Simple sum"],
@@ -208,10 +210,28 @@ export class KfSettingsElement extends HTMLElement {
       h("p", {
         class: "kf-note",
         text:
-          `Two round buttons in the bottom corners: 🔍 asks "Where is the …?" (then plays its sound), the coloured dots ask "Find something yellow!". ` +
+          `Two round buttons in the bottom corners: 🔍 asks "Where is the …?" (then plays its sound), the coloured dots ask "Tap on an animal that is yellow!". ` +
+          `Hold a button for a second to record its questions in your voice. ` +
           `${recorded} of ${things.length} things here have your recorded questions` +
-          (recorded < things.length ? "; the others are asked in the iPad's voice until you record them (thing card → Questions)." : "."),
+          (recorded < things.length ? "; the others are asked in the iPad's voice until you record them." : "."),
       }),
+    ]);
+  }
+
+  /** Things per scene (Settings.maxThings). Lowering it never removes things; it only stops adding more. */
+  maxThingsField(s) {
+    const id = newId("max-things");
+    const current = s.maxThings ?? 8;
+    return h("div", { class: "kf-max-things" }, [
+      h("div", { class: "kf-field" }, [
+        h("label", { htmlFor: id, text: "Things per scene" }),
+        h(
+          "select",
+          { id, "data-key": "max-things", onchange: (e) => this.save({ maxThings: Number(e.target.value) }) },
+          MAX_THINGS_OPTIONS.map((n) => h("option", { value: String(n), text: n === 8 ? "8 (default)" : String(n), selected: current === n })),
+        ),
+      ]),
+      h("p", { class: "kf-note", text: "The most things one scene can hold. Fewer is calmer for little ones. Lowering it keeps the things already there." }),
     ]);
   }
 
@@ -241,6 +261,7 @@ export class KfSettingsElement extends HTMLElement {
         ),
       ]),
       h("p", { class: "kf-note", text: "After this long, the things yawn and fall asleep, so play ends gently." }),
+      this.maxThingsField(s),
       this.findItField(),
       this.musicField(),
       h("div", { class: "kf-field" }, [
