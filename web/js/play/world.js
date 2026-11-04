@@ -12,10 +12,12 @@
 //   blinkIn        seconds until the next blink; blinkT: seconds into a blink (< 0 none)
 //   stir           seconds left of a sleepy stir (tap while asleep)
 //   glideT         seconds into an edit-mode spread glide (< 0 none), from (gx, gy) to (tx, ty)
+//   spreadPending  the spread moved this actor and the farm has not been told yet (takeSpreadMoves)
 import { resolveMotion, pose, newPose, restPose } from "../motion/pose.js";
 import { travelSpeed, REACT_S, DROP_S, WIGGLE_S, SLEEP_SETTLE_S, jump, jumpStretch, jumpSpin, drop, dropStretch, wiggle, yawn } from "../motion/blocks.js";
 import { centroid, extents, ASPECT } from "./hit.js";
 import { spreadBoxes } from "./spread.js";
+import { LEG_MAX } from "../farm/legs.js";
 
 export const TICK = 1 / 60;
 const MAX_LEGS = 8;
@@ -32,11 +34,17 @@ const DROP_STAGGER_S = 0.12;
 /** Edit mode spreads overlapping things apart in this long a glide (the badges are re-placed at 400 ms). */
 export const GLIDE_S = 0.3;
 // Room around each thing in edit mode, in board widths: its pencil and cross (52 px) sit centred
-// on its top edge, 0.3 of its width (at least 32 px) each side of the middle. A moved thing also
-// stays above the edit toolbar along the bottom (about 75 px, legs included).
-const SPREAD = { gap: 0.015, padTop: 0.03, minHalfWidth: 0.055, margin: MARGIN, bottomInset: 0.07 };
+// on its top edge, at most 70 px each side of the middle. Legs hang below the outline by up to
+// farm/legs.js LEG_MAX of the board height. The edit bar (kf-edit-layer.css: centred, about 545 px
+// of the 1094 px board, its top 76 px above the board's bottom) is an obstacle: a thing under it moves up.
+const SPREAD = {
+  gap: 0.015, padTop: 0.03, minHalfWidth: 0.055, margin: MARGIN,
+  obstacles: [{ left: 0.24, top: 0.9, right: 0.76, bottom: 1 }],
+};
 
 const lerp = (a, b, u) => a + (b - a) * u;
+const near = (a, b) => Math.abs(a - b) < 1e-9;
+const sameExtents = (e, f) => !!e && near(e.left, f.left) && near(e.right, f.right) && near(e.top, f.top) && near(e.bottom, f.bottom);
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 const num = (v, d) => (typeof v === "number" && Number.isFinite(v) ? v : d);
 
@@ -57,16 +65,24 @@ export function createWorld(things, { rng, presets = {}, mode = "play", reduceMo
 export function syncWorld(world, things, rng, { drop: dropNew = false } = {}) {
   const old = new Map(world.actors.map((a) => [a.thingId, a]));
   world.actors.length = 0;
-  let n = 0;
+  let n = 0, grew = false;
   for (const thing of things) {
     let a = old.get(thing.id);
     const [cx, cy] = centroid(thing.outline);
     if (a) {
-      endGlide(a); // the store moved on: finish the spread first, then keep the offset
-      const offX = a.x - a.homeX, offY = a.y - a.homeY, reshaped = a.outline !== thing.outline;
-      fitThing(world, a, thing, cx, cy);
-      a.x = cx + offX;
-      a.y = cy + offY;
+      const reshaped = a.outline !== thing.outline;
+      if (a.glideT >= 0 && near(cx, a.tx) && near(cy, a.ty)) {
+        // The farm caught up with the spread (the thing's new home is where it glides to): glide on.
+        fitThing(world, a, thing, cx, cy);
+      } else {
+        endGlide(a); // the store moved on: finish the spread first, then keep the offset
+        const offX = a.x - a.homeX, offY = a.y - a.homeY;
+        const before = a.ext;
+        fitThing(world, a, thing, cx, cy);
+        a.x = cx + offX;
+        a.y = cy + offY;
+        if (reshaped && !sameExtents(before, a.ext)) grew = true;
+      }
       // A redrawn thing's walk target may no longer fit: rest, then pick a new one.
       if (reshaped && a.state === "moving") { a.state = "idle"; a.stateTime = 0; a.rest = lerp(FIRST_REST[0], FIRST_REST[1], rng()); }
     } else {
@@ -77,8 +93,8 @@ export function syncWorld(world, things, rng, { drop: dropNew = false } = {}) {
     writePose(a);
     world.actors.push(a);
   }
-  // A thing added (or a place switched to) while editing must not land on another one.
-  if (n > 0 && world.mode === "edit") spreadActors(world);
+  // A thing added, resized or redrawn (or a place switched to) while editing must not land on another one.
+  if ((n > 0 || grew) && world.mode === "edit") spreadActors(world);
 }
 
 function fitThing(world, a, thing, cx, cy) {
@@ -97,7 +113,7 @@ function newActor(world, thing, cx, cy, rng) {
   const a = {
     thingId: thing.id, x: cx, y: cy, facing: 1, t: 0, state: "idle", stateTime: 0, pose: newPose(0),
     homeX: cx, homeY: cy, ext: null, outline: null, eyes: 0, motion: null, nLegs: 0,
-    move: 0, tx: cx, ty: cy, rest: 0, blinkIn: 0, blinkT: -1, stir: 0, glideT: -1, gx: cx, gy: cy,
+    move: 0, tx: cx, ty: cy, rest: 0, blinkIn: 0, blinkT: -1, stir: 0, glideT: -1, gx: cx, gy: cy, spreadPending: false,
   };
   fitThing(world, a, thing, cx, cy);
   a.rest = lerp(FIRST_REST[0], FIRST_REST[1], rng());
@@ -157,11 +173,14 @@ export function setMode(world, mode, rng) {
 
 /**
  * Edit mode: things that overlap glide apart (spread.js), so each one, and its pencil and cross,
- * can be reached. Only the actors move; the farm is unchanged until a parent drags a thing, and
- * then the drop point (spread offset included) is saved like any drag. Play wanders on from there.
+ * can be reached. Each moved actor is marked spreadPending: the engine hands the moves to the
+ * board (takeSpreadMoves), which saves them like drags, so the layout sticks.
  */
 export function spreadActors(world) {
-  const boxes = world.actors.map((a) => ({ x: a.x, y: a.y, left: a.ext.left, right: a.ext.right, top: a.ext.top, bottom: a.ext.bottom }));
+  const boxes = world.actors.map((a) => ({
+    x: a.x, y: a.y, left: a.ext.left, right: a.ext.right, top: a.ext.top,
+    bottom: a.ext.bottom + (a.nLegs > 0 ? LEG_MAX : 0),
+  }));
   const to = spreadBoxes(boxes, SPREAD);
   world.actors.forEach((a, i) => {
     const { x, y } = to[i];
@@ -171,12 +190,36 @@ export function spreadActors(world) {
     a.tx = x;
     a.ty = y;
     a.glideT = 0;
+    a.spreadPending = true;
   });
 }
 
-/** True while an edit-mode spread glide is under way (the edit badges wait for it). */
-export function isSpreading(world) {
-  for (const a of world.actors) if (a.glideT >= 0) return true;
+/**
+ * The spread moves the farm has not been told about yet, as drag results {thingId, dx, dy} from
+ * each thing's home to where it glides, which becomes its home (as settleActor does for a drop);
+ * clears the marks. A thing picked up since is left out:
+ * its drop saves it.
+ */
+export function takeSpreadMoves(world) {
+  const moves = [];
+  for (const a of world.actors) {
+    if (!a.spreadPending) continue;
+    a.spreadPending = false;
+    const x = a.glideT >= 0 ? a.tx : a.x, y = a.glideT >= 0 ? a.ty : a.y;
+    const dx = x - a.homeX, dy = y - a.homeY;
+    if (dx === 0 && dy === 0) continue;
+    // Like settleActor: the target is home now, so the store catching up moves nothing.
+    a.homeX = x;
+    a.homeY = y;
+    a.outline = a.outline.map(([px, py]) => [px + dx, py + dy]);
+    moves.push({ thingId: a.thingId, dx, dy });
+  }
+  return moves;
+}
+
+/** True while things glide apart or drop in: their badges would land in the wrong place. */
+export function isSettling(world) {
+  for (const a of world.actors) if (a.glideT >= 0 || a.state === "drop") return true;
   return false;
 }
 
@@ -196,6 +239,7 @@ export function holdActor(world, thingId) {
   const a = actorFor(world, thingId);
   if (!a) return null;
   a.glideT = -1; // stays exactly where the finger found it
+  a.spreadPending = false; // its drop saves where it ends up
   a.state = "wiggle";
   a.stateTime = WIGGLE_S;
   a.move = 0;

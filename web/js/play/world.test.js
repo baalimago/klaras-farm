@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { createWorld, syncWorld, step, setMode, react, dropActor, sleepAll, isIdle, nextWakeMs, hitTargets, holdActor, placeActor, settleActor, TICK, GROUND_TOP, GLIDE_S } from "./world.js";
+import { createWorld, syncWorld, step, setMode, react, dropActor, sleepAll, isIdle, nextWakeMs, hitTargets, holdActor, placeActor, settleActor, takeSpreadMoves, isSettling, TICK, GROUND_TOP, GLIDE_S } from "./world.js";
 import { MAX_SPEED, REACT_S, DROP_S, WIGGLE_S, SLEEP_SETTLE_S } from "../motion/blocks.js";
 import { ASPECT } from "./hit.js";
 
@@ -332,7 +332,7 @@ test("entering edit mode glides overlapping things apart; things already apart s
   assert.deepEqual([pig.x, pig.y], start.pig, "the first one keeps its spot");
   assert.deepEqual([hen.x, hen.y], start.hen);
   assert.equal(cow.glideT, -1);
-  assert.equal(cow.homeX, start.cow[0], "only the actor moved: its home (the farm) is unchanged");
+  assert.equal(cow.homeX, start.cow[0], "the world never edits a home itself: the farm is told (takeSpreadMoves)");
   run(w, WIGGLE_S, rng);
   assert.ok(isIdle(w), "then edit mode settles to 0 fps");
 });
@@ -409,4 +409,87 @@ test("a store change mid-glide finishes the glide, then keeps the offset", () =>
   syncWorld(w, things, rng);
   assert.deepEqual([w.actors[1].x, w.actors[1].y], to);
   assert.equal(w.actors[1].glideT, -1);
+});
+
+test("play and scene modes never spread", () => {
+  const rng = seeded();
+  for (const mode of ["scene", "play"]) {
+    const w = createWorld([thing("pig", 0.5, 0.7), thing("cow", 0.5, 0.7)], { rng, presets, mode: mode === "play" ? "edit" : "play" });
+    run(w, 1, rng);
+    takeSpreadMoves(w); // created in edit mode, it spread once already
+    const at = w.actors.map((a) => [a.x, a.y]);
+    setMode(w, mode, rng);
+    assert.equal(isSettling(w), false, mode);
+    assert.deepEqual(w.actors.map((a) => [a.x, a.y]), at, mode);
+    assert.deepEqual(takeSpreadMoves(w), [], mode);
+  }
+});
+
+test("takeSpreadMoves: each spread move once, home → target, and never for a thing picked up since", () => {
+  const rng = seeded();
+  const w = createWorld([thing("pig", 0.5, 0.7), thing("cow", 0.5, 0.7), thing("hen", 0.52, 0.7)], { rng, presets });
+  setMode(w, "edit", rng);
+  holdActor(w, "hen");
+  const cow = w.actors[1], home = [cow.homeX, cow.homeY], outline0 = cow.outline[0];
+  const moves = takeSpreadMoves(w);
+  assert.deepEqual(moves.map((m) => m.thingId), ["cow"]);
+  assert.ok(Math.abs(home[0] + moves[0].dx - cow.tx) < 1e-12 && Math.abs(home[1] + moves[0].dy - cow.ty) < 1e-12);
+  assert.deepEqual([cow.homeX, cow.homeY], [cow.tx, cow.ty], "the target is its home now");
+  assert.ok(Math.abs(cow.outline[0][0] - (outline0[0] + moves[0].dx)) < 1e-12, "and its outline moved with it (taps)");
+  assert.deepEqual(takeSpreadMoves(w), [], "only once");
+});
+
+test("when the farm catches up mid-glide (home = glide target), the glide carries on without a jump", () => {
+  const rng = seeded();
+  const pig = thing("pig", 0.5, 0.7), cow = thing("cow", 0.5, 0.7);
+  const w = createWorld([pig, cow], { rng, presets });
+  setMode(w, "edit", rng);
+  const [{ dx, dy }] = takeSpreadMoves(w);
+  run(w, GLIDE_S / 3, rng);
+  const c = w.actors[1], at = [c.x, c.y];
+  const saved = { ...cow, outline: cow.outline.map(([x, y]) => [x + dx, y + dy]) };
+  syncWorld(w, [pig, saved], rng);
+  assert.deepEqual([c.x, c.y], at);
+  assert.ok(c.glideT > 0);
+  run(w, GLIDE_S, rng);
+  assert.ok(Math.abs(c.x - c.homeX) < 1e-9 && Math.abs(c.y - c.homeY) < 1e-9, "lands on its new home");
+});
+
+test("a thing made bigger while editing spreads again; a recolour (same outline) does not", () => {
+  const rng = seeded();
+  const pig = thing("pig", 0.3, 0.7), cow = thing("cow", 0.55, 0.7);
+  const w = createWorld([pig, cow], { rng, presets, mode: "edit" });
+  run(w, 1, rng);
+  syncWorld(w, [{ ...pig, color: "red" }, cow], rng);
+  assert.equal(isSettling(w), false);
+  const big = thing("pig", 0.3, 0.7, { r: 0.16 });
+  syncWorld(w, [big, cow], rng);
+  assert.equal(isSettling(w), true, "the bigger pig now covers the cow");
+  run(w, GLIDE_S, rng);
+  assert.ok(!actorsOverlap(w.actors[0], w.actors[1]));
+});
+
+test("legs count below the outline, and dropping in keeps the world settling", () => {
+  const rng = seeded();
+  // the cow's outline clears the pig's, but the pig's legs hang into the cow's badge room
+  const w = createWorld([thing("pig", 0.5, 0.4), thing("cow", 0.5, 0.4 + 0.16 + 0.07)], { rng, presets });
+  setMode(w, "edit", rng);
+  assert.equal(isSettling(w), true);
+  const ww = createWorld([thing("pig", 0.5, 0.4, { legs: 0, preset: "float" }), thing("cow", 0.5, 0.4 + 0.16 + 0.07, { legs: 0, preset: "float" })], { rng, presets });
+  setMode(ww, "edit", rng);
+  assert.equal(isSettling(ww), false, "without legs there is room");
+  dropActor(ww, "pig");
+  assert.equal(isSettling(ww), true);
+  run(ww, 2, rng);
+  assert.equal(isSettling(ww), false);
+});
+
+test("a thing under the edit bar moves up out of it; one beside the bar stays", () => {
+  const rng = seeded();
+  const w = createWorld([thing("pig", 0.5, 0.9, { r: 0.06 }), thing("hen", 0.1, 0.9, { r: 0.05, legs: 0, preset: "float" })], { rng, presets });
+  setMode(w, "edit", rng);
+  run(w, GLIDE_S, rng);
+  const [pig, hen] = w.actors;
+  assert.ok(pig.y + pig.ext.bottom <= 0.9, `pig bottom ${pig.y + pig.ext.bottom}`);
+  assert.ok(Math.abs(hen.x - 0.1) < 1e-9 && Math.abs(hen.y - 0.9) < 1e-9);
 });

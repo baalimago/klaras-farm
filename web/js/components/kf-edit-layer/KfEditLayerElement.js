@@ -9,6 +9,7 @@ import { editSound } from "../kf-dialog/feedback.js";
 
 const BADGE = 52; // px, ≥ 44 pt target
 const EDGE = BADGE / 2 + 4;
+const BADGE_SPREAD_MAX = 70; // px from the top centre to each badge's centre
 const SETTLE_MS = 400; // > GLIDE_S (0.3 s)
 
 export class KfEditLayerElement extends HTMLElement {
@@ -50,7 +51,7 @@ export class KfEditLayerElement extends HTMLElement {
   /**
    * The board spreads overlapping things apart as edit mode starts and when a thing is added
    * (a glide of play/world.js GLIDE_S); place the badges again once it has. Never per frame:
-   * while the engine still reports `spreading`, placeBadges shows none and asks again later.
+   * while the engine still reports `settling` (gliding or dropping in), placeBadges shows none and asks again later.
    */
   _settleLater() {
     clearTimeout(this._late);
@@ -152,8 +153,8 @@ export class KfEditLayerElement extends HTMLElement {
     const s = this.services ?? {};
     this._badges.replaceChildren();
     if (s.session?.state?.panel) return;
-    // Things are gliding apart: badges placed now would pile up where the things were.
-    if (s.engine?.spreading) { this._settleLater(); return; }
+    // Things are gliding apart or dropping in: badges placed now would float where they were.
+    if (s.engine?.settling) { this._settleLater(); return; }
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const clampX = (x) => Math.max(EDGE, Math.min(vw - EDGE, x));
@@ -164,7 +165,8 @@ export class KfEditLayerElement extends HTMLElement {
       const name = this._name(thing);
       if (thing.id === this.selected) this._badges.append(this._ring(r));
       const cx = r.left + r.width / 2;
-      const half = Math.max(BADGE / 2 + 6, r.width * 0.3);
+      // Close to the thing's top centre, so a wide thing's pencil still reads as its own.
+      const half = Math.max(BADGE / 2 + 6, Math.min(BADGE_SPREAD_MAX, r.width * 0.3));
       const y = clampY(r.top);
       const needsVoice = s.store.clipsFor(thing.id, { kind: "name" }).length === 0;
       const pencil = this._badge("pencil", needsVoice ? `Edit ${name} (needs your voice)` : `Edit ${name}`, "✎", clampX(cx - half), y, () => s.session?.openPanel("card", { thingId: thing.id }));

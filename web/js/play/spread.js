@@ -5,7 +5,8 @@
 // Contract: spreadBoxes(boxes, opts) returns one {x, y} per box, in the same board coordinates
 // (x across the width, y down the height, both 0..1). Boxes that overlap nothing keep their exact
 // position. The rest are placed one by one, in input order: each keeps its spot if that is free,
-// otherwise it goes to the nearest free spot beside the boxes already placed, on the board. It is
+// otherwise it goes to the nearest free spot beside the boxes already placed, on the board and
+// clear of fixed obstacles (the edit bar). It is
 // deterministic (same input, same output) and bounded (about n^3 candidate checks, n <= 12). When
 // a box fits nowhere, it goes where it overlaps least.
 //
@@ -21,19 +22,21 @@ const EPS = 1e-9;
  * @typedef {{x: number, y: number, left: number, right: number, top: number, bottom: number}} SpreadBox
  *   anchor (x, y) and the extents of the thing around it, all in board coordinates
  * @param {SpreadBox[]} boxes
- * @param {{gap?: number, padTop?: number, minHalfWidth?: number, margin?: number, bottomInset?: number}=} opts
+ * @typedef {{left: number, top: number, right: number, bottom: number}} SpreadObstacle
+ *   a fixed rectangle no box may cover (a toolbar over the board), in board coordinates
+ * @param {{gap?: number, padTop?: number, minHalfWidth?: number, margin?: number, obstacles?: SpreadObstacle[]}=} opts
  *   gap: space between neighbours, in board widths; padTop: extra room above each box (its badges),
  *   in board widths; minHalfWidth: boxes are treated as at least this wide each side of the anchor;
- *   margin: how close a moved box may come to the board edge, in board widths; bottomInset: extra
- *   room a moved box keeps from the bottom edge (a toolbar there), in board widths.
+ *   margin: how close a moved box may come to the board edge, in board widths; obstacles: fixed
+ *   rectangles that count as already placed (a box covering one moves, like a box covering a box).
  * @returns {{x: number, y: number}[]}
  */
-export function spreadBoxes(boxes, { gap = 0, padTop = 0, minHalfWidth = 0, margin = 0, bottomInset = 0 } = {}) {
+export function spreadBoxes(boxes, { gap = 0, padTop = 0, minHalfWidth = 0, margin = 0, obstacles = [] } = {}) {
   // Board widths on both axes, so "nearest" means nearest on screen.
   const r = boxes.map((b) => {
     const half = Math.max(b.left, b.right, minHalfWidth); // the sprite mirrors when it turns
     const top = b.top * ASPECT, bottom = b.bottom * ASPECT;
-    const yLo = top + margin, yHi = ASPECT - bottom - margin - bottomInset;
+    const yLo = top + margin, yHi = ASPECT - bottom - margin;
     const xLo = half + margin, xHi = 1 - half - margin;
     return {
       src: b, moved: false, x0: b.x, y0: b.y * ASPECT, x: b.x, y: b.y * ASPECT,
@@ -43,10 +46,16 @@ export function spreadBoxes(boxes, { gap = 0, padTop = 0, minHalfWidth = 0, marg
       yLo: yLo <= yHi ? yLo : (yLo + yHi) / 2, yHi: yLo <= yHi ? yHi : (yLo + yHi) / 2,
     };
   });
-  const placed = [];
+  const fixed = obstacles.map((o) => ({
+    x: (o.left + o.right) / 2, y: ((o.top + o.bottom) / 2) * ASPECT,
+    l: (o.right - o.left) / 2 + gap / 2, rt: (o.right - o.left) / 2 + gap / 2,
+    t: ((o.bottom - o.top) / 2) * ASPECT + gap / 2, b: ((o.bottom - o.top) / 2) * ASPECT + gap / 2,
+  }));
+  const placed = [...fixed];
   const waiting = [];
   r.forEach((a, i) => {
-    if (r.every((o, j) => j === i || overlapArea(a, a.x, a.y, o) <= EPS)) placed.push(a);
+    const clear = (o, j) => j === i || overlapArea(a, a.x, a.y, o) <= EPS;
+    if (r.every(clear) && fixed.every((o) => overlapArea(a, a.x, a.y, o) <= EPS)) placed.push(a);
     else waiting.push(a);
   });
   for (const a of waiting) {

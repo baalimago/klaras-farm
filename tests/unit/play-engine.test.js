@@ -303,26 +303,64 @@ test("dispose stops listening to the store", async () => {
   assert.equal(engine.actors.length, 2);
 });
 
-test("edit mode: overlapping things glide apart while `spreading`, and a drop saves the spread position", async () => {
+test("edit mode: overlapping things glide apart while `settling`, and the moves go out as one `spread` event", async () => {
   const { store, engine, advance } = await setup();
+  const spreads = [];
+  engine.addEventListener("spread", (e) => spreads.push(e.detail.moves));
   // put the cow on top of the pig
   const cow = store.thingsIn("farm").find((t) => t.id === "cow");
   store.updateThing({ thingId: "cow", patch: movedThingPatch(cow, -0.4 + 0.02, 0) });
   advance(TICK);
-  assert.equal(engine.spreading, false, "play never spreads");
+  assert.equal(engine.settling, false, "play never spreads");
   engine.setMode("edit");
-  assert.equal(engine.spreading, true);
+  assert.equal(engine.settling, true);
   assert.equal(engine.isIdle(), false, "the glide keeps the loop running");
+  assert.deepEqual(spreads, [], "sent a microtask later, never inside the mode change");
+  await flush();
+  assert.equal(spreads.length, 1);
+  const [move] = spreads[0];
+  assert.equal(move.thingId, "cow");
+  const c = actor(engine, "cow");
+  assert.ok(Math.abs(0.32 + move.dx - c.tx) < 1e-9 && Math.abs(0.7 + move.dy - c.ty) < 1e-9, "the move is old home → glide target");
+  assert.deepEqual([c.homeX, c.homeY], [c.tx, c.ty], "which is its home now");
+  // The board saves it (like a drop); the glide carries on without a jump.
+  const before = [c.x, c.y];
+  store.updateThing({ thingId: "cow", patch: movedThingPatch(store.thingsIn("farm")[1], move.dx, move.dy) });
+  assert.deepEqual([c.x, c.y], before, "no jump when the farm catches up");
+  assert.ok(c.glideT >= 0, "still gliding");
   advance(0.4);
-  assert.equal(engine.spreading, false);
-  const p = actor(engine, "pig"), c = actor(engine, "cow");
+  assert.equal(engine.settling, false);
+  const p = actor(engine, "pig");
   assert.ok(Math.abs(c.x - p.x) >= p.ext.right + c.ext.left || Math.abs(c.y - p.y) >= p.ext.bottom + c.ext.top, "apart");
-  assert.ok(Math.abs(store.thingsIn("farm")[1].outline[0][0] - (0.32 - 0.08)) < 1e-9, "the farm is unchanged");
-  // a pick-up and put-down without moving saves the spread spot
-  const shown = [c.x, c.y];
-  assert.deepEqual(engine.grab("cow"), { x: c.x, y: c.y });
-  const d = engine.release(true);
-  store.updateThing({ thingId: "cow", patch: movedThingPatch(store.thingsIn("farm")[1], d.dx, d.dy) });
-  advance(TICK);
-  assert.deepEqual([actor(engine, "cow").x, actor(engine, "cow").y].map((v) => +v.toFixed(9)), shown.map((v) => +v.toFixed(9)));
+  await flush();
+  assert.equal(spreads.length, 1, "the save does not spread again");
+  // back to play and edit again: already apart, nothing moves, nothing is sent
+  engine.setMode("play");
+  engine.setMode("edit");
+  await flush();
+  assert.equal(spreads.length, 1);
+  assert.equal(engine.settling, false);
+});
+
+test("edit mode: a thing that drops in (scene switch) keeps `settling` true until it lands", async () => {
+  const { store, engine, advance } = await setup();
+  engine.setMode("edit");
+  advance(0.5);
+  store.setCurrentPlace({ placeId: "sea" });
+  assert.equal(store.currentPlace.id, "sea");
+  assert.equal(engine.settling, true);
+  advance(1.5);
+  assert.equal(engine.settling, false);
+});
+
+test("a spread queued just before dispose sends nothing", async () => {
+  const { store, engine } = await setup();
+  const spreads = [];
+  engine.addEventListener("spread", (e) => spreads.push(e));
+  const cow = store.thingsIn("farm").find((t) => t.id === "cow");
+  store.updateThing({ thingId: "cow", patch: movedThingPatch(cow, -0.4, 0) });
+  engine.setMode("edit");
+  engine.dispose();
+  await flush();
+  assert.deepEqual(spreads, []);
 });

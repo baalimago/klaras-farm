@@ -75,8 +75,11 @@ test("a box is never pushed off the board: it goes the other way", () => {
 });
 
 test("a margin keeps moved boxes off the edge", () => {
-  const boxes = [box(0.12, 0.5), box(0.15, 0.5)];
+  // too tall to go up or down; left would end 0.01 from the edge, inside the margin
+  const boxes = [box(0.31, 0.5, 0.1, 0.45), box(0.25, 0.5, 0.1, 0.45)];
+  assert.ok(spreadBoxes(boxes)[1].x < 0.31, "without a margin it goes left");
   const out = spreadBoxes(boxes, { margin: 0.02 });
+  assert.ok(out[1].x > 0.31, "with one it goes right instead");
   assertApart(boxes, out);
   assertOnBoard(boxes, out, 0.02);
 });
@@ -139,17 +142,52 @@ test("boxes that cannot all fit return a finite best effort", () => {
   for (const p of out) assert.ok(Number.isFinite(p.x) && Number.isFinite(p.y));
 });
 
-test("a bottom inset keeps moved boxes clear of a toolbar along the bottom; unmoved ones stay", () => {
-  // the second one would land below the first, but the inset sends it beside it instead
-  const boxes = [box(0.5, 0.5, 0.08), box(0.5, 0.52, 0.08), box(0.2, 0.9, 0.05)];
-  const out = spreadBoxes(boxes, { bottomInset: 0.2 });
+test("a fixed obstacle (the edit bar) counts as placed: boxes covering it move off it", () => {
+  const bar = { left: 0.25, top: 0.9, right: 0.75, bottom: 1 };
+  // one box pokes into the bar, one is beside it, one overlaps the first
+  const boxes = [box(0.5, 0.85, 0.08), box(0.1, 0.88, 0.05), box(0.52, 0.8, 0.08)];
+  const out = spreadBoxes(boxes, { obstacles: [bar] });
   assertApart(boxes, out);
+  assert.deepEqual(out[1], { x: 0.1, y: 0.88 }, "clear of the bar and of the others: stays");
+  for (const i of [0, 2]) {
+    const b = boxes[i], p = out[i];
+    const clearOfBar = p.y + b.bottom <= bar.top + 1e-9 || p.x + b.right <= bar.left + 1e-9 || p.x - b.left >= bar.right - 1e-9;
+    assert.ok(clearOfBar, `box ${i} is off the bar`);
+  }
+  assert.deepEqual(spreadBoxes([box(0.5, 0.5)], { obstacles: [bar] }), [{ x: 0.5, y: 0.5 }], "far from the bar: untouched");
+});
+
+test("boxes go left and up too, not only right and down", () => {
+  const left = spreadBoxes([box(0.55, 0.5), box(0.4, 0.5)]);
+  assert.ok(Math.abs(left[1].x - 0.35) < 1e-9 && left[1].y === 0.5, "goes left");
+  const up = spreadBoxes([box(0.5, 0.6), box(0.52, 0.45)]);
+  assert.ok(up[1].y < 0.45 && up[1].x === 0.52, "goes up");
+});
+
+test("a bystander that overlaps nothing is never pushed out by the others", () => {
+  const boxes = [box(0.3, 0.5), box(0.35, 0.5), box(0.55, 0.5)];
+  const out = spreadBoxes(boxes);
+  assertApart(boxes, out);
+  assert.deepEqual(out[2], { x: 0.55, y: 0.5 });
+  assert.deepEqual(out[0], { x: 0.3, y: 0.5 });
+});
+
+test("a lopsided box counts its longer side on both sides (the sprite mirrors)", () => {
+  const lop = { x: 0.5, y: 0.5, left: 0.02, right: 0.15, top: 0.1, bottom: 0.1 };
+  const boxes = [box(0.38, 0.5, 0.05), lop];
+  const out = spreadBoxes(boxes);
+  assert.ok(out[1].x - 0.15 >= out[0].x + 0.05 - 1e-9 || out[1].x + 0.15 <= out[0].x - 0.05 + 1e-9 || out[1].y !== 0.5);
+});
+
+test("when nothing fits, boxes still go to different spots (least overlap)", () => {
+  const boxes = [box(0.5, 0.5, 0.45), box(0.5, 0.5, 0.45), box(0.5, 0.5, 0.45)];
+  const out = spreadBoxes(boxes);
+  assert.notDeepEqual(out[1], out[2]);
+});
+
+test("the tie-break is pinned: two boxes on one spot, the later one goes up", () => {
+  const out = spreadBoxes([box(0.5, 0.5), box(0.5, 0.5)]);
   assert.deepEqual(out[0], { x: 0.5, y: 0.5 });
-  assert.deepEqual(out[2], { x: 0.2, y: 0.9 }, "a box that overlaps nothing stays, inset or not");
-  assert.ok((out[1].y + boxes[1].bottom) * A <= A - 0.2 + 1e-9, "the moved box keeps above the inset");
-  // a box already within the inset may stay at its height when it moves aside, never lower
-  const low = [box(0.5, 0.85, 0.08), box(0.52, 0.85, 0.08)];
-  const o2 = spreadBoxes(low, { bottomInset: 0.1 });
-  assertApart(low, o2);
-  assert.ok(o2[1].y <= 0.85 + 1e-9);
+  assert.ok(Math.abs(out[1].x - 0.5) < 1e-9);
+  assert.ok(Math.abs(out[1].y - (0.5 - 0.2 / A * 1)) < 1e-9 || out[1].y < 0.5, `y ${out[1].y}`);
 });

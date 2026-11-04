@@ -16,7 +16,7 @@
 // Time: step(dt) takes the frame delta. While the world is idle the renderer may stop calling
 // step; the engine then counts the idle gap with its own clock (`now`), so a wake-up step can pass
 // any dt (even 0). Pass the frame delta, not the time since the last frame before the loop stopped.
-import { createWorld, syncWorld, step, setMode, react, dropActor, sleepAll, isIdle, nextWakeMs, hitTargets, actorFor, holdActor, placeActor, settleActor, isSpreading } from "./play/world.js";
+import { createWorld, syncWorld, step, setMode, react, dropActor, sleepAll, isIdle, nextWakeMs, hitTargets, actorFor, holdActor, placeActor, settleActor, isSettling, takeSpreadMoves } from "./play/world.js";
 import { hitTest } from "./play/hit.js";
 import { decideTap, idleMash, startPlaying, stopPlaying } from "./play/mash.js";
 import { createSleep, tickSleep, sleepRemainingS } from "./play/sleep.js";
@@ -77,6 +77,7 @@ export class PlayEngine extends EventTarget {
     this._mode = mode;
     this._held = null; // a drag ends with edit mode
     setMode(this.world, mode, this.rng);
+    this._queueSpread();
     if (mode === "play") this._sleep = createSleep(this._sleepMinutes);
     this._sleep.paused = mode !== "play";
     if (mode !== "play") this._endFind();
@@ -262,8 +263,8 @@ export class PlayEngine extends EventTarget {
     return isIdle(this.world) && this._glowIds.size === 0;
   }
 
-  /** Edit mode: overlapping things are still gliding apart (play/world.js spreadActors). */
-  get spreading() { return isSpreading(this.world); }
+  /** Things are gliding apart (edit-mode spread) or dropping in; edit badges wait for this. */
+  get settling() { return isSettling(this.world); }
 
   /** Milliseconds until something happens by itself (wander, blink, sleep, a find nudge or timeout); Infinity if never. */
   nextWakeMs() {
@@ -286,6 +287,7 @@ export class PlayEngine extends EventTarget {
   }
 
   dispose() {
+    this._disposed = true;
     this.store.removeEventListener("change", this._onChange);
   }
 
@@ -511,6 +513,22 @@ export class PlayEngine extends EventTarget {
     }
   }
 
+  /**
+   * Edit-mode spread moves go to the farm as a `spread` event {moves: [{thingId, dx, dy}]}, which
+   * the board saves like drops. A microtask later, so a spread found inside a store change never
+   * writes the store re-entrantly; the screen already shows the glide.
+   */
+  _queueSpread() {
+    if (this._spreadQueued || !this.world.actors.some((a) => a.spreadPending)) return;
+    this._spreadQueued = true;
+    queueMicrotask(() => {
+      this._spreadQueued = false;
+      if (this._disposed) return;
+      const moves = takeSpreadMoves(this.world);
+      if (moves.length) this.dispatchEvent(new CustomEvent("spread", { detail: { moves } }));
+    });
+  }
+
   _storeChanged(detail) {
     this._catchUp();
     const settings = this.store.settings ?? {};
@@ -528,6 +546,7 @@ export class PlayEngine extends EventTarget {
     const moved = placeId !== this._placeId;
     this._placeId = placeId;
     syncWorld(this.world, this._things(), this.rng, { drop: switched });
+    this._queueSpread();
     for (const id of this._pendingDrops) if (dropActor(this.world, id)) this._pendingDrops.delete(id);
     // A find round ends with its scene, when its answer leaves it, or when the games are switched off.
     if (this._find.phase === "asking" && (moved || reconcileFind(this._find, this._things()) || !this.findAvailable)) this._endFind();

@@ -1,7 +1,8 @@
 // Edit mode spreads things apart (owner request: "avoid collisions of the animals by moving each
 // outside their bounding boxes so that they're easy to edit"), in the real app at iPad size
-// (1180 × 820, touch). After edit mode settles, no two things overlap and no two pencils or crosses
-// overlap, even when every thing was piled on one spot; the farm itself is unchanged until a drag.
+// (1180 × 820, touch). After edit mode settles, no two things overlap, no two pencils or crosses
+// overlap and nothing sits under the edit bar, even when every thing was piled on one spot. The
+// spread is saved, so it survives a scene switch and a reload.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { setup } from "./harness.js";
@@ -49,7 +50,9 @@ function layout(page) {
   return page.evaluate(() => {
     const { store, board } = window.__kf;
     const r = (d) => ({ l: d.left, t: d.top, r: d.right, b: d.bottom });
+    const bar = document.querySelector("kf-edit-layer .kf-edit-bar")?.getBoundingClientRect();
     return {
+      bar: bar ? { id: "bar", ...r(bar) } : null,
       things: store.thingsIn(store.currentPlace.id).map((t) => ({ id: t.id, ...r(board.actorRect(t.id)) })),
       badges: [...document.querySelectorAll("kf-edit-layer .kf-edit-badges button")].map((b) => ({ id: `${b.dataset.thingId}:${b.className}`, ...r(b.getBoundingClientRect()) })),
       outlines: store.thingsIn(store.currentPlace.id).map((t) => JSON.stringify(t.outline)),
@@ -76,13 +79,22 @@ test("edit mode: piled-up things glide apart, with every pencil and cross clear 
   assert.deepEqual(overlapping(after.badges), [], "no two badges overlap");
   assert.equal(after.badges.length, 2 * after.things.length);
   for (const t of after.things) assert.ok(t.l >= -0.5 && t.r <= 1180.5 && t.t >= -0.5 && t.b <= 820.5, `${t.id} is on screen`);
-  assert.deepEqual(after.outlines, before.outlines, "only the view moved: the farm is unchanged");
   if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/edit-spread.png` });
-  // A tap on each spread thing opens its own card: the hit test follows the spread.
+  // A tap on a spread thing opens its own card: the hit test follows the spread.
   const first = after.things[after.things.length - 1];
   await page.mouse.click((first.l + first.r) / 2, (first.t + first.b) / 2 + 4);
   await page.locator("kf-thing-card").waitFor();
   assert.equal(await page.evaluate(() => window.__kf.session.state.panel?.params?.thingId), first.id);
+  assert.ok(after.bar, "the edit bar is there");
+  assert.deepEqual(overlapping([after.bar, ...after.badges]).filter((x) => x.startsWith("bar")), [], "no badge under the edit bar");
+  assert.notDeepEqual(after.outlines, before.outlines, "the spread is saved to the farm");
+  // Saved means it sticks: reload, edit again, and nothing has to move.
+  await page.waitForTimeout(300); // IndexedDB writes
+  await page.reload();
+  await page.waitForFunction(() => document.documentElement.dataset.ready === "true", null, { timeout: 15000 });
+  const reloaded = await layout(page);
+  assert.deepEqual(reloaded.outlines, after.outlines, "the saved layout survives a reload");
+  assert.deepEqual(overlapping(reloaded.things), [], "still apart after a reload");
   assert.deepEqual(page.errors, []);
   await context.close();
 });
@@ -126,18 +138,46 @@ test("edit mode: the pencils and crosses wait for the glide, so they never pile 
   const samples = await page.evaluate(async () => {
     const { session, engine } = window.__kf;
     const out = [];
+    const t0 = performance.now();
     session.holdArmed();
     session.gatePassed();
-    const t0 = performance.now();
+    // right after the mode change, before any frame: the glide has started
+    out.push({ t: 0, spreading: engine.settling, badges: document.querySelectorAll("kf-edit-layer .kf-edit-badges button").length });
     while (performance.now() - t0 < 1200) {
       await new Promise((r) => requestAnimationFrame(() => r()));
-      out.push({ spreading: engine.spreading, badges: document.querySelectorAll("kf-edit-layer .kf-edit-badges button").length });
+      out.push({ t: Math.round(performance.now() - t0), spreading: engine.settling, badges: document.querySelectorAll("kf-edit-layer .kf-edit-badges button").length });
     }
     return out;
   });
   assert.ok(samples.some((s) => s.spreading), "the things glided");
   assert.deepEqual(samples.filter((s) => s.spreading && s.badges > 0), [], "no badges while gliding");
   assert.ok(samples.at(-1).badges > 0, "badges once settled");
+  assert.deepEqual(page.errors, []);
+  await context.close();
+});
+
+test("edit mode: after switching scenes and back, each pencil and cross sits over its own thing", async () => {
+  const { page, context } = await ipadPage();
+  await pileUp(page);
+  await enterEdit(page);
+  const ids = await page.evaluate(() => window.__kf.store.snapshot.places.map((p) => p.id));
+  assert.ok(ids.length >= 2, "the starter has two scenes");
+  for (const id of [ids[1], ids[0]]) {
+    await page.evaluate((placeId) => window.__kf.store.setCurrentPlace({ placeId }), id);
+    await page.waitForFunction(() => !window.__kf.engine.settling, null, { timeout: 5000 });
+    await page.waitForTimeout(500); // the badges' next placement
+    const { things, badges } = await layout(page);
+    assert.deepEqual(overlapping(things), [], `no overlaps in ${id}`);
+    for (const t of things) {
+      const mine = badges.filter((b) => b.id.startsWith(`${t.id}:`));
+      assert.equal(mine.length, 2, `${t.id} has its pencil and cross`);
+      for (const b of mine) {
+        const cx = (b.l + b.r) / 2, cy = (b.t + b.b) / 2;
+        assert.ok(Math.abs(cy - Math.max(30, t.t)) < 2, `${b.id} sits on ${t.id}'s top edge`);
+        assert.ok(Math.abs(cx - (t.l + t.r) / 2) <= 71, `${b.id} sits near ${t.id}'s top centre`);
+      }
+    }
+  }
   assert.deepEqual(page.errors, []);
   await context.close();
 });

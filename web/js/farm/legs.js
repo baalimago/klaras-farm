@@ -9,7 +9,7 @@ export const LEG_COUNTS = Object.freeze([0, 1, 2, 3, 4, 6, 8]);
 /** Hips of spread legs sit this far above the outline's bottom edge (3 px of a 600 px board). */
 export const HIP_INSET = 3 / 600;
 const LEG_MIN = 8 / 600;
-const LEG_MAX = 34 / 600;
+export const LEG_MAX = 34 / 600;
 
 const isNum = (v) => typeof v === "number" && Number.isFinite(v);
 const round3 = (v) => Math.round(v * 1000) / 1000;

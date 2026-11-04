@@ -25,7 +25,7 @@ Run on the base iPad (11th generation, A16) with iPadOS 18 or later before a rel
 | Smoothness | `io/renderer.js`, `io/felt.js`, `play/` | Safari Web Inspector Timelines, 2 minutes of play with 8 walking things (Walks, Hops and Scuttles mixed): no frame over 4 ms of script, idle board shows no rAF. |
 | Dragging under the finger | `components/kf-board/`, `components/kf-scene-tools/`, `io/renderer.js`, `play-engine.js` | In edit mode drag a thing in fast circles, then in Change scene → Move drag and resize a piece: it stays under the fingertip with no visible trail or offset, 60 fps in Timelines, no hitch on release. |
 | Colour sheet over the canvas | `components/kf-scene-tools/` | Shape tool → colour button: every swatch takes the tap first time, no stroke appears behind the sheet. |
-| Things spread in edit mode | `play/spread.js`, `play/world.js`, `components/kf-edit-layer/` | Let the animals bunch up in play, hold to edit: they glide apart smoothly (no hitch), every pencil and cross can be tapped, and the one you drag stays where you put it after Done. |
+| Things spread in edit mode | `play/spread.js`, `play/world.js`, `components/kf-edit-layer/` | Let the animals bunch up in play, hold to edit: they glide apart smoothly (no hitch), every pencil and cross can be tapped, nothing hides under the edit bar; after Done and a reload they are still apart. |
 | Editing sounds | `dsp/chimes.js`, `components/kf-dialog/feedback.js` | With the volume at half, each edit (tool, select, pick up, drop, colour, add, delete, undo, Next/Back in Add a thing) gives one soft, short sound, quieter than a child's tap; mashing a button gives one sound, not a pile-up. |
 
 ## Log

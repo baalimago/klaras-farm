@@ -39,7 +39,7 @@ Play is the live board a toddler touches. Things wander, blink, jump and speak w
 | `asking`, `findRound`, `findAvailable` | Current animal target, current round `{kind, thingId, color}`, and whether the find buttons should show. |
 | `dropIn(thingId)` | A newly added thing falls in. Works before or after the store's change event. |
 | `isIdle()`, `nextWakeMs()` | For the renderer's 0 fps idle (below). |
-| `spreading` | Edit mode: overlapping things are still gliding apart. `<kf-edit-layer>` places no badges until it is false. |
+| `settling` | Things are gliding apart (edit-mode spread) or dropping in. `<kf-edit-layer>` places no badges until it is false. |
 | `hitMinRadius` | Board widths. The board sets it to `60 / boardWidthPx` (targets at least 120 CSS px across). |
 | `actorFor(id)`, `dispose()` | Live actor lookup; removes the store listener. |
 
@@ -50,10 +50,11 @@ Events (all `CustomEvent`):
 - `ask` `{kind, thingId, color, repeat}`: a find question started.
 - `answer` `{thingId, outcome}`: a tap during a round, `correct` or `wrong`.
 - `find` `{round, available}`: a round started or ended, or the buttons should show or hide. `<kf-find-buttons>` listens.
+- `spread` `{moves: [{thingId, dx, dy}]}`: edit mode spread things apart; a microtask after the spread (never inside a store change). `<kf-board>` saves each move with `movedThingPatch`, like a drop.
 
 ### World (`play/world.js`)
 
-`createWorld(things, {rng, presets, mode, reduceMotion})`, `syncWorld(world, things, rng, {drop})`, `setMode`, `react`, `dropActor`, `sleepAll`, `step(world, dt, {fingerDown}, rng)`, `isIdle`, `nextWakeMs`, `hitTargets`, `actorFor`, `spreadActors` and `isSpreading` (edit-mode spread, below), and for the edit drag `holdActor` (still, settled wiggle), `placeActor(world, id, x, y)` and `settleActor` (the drop point becomes home; the actor's outline moves with it so taps hit it before the store catches up; returns `[dx, dy]`). Constants: `TICK = 1/60`, `GROUND_TOP = 0.55`, `GLIDE_S = 0.3`.
+`createWorld(things, {rng, presets, mode, reduceMotion})`, `syncWorld(world, things, rng, {drop})`, `setMode`, `react`, `dropActor`, `sleepAll`, `step(world, dt, {fingerDown}, rng)`, `isIdle`, `nextWakeMs`, `hitTargets`, `actorFor`, `spreadActors`, `takeSpreadMoves` and `isSettling` (edit-mode spread, below), and for the edit drag `holdActor` (still, settled wiggle), `placeActor(world, id, x, y)` and `settleActor` (the drop point becomes home; the actor's outline moves with it so taps hit it before the store catches up; returns `[dx, dy]`). Constants: `TICK = 1/60`, `GROUND_TOP = 0.55`, `GLIDE_S = 0.3`.
 
 Actor states:
 
@@ -79,46 +80,11 @@ idle ──rest timer──▶ moving ──arrived──▶ idle
 
 Owner request after meeting 2: in edit mode no two things overlap, so each one and its pencil and cross can be reached.
 
-- When: entering edit mode (`setMode('edit')`), and when `syncWorld` adds things while in edit mode (a new thing, or a place switched to while editing).
-- `spreadBoxes(boxes, {gap, padTop, minHalfWidth, margin, bottomInset})` works in board widths on both axes. A box that overlaps nothing keeps its exact position. The others are placed one by one in drawing order: each keeps its spot if free, else takes the nearest free spot flush beside a placed box (or a board edge), clamped onto the board; if nothing is free, the spot with the least overlap. Greedy placement instead of pairwise pushes, because pushes jam when a row is wider than the board. Deterministic; about n³ candidate checks for n ≤ 12, once per mode switch.
-- World settings (`SPREAD` in `world.js`): gap 0.015, `padTop` 0.03 (the 52 px badges sit centred on each thing's top edge), `minHalfWidth` 0.055 (pencil and cross sit 0.3 of the width, at least 32 px, each side of the middle), margin 0.01, `bottomInset` 0.07 (a moved thing stays above the edit bar). A moved box never goes further past an edge than it already was.
-- Each moved actor glides over `GLIDE_S` (smoothstep, `glideT`, from `gx, gy` to `tx, ty`). `isIdle` is false while gliding. Picking a thing up (`holdActor`, `placeActor`) stops its glide under the finger; leaving edit mode or a store change (`syncWorld`) finishes a glide at once.
-- Only actors move; the farm is unchanged. When a parent drags a spread thing, `settleActor` returns the offset from home including the spread, so the store saves where the thing was shown. Back in play, things wander on from where they stand.
-
-### Mash (`play/mash.js`)
-
-`decideTap(state, thingId, nowMs)` returns `{action: 'play'|'restart'|'ignore', stopCurrent}`. Nothing playing: play. A different thing: stop the current clip and play at once. The same thing: ignore within `RESTART_MS = 300`, else restart. Nothing ever queues. `startPlaying` and `stopPlaying` use a token so a stale clip ending changes nothing.
-
-### Sleep (`play/sleep.js`)
-
-`createSleep(minutes)` (0 or bad input means off), `tickSleep(state, dt)` returns true once, on the step it falls asleep, `sleepRemainingS(state)`. Paused outside play.
-
-### Find (`play/find.js`, `play/colors.js`, `play/ask.js`)
-
-```
-idle ──startRound──▶ asking ──right tap──▶ idle (celebration)
-                      │ wrong tap: the thing says its name, then the question repeats
-                      │   after 2 misses the right thing(s) glow and hop
-                      │ 6 s quiet without the right tap: the right thing(s) hop, the question repeats once
-                      └─ 30 s without the right tap: the round ends quietly, no failure sound
-```
-
-- `FIND = {nudgeAfterS: 6, timeoutS: 30, hintAfterMisses: 2}`.
-- Rounds start only from `<kf-find-buttons>` (a short tap, on the finger's lift). Nothing asks by itself.
-- Animal: prefers things that can be asked for by name (a prompt or name clip, or a typed name when the device can speak). Never the last target when there are two or more.
-- Colour: a simple colour present among the things, never the last one when there are two or more. Any thing of that colour is right: the goal is linking the word to the colour, not one animal. `colorGroup(key)` folds felt keys (`sky`, `water`, `deep` are all blue). `groupHex(group)` gives the button's dot colour.
-- `stepFind` counts quiet time only while `calm` (no voice playing). `reconcileFind` ends a round whose answer left the scene. `findRemainingS` feeds `nextWakeMs`.
-- Exports: `createFind`, `startRound`, `endRound`, `stepFind`, `isAnswer`, `answerFind`, `hinting`, `reconcileFind`, `findRemainingS`.
-
-#### Asking (`play/ask.js`)
-
-A plan is `{ask: Step[], clue: Step|null}`; a step is `{kind:'clip', clip}`, `{kind:'clips', clips}` (one gapless sequence), `{kind:'speak', text, lang}` or `{kind:'chime'}`.
-
-- `ask` lists alternatives, best first; a chime always ends it. The engine starts `ask[0]` synchronously inside the press. When a step resolves `false` (not heard: the device voice never started, a clip would not decode) and the round is still current, it plays the next one.
-- `clue` (the animal's sound) plays only after a question step finished and only if the round is still current. Never instead of the question, never over it (playtest round 3: "it only played the chicken sound").
-- `planAnimalAsk`: a recorded prompt in the play language (else any language), a random take, never the same take twice in a row (`lastId`); then a random cue line in the device voice; then the recorded name; then a chime. Clue: the sound in that language, else any.
-- `planColorAsk`: the recorded colour question (random take) and that colour's word in the same language, as one sequence; else the device voice says `colorLine` ("Tap on an animal that is yellow!"); else any recorded word for the colour; else a chime. No clue.
-- `colorAskLanguage(settings, recordedLangs, rng)`: the fixed play language, or with "Mix languages" a random language where the question and the word are both recorded (else any family language).
+- When: entering edit mode (`setMode('edit')`), and when `syncWorld` in edit mode adds things (a new thing, an undone delete, a place switched to) or a thing's extents change (Size, Redraw). Never in play or scene mode. A thing a parent drops onto another stays there: the parent chose the spot; the next edit session spreads it.
+- `spreadBoxes(boxes, {gap, padTop, minHalfWidth, margin, obstacles})` works in board widths on both axes. A box that overlaps nothing (boxes or obstacles) keeps its exact position. The others are placed one by one in drawing order: each keeps its spot if free, else takes the nearest free spot flush beside a placed box or obstacle (or a board edge), clamped onto the board; if nothing is free, the spot with the least overlap. Greedy placement instead of pairwise pushes, because pushes jam when a row is wider than the board. Deterministic; about n³ candidate checks for n ≤ 12, once per spread.
+- World settings (`SPREAD` in `world.js`): gap 0.015, `padTop` 0.03 (the 52 px badges sit centred on each thing's top edge), `minHalfWidth` 0.055 (pencil and cross sit at most 70 px each side of the top centre), margin 0.01, and the edit bar as an obstacle (x 0.24 to 0.76, y from 0.9). A thing with legs counts `farm/legs.js` `LEG_MAX` below its outline. A moved box never goes further past an edge than it already was.
+- Each moved actor glides over `GLIDE_S` (smoothstep, `glideT`, from `gx, gy` to `tx, ty`) and is marked `spreadPending`. `isIdle` is false while gliding. Picking a thing up (`holdActor`, `placeActor`) stops its glide under the finger and drops its pending move (its drop saves it); leaving edit mode finishes a glide at once.
+- Saved, so it sticks: `PlayEngine` calls `takeSpreadMoves` a microtask later and sends the `spread` event. Like `settleActor`, the glide target becomes the actor's home and its outline moves with it. When the store catches up (new home = glide target) `syncWorld` lets the glide carry on; any other store change finishes it first and keeps the offset.
 
 ## Idle rules (0 fps)
 

@@ -32,6 +32,7 @@ export class KfBoardElement extends HTMLElement {
     this._onUp = this._onUp.bind(this);
     this._onCancel = this._onCancel.bind(this);
     this._onSession = () => this.renderer?.wake();
+    this._onSpread = (e) => this._saveSpread(e.detail?.moves ?? []);
     this._onContext = (e) => e.preventDefault();
     this._onResize = () => this._resize();
   }
@@ -58,6 +59,7 @@ export class KfBoardElement extends HTMLElement {
     frame.addEventListener("lostpointercapture", this._onCancel);
     this.addEventListener("contextmenu", this._onContext);
     services.session?.addEventListener?.("change", this._onSession);
+    services.engine?.addEventListener?.("spread", this._onSpread);
 
     this._ro = new ResizeObserver(this._onResize);
     this._ro.observe(frame);
@@ -180,6 +182,19 @@ export class KfBoardElement extends HTMLElement {
     s.store.updateThing({ thingId: g.id, patch: movedThingPatch(thing, d.dx, d.dy) }).catch((err) => console.error(err));
   }
 
+  /**
+   * Edit mode spread things apart (play/world.js spreadActors): save each move like a drop, so the
+   * layout sticks across scenes and reloads. The engine already shows the glide.
+   */
+  _saveSpread(moves) {
+    const s = this.services;
+    for (const m of moves) {
+      const thing = s?.store?.snapshot?.things?.find((t) => t.id === m.thingId);
+      if (!thing) continue;
+      guard(() => s.store.updateThing({ thingId: m.thingId, patch: movedThingPatch(thing, m.dx, m.dy) }).catch((err) => console.error(err)));
+    }
+  }
+
   _onMove(e) {
     const d = this._down;
     if (!d || e.pointerId !== d.id) return;
@@ -222,6 +237,7 @@ export class KfBoardElement extends HTMLElement {
     this._ro = null;
     window.removeEventListener("resize", this._onResize);
     this.services?.session?.removeEventListener?.("change", this._onSession);
+    this.services?.engine?.removeEventListener?.("spread", this._onSpread);
     this.removeEventListener("contextmenu", this._onContext);
     this.renderer?.destroy();
     this.renderer = null;
