@@ -1,10 +1,16 @@
-// Leg placing for the parent, like eyes: pick how many legs, then tap where each one goes on the
-// preview (snapped inside the outline). Tap a placed leg to take it off (then tap where it goes),
-// Undo takes off the last one. Used by <kf-guided-add> (Legs step) and <kf-thing-card> (Place legs).
-// The pure rules live in legplace.js.
+// Leg placing for the parent (US-3.10, playtest 2): choose how many legs, then tap where each goes,
+// or Spread evenly and drag to adjust. Used by <kf-guided-add> (Legs step) and <kf-thing-card>
+// (Place legs). The flow is the pure state machine in edit/leg-flow.js; this class only turns
+// pointer events into its events and renders the whole panel and the preview from its state after
+// every event, so the screen can never disagree with the data.
 import { h } from "./dom.js";
 import { snapPoint } from "./geometry.js";
-import { LEG_COUNTS, SUGGESTED_COUNT, legState, legPhase, chooseCount, recount, tapLeg, undoLeg, legHeading, legNote } from "./legplace.js";
+import {
+  legFlow, legPhase, legView, chooseCount, pressLeg, moveLeg, releaseLeg, cancelPress, spreadEvenly, clearLegs, undoLeg,
+} from "../../edit/leg-flow.js";
+
+/** A press turns into a drag only after the finger travels this far (CSS px), so taps stay taps. */
+const DRAG_SLOP_PX = 6;
 
 export class LegPlacer {
   /**
@@ -16,81 +22,145 @@ export class LegPlacer {
     this.preview = preview;
     this.geo = geo;
     this.thing = thing;
-    this.state = legState(thing.legs ?? [], target);
+    this.state = legFlow(thing.legs ?? [], target ?? null);
     this.drawOpts = drawOpts;
     this.onChange = onChange ?? (() => {});
     this.buttons = buttons ?? (() => []);
     this.chime = chime ?? (() => {});
     this.root = h("div", { class: "kf-legs", "data-testid": "leg-placing" });
-    this._onDown = (e) => this._tap(e);
-    preview.canvas.addEventListener("pointerdown", this._onDown);
-    preview.canvas.classList.add("kf-legs-target");
+    this._down = null; // {x, y, id}: where the current press started (client px)
+    this._viewKey = "";
+    const c = preview.canvas;
+    this._handlers = {
+      pointerdown: (e) => this._guard(() => this._press(e)),
+      pointermove: (e) => this._guard(() => this._move(e)),
+      pointerup: (e) => this._guard(() => this._release(e)),
+      pointercancel: () => this._guard(() => this._cancel()),
+    };
+    for (const [type, fn] of Object.entries(this._handlers)) c.addEventListener(type, fn);
+    c.classList.add("kf-legs-target");
   }
 
   get legs() { return this.state.legs; }
+  get target() { return this.state.target; }
   get phase() { return legPhase(this.state); }
 
-  /** The controls (heading, count picker or Undo / Change number, plus the caller's buttons). */
+  /** The panel element, rendered from the current state. */
   panel() {
-    this._renderPanel();
+    this._render(true);
     return this.root;
   }
 
   detach() {
-    this.preview.canvas.removeEventListener("pointerdown", this._onDown);
-    this.preview.canvas.classList.remove("kf-legs-target");
+    const c = this.preview.canvas;
+    for (const [type, fn] of Object.entries(this._handlers)) c.removeEventListener(type, fn);
+    c.classList.remove("kf-legs-target");
   }
 
   redraw() {
-    return this.preview.draw({ ...this.thing, legs: this.state.legs }, { ...this.drawOpts, markLegs: this.phase !== "count" });
+    return this.preview.draw({ ...this.thing, legs: this.state.legs }, { ...this.drawOpts, markLegs: this.phase !== "choose-count" });
   }
 
+  // ---------- state ----------
+
+  /** The one way the state changes: then the panel and preview follow, and the owner hears of it. */
   _set(state) {
+    if (state === this.state) return;
+    const before = this.state;
     this.state = state;
     this.thing = { ...this.thing, legs: state.legs };
-    this._renderPanel();
+    this._render();
     this.redraw();
-    this.onChange(state);
+    // Tell the owner once per finished change: not on every drag move, but when the drag ends.
+    const changed = before.legs !== state.legs || before.target !== state.target || (before.drag && !state.drag);
+    if (changed && !state.drag) this.onChange({ target: state.target, legs: state.legs });
   }
 
-  _tap(e) {
-    if (!e.isPrimary || this.phase === "count" || !this.thing.outline?.length) return;
-    e.preventDefault();
+  // ---------- pointer ----------
+
+  /** One failing step must never eat the parent's tap (AGENTS.md rule 5). */
+  _guard(fn) {
+    try {
+      fn();
+    } catch (err) {
+      console.warn("leg placing:", err);
+    }
+  }
+
+  _snapped(e) {
     const pt = this.preview.toBoard(e.clientX, e.clientY);
-    const snapped = snapPoint(this.geo, pt, this.thing.outline);
-    const r = tapLeg(this.state, pt, snapped, this.preview.legRadius(this.thing));
+    const snapped = this.thing.outline?.length ? snapPoint(this.geo, pt, this.thing.outline) : pt;
+    return { pt, snapped };
+  }
+
+  _press(e) {
+    if (!e.isPrimary || this.phase === "choose-count" || !this.thing.outline?.length) return;
+    e.preventDefault();
+    const { pt, snapped } = this._snapped(e);
+    const r = pressLeg(this.state, pt, snapped, this.preview.legRadius(this.thing));
     if (r.action === "none") return;
-    this.chime("tap");
+    this._down = { x: e.clientX, y: e.clientY, id: e.pointerId };
+    try { this.preview.canvas.setPointerCapture?.(e.pointerId); } catch { /* capture is a nicety */ }
+    if (r.action === "placed") this.chime("tap");
     this._set(r.state);
   }
 
-  _renderPanel() {
-    const s = this.state, phase = this.phase;
-    const picked = s.target ?? null;
-    const body = phase === "count"
-      ? h(
-          "div",
-          { class: "kf-legs-counts", role: "group", "aria-label": "Number of legs" },
-          LEG_COUNTS.map((n) =>
-            h("button", {
-              class: `kf-btn kf-legs-count${picked === null && n === SUGGESTED_COUNT ? " suggested" : ""}`, type: "button",
-              "data-count": String(n), text: String(n),
-              "aria-label": n === 1 ? "1 leg" : `${n} legs`,
-              onclick: () => this._set(chooseCount(s, n)),
-            }),
-          ),
-        )
+  _move(e) {
+    const d = this._down;
+    if (!d || e.pointerId !== d.id || !this.state.drag) return;
+    if (!this.state.drag.moved && Math.hypot(e.clientX - d.x, e.clientY - d.y) < DRAG_SLOP_PX) return;
+    this._set(moveLeg(this.state, this._snapped(e).snapped));
+  }
+
+  _release(e) {
+    const d = this._down;
+    if (!d || e.pointerId !== d.id) return;
+    this._down = null;
+    const r = releaseLeg(this.state, this._snapped(e).snapped);
+    if (r.action === "placed") this.chime("tap");
+    this._set(r.state);
+  }
+
+  _cancel() {
+    this._down = null;
+    this._set(cancelPress(this.state));
+  }
+
+  // ---------- panel ----------
+
+  _render(force = false) {
+    const v = legView(this.state);
+    const key = JSON.stringify(v);
+    if (!force && key === this._viewKey) return;
+    this._viewKey = key;
+    const s = this.state;
+    const counts = h(
+      "div",
+      { class: "kf-legs-counts", role: "group", "aria-label": "Number of legs" },
+      v.counts.map((c) =>
+        h("button", {
+          class: `kf-btn kf-legs-count${c.suggested ? " suggested" : ""}`, type: "button",
+          "data-count": String(c.n), text: String(c.n), "aria-label": c.label, "aria-pressed": String(c.pressed),
+          onclick: () => this._set(chooseCount(this.state, c.n)),
+        }),
+      ),
+    );
+    const tools = v.phase === "choose-count"
+      ? null
       : h(
           "div",
-          { class: "kf-row" },
-          h("button", { class: "kf-btn", type: "button", text: "Undo leg", "data-action": "undo-leg", disabled: !s.legs.length, onclick: () => this._set(undoLeg(s)) }),
-          h("button", { class: "kf-btn", type: "button", text: "Change number", "data-action": "recount", onclick: () => this._set(recount(s)) }),
+          { class: "kf-row kf-legs-tools" },
+          h("button", { class: "kf-btn", type: "button", text: "Spread evenly", "data-action": "spread-legs", disabled: !v.canSpread, onclick: () => this._set(spreadEvenly(this.state, this.thing.outline)) }),
+          h("button", { class: "kf-btn", type: "button", text: "Undo", "data-action": "undo-leg", disabled: !v.canUndo, onclick: () => this._set(undoLeg(this.state)) }),
+          h("button", { class: "kf-btn", type: "button", text: "Clear", "data-action": "clear-legs", disabled: !v.canClear, onclick: () => this._set(clearLegs(this.state)) }),
         );
+    this.root.dataset.phase = v.phase;
     this.root.replaceChildren(
-      h("h2", { class: "kf-legs-heading", "aria-live": "polite", text: legHeading(s) }),
-      h("p", { class: "kf-note", text: legNote(s) }),
-      body,
-      h("div", { class: "kf-row end" }, ...this.buttons(phase, s).filter(Boolean)),
+      h("h2", { class: "kf-legs-heading", "aria-live": "polite", text: v.heading }),
+      h("p", { class: "kf-note", text: v.note }),
+      counts,
+      ...(tools ? [tools] : []),
+      h("div", { class: "kf-row end" }, ...this.buttons(v.phase, s).filter(Boolean)),
     );
   }
 }

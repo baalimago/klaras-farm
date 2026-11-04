@@ -38,7 +38,7 @@ Elements (one folder per tag):
 Helper modules inside element folders:
 
 - `kf-dialog/dom.js`: `h()` DOM builder, `newId`, `plural`, `joinAnd`, `swatches`, `reportFailure`, `languageName`.
-- `kf-guided-add/`: `dom.js` (`h`, `ensureElement`), `drawing.js` (`ShapeDrawing`, up to 6 shapes merged with `geometry/union.js`), `eyes.js` (`EyeStamper`), `legs.js` (`LegPlacer`), `legplace.js` (pure leg rules), `preview.js` (`ThingPreview`), `steps.js` (pure step helpers), `geometry.js` and `shape.js` (geometry loader and fallback).
+- `kf-guided-add/`: `dom.js` (`h`, `ensureElement`), `drawing.js` (`ShapeDrawing`, up to 6 shapes merged with `geometry/union.js`), `eyes.js` (`EyeStamper`, `attachEyeDrag`), `legs.js` (`LegPlacer`, a view over `edit/leg-flow.js`), `preview.js` (`ThingPreview`), `steps.js` (pure step helpers), `geometry.js` and `shape.js` (geometry loader and fallback).
 - `kf-scene-tools/pieces.js` (pure hit testing and moving of pieces), `kf-scenes/thumbnail.js`, `kf-thing-card/languages.js`.
 
 ## Public API / contracts
@@ -75,6 +75,29 @@ Helper modules inside element folders:
 - `pointerdown`: primary pointer only, palms ignored. Each step is guarded so one failure never eats the tap: `audio.unlock()`, `engine.fingerDown`, `session.holdStart`, then in play `engine.tap(x, y)` and `session.playTap()`.
 - Device pixel ratio is capped at 2. Hit targets are at least 120 CSS px across (`engine.hitMinRadius`).
 
+### Eye stamping (`kf-guided-add/eyes.js`, `EyeStamper`)
+
+- Full screen (`.kf-eyes`, z-index 30). Every tap on the stage stamps an eye snapped inside the outline; a third tap moves the oldest.
+- The grown-up's bar is always at the top: the line "Grown-up: hold Done for 1 second when the eyes are on" and two 56 px buttons, Cancel and Done (`data-action` `eyes-cancel`, `eyes-done`). Each acts after a 1 s hold (`holdMs`) with a fill; a keyboard or VoiceOver click acts at once. Letting go early shows "Keep holding for 1 second" for 2.5 s. Nobody can get stuck on this screen.
+- The bar renders from its own small state `{holding, hint}` through `_setBar`. The hold buttons `preventDefault` on `pointerdown` and capture the pointer, so iOS callouts and finger wobble do not cancel the hold.
+- `onDone(eyes)` gets the stamped eyes, `onCancel(before)` the eyes from before stamping. Guided add saves either and returns to the Eyes panel; the thing card saves on Done only.
+
+### Leg placing (`kf-guided-add/legs.js`, `LegPlacer`)
+
+- The flow is the pure state machine `edit/leg-flow.js` (see `docs/edit.md`): choose-count → placing (leg k of n) → done. `LegPlacer` turns canvas pointer events into its events (`pressLeg`, `moveLeg` after 6 px of travel, `releaseLeg`, `cancelPress`) and, after every event, renders the whole panel from `legView(state)` and redraws the preview. Pointer steps are guarded so one failure never eats the tap.
+- Panel (`data-testid="leg-placing"`, `data-phase`): heading ("How many legs?", "Tap where leg 3 of 4 goes", "4 legs"), a note, the count buttons 0 to 8 (always shown, `aria-pressed` on the chosen one), then Spread evenly, Undo and Clear once a count is chosen, then the caller's buttons.
+- A stray tap never undoes progress: a tap on a placed leg grabs it (a drag moves it, a still tap places the next leg there while legs are missing); a tap off the shape is snapped inside it; taps once all legs are placed only grab.
+- `onChange({target, legs})` fires once per finished change (not per drag move). Guided add saves the draft (`thing.legs`, `thing.legTarget`); Skip shows until a count is chosen, then Next (never disabled: the count follows the legs placed). The thing card saves on Done and keeps the old legs on Cancel.
+
+### kf-thing-card
+
+- Every store change shows at once (the store emits synchronously, see `docs/farm.md`). `_storeChanged` renders the whole sheet, except while a text field has focus or a recorder is open: then the title and the look column (felt, moves, preview) render now and the words column follows on `focusout` or when the recorder closes. On iPad a button tap does not take the focus from a text field, so this matters.
+- Overlays (Redraw, Re-stamp eyes, Place legs) are appended after the sheet; `_render` replaces only the sheet, so an overlay survives any re-render, and closing an overlay always re-renders the card. Done buttons call the intent and close at once; they never wait for the disk.
+
+### kf-settings
+
+- Re-renders on every store change. The sheet's scroll position and which Help sections are open are view state kept in the element (`_scrollTop`, `_openHelp`) and restored on each render, so a change never jumps the sheet back to the top.
+
 ### kf-recorder
 
 - Props: `services`, `label`, `clipRef {thingId|null, language, kind, take}`, `existing`.
@@ -109,7 +132,7 @@ Helper modules inside element folders:
 
 ## Tests
 
-- Unit (Node, `npm test`): pure helpers next to their element: `kf-guided-add/drawing.test.js`, `legplace.test.js`, `shape.test.js`, `steps.test.js`, `kf-scene-tools/pieces.test.js`.
+- Unit (Node, `npm test`): pure helpers next to their element: `kf-guided-add/drawing.test.js`, `shape.test.js`, `steps.test.js`, `kf-scene-tools/pieces.test.js`.
 - Browser (`npm run test:browser`, Playwright Chromium against the real Python app):
   - `app.test.js`: the whole app booted and driven like a parent and a child.
   - `package-a.test.js`: `kf-board` and `kf-draw-pad`.
@@ -118,6 +141,7 @@ Helper modules inside element folders:
   - `package-f1.test.js`: `kf-guided-add` and `kf-thing-card` with stubs (`tests/browser/stubs/f1-stubs.js`).
   - `package-f2.test.js`: scenes, scene tools, settings, welcome, dialogs (`tests/browser/stubs/f2-stubs.js`).
   - `shapes.test.js`: multi-shape drawing in guided add and Redraw. `legs.test.js`: leg placing and format migration.
+  - `playtest2.test.js`: the playtest 2 bugs, each element mounted alone: changing the leg count while placing, eight close legs, drag, Undo, Clear, Spread evenly, stray taps; the eye screen's way out and hint; thing card and settings edits visible in the same task with a slow disk; an overlay surviving a focus change.
 - Harness: `tests/browser/harness.js` gives `setup({fakeMedia})`, `newPage()` (boots the app and waits for `data-ready`) and `modulePage(html)` (base and CSS only). Elements written into `modulePage` HTML do not upgrade; import `define.js` and create them with `document.createElement`, then set `services` before appending.
 - `tests/unit/docs.test.js` checks that each domain has its doc and that `CLAUDE.md` links to `AGENTS.md`.
 - Device-only checks go in `tests/manual-ipad.md`.

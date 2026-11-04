@@ -71,7 +71,7 @@ async function tapBoard(page, x, y) {
 }
 
 async function holdStrip(page, ms = 1150) {
-  const box = await page.locator(".kf-eyes-strip").boundingBox();
+  const box = await page.locator('[data-action="eyes-done"]').boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
   await page.waitForTimeout(ms);
@@ -119,10 +119,10 @@ test("add a thing end to end: draw, felt, eyes, legs, moves, name, one question,
   assert.equal(await page.locator('.kf-swatch[data-color="pink"]').getAttribute("aria-pressed"), "true");
   await page.getByRole("button", { name: "Next" }).click();
 
-  // Eyes: full screen, no buttons but the strip; snapping; third tap moves the oldest.
+  // Eyes: full screen, no buttons but the grown-up's Done and Cancel; snapping; third tap moves the oldest.
   assert.equal(await step(page), "eyes");
   await page.locator('[data-testid="eye-stamping"]').waitFor();
-  assert.equal(await page.locator(".kf-eyes button").count(), 1, "only the grown-up strip");
+  assert.equal(await page.locator(".kf-eyes button").count(), 2, "only the grown-up's Done and Cancel");
   const o = await thingOutlineInfo(page);
   await tapBoard(page, o.cx - o.b.w * 0.15, o.cy - o.b.h * 0.1);
   await tapBoard(page, o.b.x + o.b.w + 0.06, o.cy); // outside, right
@@ -136,23 +136,24 @@ test("add a thing end to end: draw, felt, eyes, legs, moves, name, one question,
   assert.equal(eyes.length, 2);
   assert.deepEqual(eyes[0], second, "third tap moved the oldest eye");
   assert.deepEqual(await page.evaluate(() => window.__f1.chimes.filter((c) => c === "tap").length), 3);
-  // A short press on the strip does nothing; a 1 s hold hands over to the parent.
+  // A short press on Done does nothing; a 1 s hold hands over to the parent.
   await holdStrip(page, 200);
   assert.equal(await page.locator('[data-testid="eye-stamping"]').count(), 1);
   await holdStrip(page);
   assert.equal(await page.locator('[data-testid="eye-stamping"]').count(), 0);
   await page.getByRole("button", { name: "Next" }).click();
 
-  // Legs: pick the count first, then tap where each leg goes (snapped inside); a tap on a leg takes it off.
+  // Legs: pick the count first, then tap where each leg goes (snapped inside); drag a leg to move it.
   assert.equal(await step(page), "legs");
   await page.getByRole("heading", { name: "How many legs?" }).waitFor();
-  assert.deepEqual(await page.locator(".kf-legs-count").allTextContents(), ["0", "1", "2", "3", "4", "6", "8"]);
+  assert.deepEqual(await page.locator(".kf-legs-count").allTextContents(), ["0", "1", "2", "3", "4", "5", "6", "7", "8"]);
   assert.equal(await page.getByRole("button", { name: "Next" }).count(), 0, "pick a number or Skip");
+  await page.getByRole("button", { name: "Skip" }).waitFor();
   await page.getByRole("button", { name: "3 legs" }).click();
-  await page.getByRole("heading", { name: "Tap where leg 1 goes" }).waitFor();
+  await page.getByRole("heading", { name: "Tap where leg 1 of 3 goes" }).waitFor();
   const bottom = o.b.y + o.b.h;
   await tapBoard(page, o.cx - o.b.w * 0.25, bottom - 0.02);
-  await page.getByRole("heading", { name: "Tap where leg 2 goes" }).waitFor();
+  await page.getByRole("heading", { name: "Tap where leg 2 of 3 goes" }).waitFor();
   await tapBoard(page, o.cx, bottom + 0.05); // below the outline: snapped inside
   await tapBoard(page, o.cx + o.b.w * 0.25, bottom - 0.02);
   await page.getByRole("heading", { name: "3 legs" }).waitFor();
@@ -160,18 +161,24 @@ test("add a thing end to end: draw, felt, eyes, legs, moves, name, one question,
   assert.equal(legs.length, 3);
   assert.deepEqual(await eyesInside(page, legs), [true, true, true], "legs snapped inside the outline");
   assert.ok(legs[1].y < bottom && legs[1].y > o.cy, "the tap below the shape lands near its bottom");
-  assert.equal(await page.getByRole("button", { name: "Next" }).isDisabled(), false);
-  // Tap leg 1 to take it off, then put it elsewhere; Undo takes the last one off.
-  await tapBoard(page, legs[0].x, legs[0].y);
-  await page.getByRole("heading", { name: "Tap where leg 3 goes" }).waitFor();
-  assert.equal(await page.getByRole("button", { name: "Next" }).isDisabled(), true);
-  await tapBoard(page, o.cx - o.b.w * 0.15, bottom - 0.03);
-  await page.getByRole("button", { name: "Undo leg" }).click();
-  await page.getByRole("heading", { name: "Tap where leg 3 goes" }).waitFor();
-  await tapBoard(page, o.cx - o.b.w * 0.2, bottom - 0.03);
+  // Drag leg 1 somewhere else; Undo puts it back; drag it again and keep it.
+  const drag = async (from, to) => {
+    const a = await page.evaluate(([x, y]) => window.__el.toClient(x, y), from);
+    const b = await page.evaluate(([x, y]) => window.__el.toClient(x, y), to);
+    await page.mouse.move(a[0], a[1]);
+    await page.mouse.down();
+    await page.mouse.move(b[0], b[1], { steps: 5 });
+    await page.mouse.up();
+  };
+  await drag([legs[0].x, legs[0].y], [o.cx - o.b.w * 0.15, bottom - 0.03]);
+  assert.notDeepEqual((await page.evaluate(() => window.__el.thing.legs))[0], legs[0]);
+  await page.getByRole("button", { name: "Undo" }).click();
+  assert.deepEqual((await page.evaluate(() => window.__el.thing.legs))[0], legs[0]);
+  await drag([legs[0].x, legs[0].y], [o.cx - o.b.w * 0.2, bottom - 0.03]);
   await page.getByRole("heading", { name: "3 legs" }).waitFor();
   legs = await page.evaluate(() => window.__el.thing.legs);
-  await page.waitForFunction(async () => (await window.__t.store.listDrafts())[0]?.thing.legs.length === 3);
+  assert.equal(legs.length, 3);
+  await page.waitForFunction((x) => window.__t.store.listDrafts().then((d) => d[0]?.thing.legs[0]?.x === x), legs[0].x);
   await page.getByRole("button", { name: "Next" }).click();
 
   // Moves
@@ -380,7 +387,6 @@ test("thing card: rename, recolour, motion, + Language, re-record (cancel keeps,
   assert.deepEqual((await thing()).legs, []);
   await page.locator('[data-action="legs"]').click();
   await page.getByRole("button", { name: "4 legs" }).click();
-  assert.equal(await page.getByRole("button", { name: "Done" }).isDisabled(), true);
   for (const x of [0.13, 0.17, 0.23, 0.27]) await tapBoard(page, x, 0.69);
   await page.getByRole("heading", { name: "4 legs" }).waitFor();
   await page.getByRole("button", { name: "Done" }).click();

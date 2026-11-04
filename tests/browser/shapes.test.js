@@ -137,7 +137,7 @@ test("guided add: two overlapping shapes drawn with the pad become one outline t
   await page.locator('.kf-swatch[data-color="blue"]').click();
   await page.getByRole("button", { name: "Next" }).click();
   await page.locator('[data-testid="eye-stamping"]').waitFor();
-  const strip = await page.locator(".kf-eyes-strip").boundingBox();
+  const strip = await page.locator('[data-action="eyes-done"]').boundingBox();
   await page.mouse.move(strip.x + strip.width / 2, strip.y + strip.height / 2);
   await page.mouse.down();
   await page.waitForTimeout(400);

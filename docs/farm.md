@@ -52,8 +52,11 @@ Invariants checked by `validateSnapshot` (never throws, returns `{ok}` or `{ok:f
 
 `FarmStore` (`farm-store.js`, extends `EventTarget`)
 - `constructor(repo, env, appVersion)`, `hydrate()` returns `{fresh}`, throws `FarmError('corrupt')` if the migrated data is invalid.
-- Intent methods with the same names as above. Each resolves with the `change` after the write commits, then emits one `change` event (`detail = change`). Also emits `hydrated` and `replaced`.
-- A failed write leaves the snapshot unchanged and rejects with `FarmError('storage')` or `FarmError('quota')`.
+- Intent methods with the same names as above. Each runs the pure intent, swaps the snapshot and emits one `change` event (`detail = change`) synchronously, inside the caller's tap, so the UI never waits on IndexedDB. The writes then go to the repository one intent at a time, in call order; the returned promise resolves with the `change` after the commit. Also emits `hydrated` and `replaced`.
+- Invalid input throws before anything changes (the promise rejects with `FarmError` `invalid`, `not-found` or `place-full`, no event).
+- A failed write puts the snapshot back to the last committed one, emits `change {kind: 'reverted'}`, and rejects with `FarmError('storage')` or `FarmError('quota')`. Intents applied after the failed one were built on it, so they are dropped without writing and reject too: storage never holds half a change.
+- Blobs in queued writes (`putBlob`, `saveClip`) are readable through `getBlob` before they commit, so audio can decode a clip the snapshot already shows.
+- `replaceAll` writes and re-hydrates inside the queue; intents called meanwhile apply to the replaced farm.
 - `exportSnapshot()` stamps `FORMAT_VERSION`, `MIN_READER_FORMAT`, `appVersion`, `exportedAt`, `deviceId`.
 - `replaceAll(snapshot, blobs)` for import and starter content, then re-hydrates from storage.
 - `saveDraft`, `discardDraft`, `listDrafts`, `setMeta`, `getBlob`, `putBlob`, getters `settings`, `currentPlace`, and `thingsIn`, `clipsFor`, `canAddThing`.
@@ -94,7 +97,7 @@ Invariants checked by `validateSnapshot` (never throws, returns `{ok}` or `{ok:f
 ## Tests
 
 - `web/js/farm/*.test.js`: snapshot validation, canonical form, migration 1 to 2 to 3, `storedFormat`, leg validation; intents (purity, cap of 4, clip replacement, cascades, undo, settings language rules, legs); legs geometry; scripts filling and fallback; import checks.
-- `tests/unit/farm-store.test.js`: hydrate, one change per committed intent, failed writes, call order, `replaceAll`.
+- `tests/unit/farm-store.test.js`: hydrate, one synchronous change per intent before the commit, invalid input, failed writes (rollback, dropped later intents), pending blobs, call order, `replaceAll` (and intents during it).
 - `tests/unit/export-fixture.test.js`: the frozen v1 export still imports.
 - `tests/unit/find-it.test.js`: `findIt` default on, off per place.
 - `tests/browser/legs.test.js`: legs through guided add and reload; format 2 records get preset legs.

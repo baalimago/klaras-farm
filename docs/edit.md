@@ -9,6 +9,7 @@ Edit is how a grown-up gets from the toddler's play board into edit mode and bac
 - `web/js/edit/hold.js`: pure reducer for the hold-to-edit gesture, plus `isPalm`, the palm rule the board also uses.
 - `web/js/edit/adult-check.js`: pure parental gate (keypad code or a sum).
 - `web/js/edit/session.js`: pure session state machine (`nextSession`).
+- `web/js/edit/leg-flow.js`: pure state machine for adding and changing a thing's legs (used by `kf-guided-add/legs.js`).
 - `web/js/session.js`: `Session`, the state owner. Wraps the reducers with a clock, timers, window listeners, the hold ring and chimes.
 - Tests: `web/js/edit/*.test.js`, `web/js/session.test.js`.
 
@@ -51,6 +52,21 @@ pending|showing ──up, cancel, move > 10 px, second pointer, palm──▶ ca
 - `press(state, key, tMs)` returns `{state, result: 'continue'|'pass'|'fail'}`. A wrong key, a tap between keys (`key = null`) or `IDLE_MS = 10000` without a key fails.
 - `tick(state, tMs)`: time passing without a key. `promptText(state)`: "Tap 4 7 2" or "What is 7 + 8?".
 - The kind comes from `settings.gateKind` (then `flags.gateKind`, default `keypad`).
+
+### Leg flow (`edit/leg-flow.js`)
+
+```
+choose-count ──count n──▶ placing (leg k of n) ──last leg placed──▶ done
+any state ──count m──▶ placing or done (fewer than placed drops the newest legs)
+placing|done ──Clear──▶ placing (leg 1 of n)      placing ──Spread evenly──▶ done
+```
+
+- State `{target: number|null, legs: [{x, y}], history: legs[][], drag: null|{index, moved, before}}`. `legPhase(s)` is `choose-count`, `placing` or `done`.
+- `LEG_CHOICES` 0 to 8 (`MAX_LEGS`), `SUGGESTED_LEGS = 2`, `UNDO_DEPTH = 30`.
+- `legFlow(legs, target)`: start from a thing (done with its legs) or a draft's picked count.
+- `chooseCount(s, n)`: works from every state. `spreadEvenly(s, outline)`: `farm/legs.js` `spreadLegs` along the bottom. `clearLegs(s)`. `undoLeg(s)` steps back one placed, moved, spread, cleared or count-dropped change.
+- Pointer events, points in board coordinates already snapped inside the outline by the caller: `pressLeg(s, pt, snapped, r)` grabs a leg within `r` (`legAt`) or places the next leg while placing, else does nothing; `moveLeg(s, snapped)` drags the grabbed leg; `releaseLeg(s, snapped)` ends a drag (undoable) or, for a still press on a leg while placing, places the next leg there; `cancelPress(s)`. No event removes a leg by accident.
+- `legView(s)`: everything the panel shows (heading, note, count buttons with `pressed` and `suggested`, `canSpread`, `canUndo`, `canClear`). The component renders only from it.
 
 ### Session (`session.js`)
 
@@ -97,6 +113,7 @@ Ways in without the hold (US-7.6): the `e` key on a keyboard (not in a text fiel
 
 - `web/js/edit/hold.test.js`: ring timing, cancel reasons, wobble tolerance, palms, edges, second pointer.
 - `web/js/edit/adult-check.test.js`: shuffles, seeded determinism, edge rng values, pass, wrong key, missed tap, idle timeout, sum kind.
+- `web/js/edit/leg-flow.test.js`: every transition: count changes midway, eight close legs, grab and drag, stray presses, cancel, Spread evenly, Clear, Undo (also after a smaller count), bounded history.
 - `web/js/edit/session.test.js`: gate flow, Done, auto-close in edit and scene, grace, panels pause auto-close, play tap.
 - `web/js/session.test.js`: `Session` with fake timers and window. Ring and soft tone, cancels, no timers left in play, chimes, engine mode, hold in edit opens guided add.
 - `tests/browser/package-c.test.js`: edit mode in Chromium. Run with `npm test` and `npm run test:browser`.
