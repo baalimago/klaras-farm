@@ -364,11 +364,12 @@ test("journey: long-press 🔍 → adult check → record a question with the mi
   assert.equal(await page.evaluate(() => window.__kf.store.snapshot.clips.filter((c) => c.kind === "prompt").length), 1);
   await page.getByRole("button", { name: "Done", exact: true }).first().click();
   await page.locator("kf-find-setup").waitFor({ state: "detached" });
-  await page.locator("kf-edit-layer").getByRole("button", { name: "Done", exact: true }).click();
-  await page.locator("kf-edit-layer").waitFor({ state: "detached" });
+  // Done on the setup goes straight back to the child's game, not to edit mode.
+  assert.equal(await page.evaluate(() => window.__kf.session.state.mode), "play");
+  assert.equal(await page.locator("kf-edit-layer").count(), 0);
 
+  // Within the grace window the next hold opens its setup without asking the check again.
   await holdButton("Find a colour");
-  await passGate();
   await page.locator("kf-find-setup").getByRole("heading", { name: "Colour game" }).waitFor();
   await recordWithMic(page.locator('.kf-tc-clip[data-kind="color-question"][data-take="1"]'));
   await page.locator(".kf-fs-pick-thing").first().click();
@@ -376,8 +377,8 @@ test("journey: long-press 🔍 → adult check → record a question with the mi
   await recordWithMic(page.locator(`.kf-tc-clip[data-kind="color-word"][data-color="${color}"]`));
   await page.screenshot({ path: join(ROOT, "tests/browser/.shots/colour-setup-app.png") }).catch(() => {});
   await page.getByRole("button", { name: "Done", exact: true }).first().click();
-  await page.locator("kf-edit-layer").getByRole("button", { name: "Done", exact: true }).click();
-  await page.locator("kf-edit-layer").waitFor({ state: "detached" });
+  await page.locator("kf-find-setup").waitFor({ state: "detached" });
+  assert.equal(await page.evaluate(() => window.__kf.session.state.mode), "play");
 
   // A colour round on that colour plays the recorded question, then the recorded word.
   const clips = await page.evaluate((color) => ({
