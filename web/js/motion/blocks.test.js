@@ -59,6 +59,22 @@ test("legs alternate: neighbours swing opposite, spread on contact, vertical mid
   for (let t = 0; t < 1; t += 0.05) near(legs(t, p, 0) + legs(t, p, 1), 0, 1e-12);
 });
 
+test("legs together (hoppers): all legs swing the same way, straight on landing, tucked mid-hop", () => {
+  const p = { swing: 0.4, rate: 1.5, together: 1 };
+  near(legs(0, p, 0), 0, 1e-12);
+  near(legs(0, p, 1), 0, 1e-12);
+  near(legs(1 / 1.5, p, 0), 0, 1e-12); // lands once per 1/rate s, like travel's hop
+  near(legs(1 / 3, p, 0), 0.4);
+  for (let t = 0; t < 1; t += 0.05) {
+    near(legs(t, p, 0), legs(t, p, 1), 1e-12);
+    near(legs(t, p, 3), legs(t, p, 0), 1e-12);
+    assert.ok(legs(t, p, 0) >= 0, "never swings forward");
+    // the hop leaves the ground exactly when the legs tuck
+    near(-travel(t, { mode: "hop", height: 1, rate: 1.5 }), legs(t, p, 0) / 0.4, 1e-12);
+  }
+  assert.equal(legs(0.2, { swing: 0.4, rate: 1.5, together: 0 }, 1), -legs(0.2, { swing: 0.4, rate: 1.5 }, 0), "together: 0 alternates");
+});
+
 test("blink closes and reopens the eyes over its duration; open otherwise", () => {
   const p = { duration: 0.2 };
   near(blink(-1, p), 1);

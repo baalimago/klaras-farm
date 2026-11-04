@@ -92,7 +92,7 @@ Invariants checked by `validateSnapshot` (never throws, returns `{ok}` or `{ok:f
 - Deleting a thing or place leaves blobs; the orphan sweep removes blobs older than 24 h, which is what lets Undo restore clips.
 - `addThing` and `updateThing` keep at most 2 eyes and 8 legs, rounded to 3 decimals.
 - `migrate` keeps a newer readable file's `formatVersion`; `exportSnapshot` restamps it with this app's version.
-- `motion.preset` is validated only as a string. `MOTION_PRESETS` lists walk and float, while `web/data/motions/` also has hop, scuttle and swim.
+- `motion.preset` is validated only as a string. `MOTION_PRESETS` lists walk and float, while `web/data/motions/` also has hop, scuttle and swim, and the parent UI offers hop and scuttle. Nothing reads `MOTION_PRESETS`; update it with the next format change.
 
 ## Tests
 

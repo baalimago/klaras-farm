@@ -44,7 +44,7 @@
 /**
  * @typedef {Object} PresetMotion
  * @property {'preset'} kind
- * @property {string} preset                   id of web/data/motions/<id>.json ("walk", "float")
+ * @property {string} preset                   id of web/data/motions/<id>.json ("walk", "hop", "scuttle", "float", "swim")
  * @property {Object<string, number>} params    dotted overrides, e.g. {"travel.speed": 0.8}
  */
 /** @typedef {PresetMotion} Motion */

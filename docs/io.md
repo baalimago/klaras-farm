@@ -78,6 +78,7 @@ music notes -> music bus (faded by MusicPlayer) -> duck ────┘
 - `new Renderer(canvas, {store, engine})`, `setSize(cssW, cssH, dpr)`, `invalidate('background'|'sprites'|thingId)`, `wake()`, `stop()`, `destroy()`, `burst(x, y)`, `actorBounds(thingId)`, `running`, `frames`.
 - The Renderer is the only owner of `requestAnimationFrame`. Each frame: `engine.step(dt)`, one background blit, then per actor a contact shadow, yarn legs, one sprite `drawImage` and button eyes, plus felt confetti from a fixed pool of 24.
 - When `engine.isIdle()` and no confetti is alive, the loop stops (0 fps). It schedules a `setTimeout` for `engine.nextWakeMs()` and wakes on engine `wake`, `mode`, `change` and store `change` events.
+- Contact shadow: only for things whose preset is grounded (`motion/pose.js` `isGrounded`, the preset's `ground` flag), looked up in `engine.presets` when the sprite is built. Walk, hop and scuttle get one; float and swim do not. An engine without presets draws no shadows.
 - Sprites are cached per thing in `entries`. Snapshots are immutable, so a changed thing is a new object and its sprite is rebuilt. Background is repainted only when the place or scene mode changes.
 - `felt.js` does all slow work once: felt tile, `paintBackground`, `paintThingSprite(thing, pxPerBoardUnit, dpr)` returning `{canvas, ax, ay, ox, oy}`, `eyeSprite`, `groundShadowSprite`, `glowSprite`, `confettiSprites`. `releaseCanvas` zeroes canvases because iOS caps canvas memory.
 
@@ -87,6 +88,7 @@ music notes -> music bus (faded by MusicPlayer) -> duck ────┘
 - Zip layout: `manifest.json` (canonical snapshot) and `blobs/<sha256>`, stored not compressed (vendored `fflate`).
 - `storage.js`: `deviceId()`, `requestPersist()`, `isPersisted()`, `estimate()`, `isStandalone()`, `deleteAllData()` returning `{blocked}`, `registerServiceWorker()` for `/sw.js`, `watchForUpdates(onReady)`, `applyUpdate()` (posts `skip-waiting`, reloads on `controllerchange`).
 - `starter.js`: `starterSnapshot(template, env, lang, appVersion)` gives fresh ids and timestamps; `loadStarter(env, lang)` fetches `data/starter.json`; `baseLanguage(tag)`.
+- `web/data/starter.json` comes from `tools/make-starter.mjs` (`--check` says when it is stale). Scenes as designed: Farm with eight animals (pig, cow, chicken, sheep, horse, duck, dog, bunny), Sea (fish, octopus, crab), Kitchen (teapot, cat, chair, spoon, mouse, spider). Every thing has its real number of legs (chicken and duck 2, crab and spider 8, chair 4, fish 0), sizes vary, and things stand apart so each keeps a 120 px tap target. Each scene keeps its first `STARTER_MAX = min(8, MAX_THINGS_PER_PLACE - 1)` things, best spread first, so a fresh scene always has room for the parent's first own thing: while the snapshot cap is 4 the file holds three per scene; raise the cap to 9 or more and regenerate to get all eight.
 - `wake.js`: `request()` and `release()`, never throw. The browser drops the lock when hidden; `main.js` requests again on `visibilitychange`.
 - `report.js`: `report(kind, detail)` (at most 8 per page load, text only, no farm data, `sendBeacon` then `fetch`), `installErrorReporting(win)` hooks `error`, `unhandledrejection` and `console.error`.
 
@@ -110,7 +112,7 @@ music notes -> music bus (faded by MusicPlayer) -> duck ────┘
 
 ## Tests
 
-- Unit (Node, `npm test`): `io/share.test.js`, `io/starter.test.js`, `tests/unit/memory-repo.test.js` (runs the contract on `MemoryRepo`), `tests/unit/wake.test.js`, `tests/unit/export-fixture.test.js` (the golden export must import forever; never regenerate it).
+- Unit (Node, `npm test`): `io/share.test.js`, `io/starter.test.js` (the file is current; the full eight-thing scenes have real leg counts, hips inside the body, no overlaps, 120 px tap spacing and varied sizes), `tests/unit/memory-repo.test.js` (runs the contract on `MemoryRepo`), `tests/unit/wake.test.js`, `tests/unit/export-fixture.test.js` (the golden export must import forever; never regenerate it).
 - Browser (`npm run test:browser`, Playwright Chromium against the real Python app):
   - `package-a.test.js`: felt rendering, idle loop at 0 fps, pointer rules, letterboxing.
   - `package-d.test.js`: AudioEngine, chime levels, decode failures, Recorder with a fake mic (`setup({fakeMedia: true})`).

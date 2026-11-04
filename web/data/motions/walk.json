@@ -1,6 +1,7 @@
 {
   "id": "walk",
   "version": 1,
+  "ground": true,
   "travel": { "mode": "ground", "speed": 0.7, "restMin": 4, "restMax": 10, "distMin": 0.08, "distMax": 0.22, "rangeY": 0.03 },
   "bob": { "shape": "bounce", "amp": 0.006, "rate": 1.6 },
   "squash": { "amp": 0.06, "rate": 1.6 },

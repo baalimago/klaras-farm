@@ -7,6 +7,7 @@ import { h, ensureElement, languageName } from "./dom.js";
 import {
   STEPS, STEP_LABELS, THING_SIZE, MOTIONS, newDraft, normalizeDraft, upsertClip, findClip, stripClip,
   latestDraft, canAdvance, freeSpot, cleanNames, cleanCues, refitEyes,
+  THING_SIZES, nearestSize, sizeScale, sizeBox, resizeThing, sizedFill,
 } from "./steps.js";
 import { loadGeometry, snapPoint } from "./geometry.js";
 import { ThingPreview, viewFor, FULL_VIEW } from "./preview.js";
@@ -115,14 +116,15 @@ export class GuidedAddElement extends HTMLElement {
     const portrait = this.clientHeight > this.clientWidth;
     let view = FULL_VIEW;
     if (step !== "draw" && this.thing.outline?.length) {
+      // on the Felt step the preview shows the picked size (Big fills it, Small looks small)
+      const k = step === "felt" ? (f) => sizedFill(this.thing.outline, f) : (f) => f;
       view = portrait
-        ? viewFor(this.thing.outline, { fill: 0.4, centerX: 0.5, centerY: 0.3, geo: this.geo })
-        : viewFor(this.thing.outline, { fill: 0.5, centerX: 0.28, geo: this.geo });
+        ? viewFor(this.thing.outline, { fill: k(0.4), centerX: 0.5, centerY: 0.3, geo: this.geo })
+        : viewFor(this.thing.outline, { fill: k(0.5), centerX: 0.28, geo: this.geo });
     }
     this.preview.setView(view);
     const motion = step === "moves" ? this.thing.motion?.preset : null;
-    this.preview.canvas.classList.toggle("walk", motion === "walk");
-    this.preview.canvas.classList.toggle("float", motion === "float");
+    for (const m of MOTIONS) this.preview.canvas.classList.toggle(m.preset, motion === m.preset);
     if (step === "draw") return this._paintDrawing(this._drawing?.merged);
     if (step === "legs" && this._legs) return this._legs.redraw();
     return this.preview.draw(this.thing, { backdrop: false });
@@ -229,7 +231,8 @@ export class GuidedAddElement extends HTMLElement {
       this.thing.outline = null;
     } else {
       const [cx, cy] = this.draft.at;
-      const outline = this.geo.fitOutline(merged, { maxW: THING_SIZE.w, maxH: THING_SIZE.h, cx, cy }).map(([x, y]) => [x, y]);
+      const box = sizeBox(old?.length ? sizeScale(old) : 1); // a picked size survives more shapes
+      const outline = this.geo.fitOutline(merged, { maxW: box.w, maxH: box.h, cx, cy }).map(([x, y]) => [x, y]);
       if (old?.length && this.thing.eyes.length) this.thing.eyes = refitEyes(this.thing.eyes, old, outline, (p, poly) => snapPoint(this.geo, p, poly));
       if (old?.length && this.thing.legs?.length) this.thing.legs = refitEyes(this.thing.legs, old, outline, (p, poly) => snapPoint(this.geo, p, poly));
       this.thing.outline = outline;
@@ -251,7 +254,29 @@ export class GuidedAddElement extends HTMLElement {
           }),
         ),
       ),
+      this._sizeRow(),
       h("div", { class: "kf-row end" }, this._nextBtn()),
+    );
+  }
+
+  /** Small / Medium / Big: rescales the outline (and any eyes and legs) in place. */
+  _sizeRow() {
+    const cur = this.thing.outline?.length ? nearestSize(this.thing.outline) : "medium";
+    return h(
+      "div",
+      { class: "kf-row kf-ga-sizes", role: "group", "aria-label": "Size" },
+      h("span", { class: "kf-ga-size-label", text: "Size" }),
+      THING_SIZES.map((sz) =>
+        h("button", {
+          class: "kf-btn kf-ga-size", type: "button", "data-size": sz.id, "aria-pressed": String(cur === sz.id), text: sz.label,
+          disabled: !this.thing.outline?.length,
+          onclick: () => {
+            Object.assign(this.thing, resizeThing(this.thing, sz.scale));
+            this._save();
+            this._render();
+          },
+        }),
+      ),
     );
   }
 
@@ -337,7 +362,7 @@ export class GuidedAddElement extends HTMLElement {
           }),
         ),
       ),
-      h("p", { class: "kf-note", text: "Walks: squash and stretch, legs swing. Floats: a gentle bob, good for objects." }),
+      h("p", { class: "kf-note", text: "Walks: legs swing. Hops: jumps along. Scuttles: quick little steps. Floats: a gentle bob, good for objects." }),
       h("div", { class: "kf-row end" }, this._nextBtn()),
     );
   }

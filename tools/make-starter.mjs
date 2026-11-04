@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Generates web/data/starter.json: the Farm, Sea and Kitchen a fresh install opens with (US-1.1).
 // Things are drawn in the same format parents create: one closed outline polygon in board coordinates,
-// one felt colour, 0–2 eyes, 0–8 legs (hips just above the bottom edge), a motion preset. Each outline is the union of a few ellipses, rectangles
+// one felt colour, 0–2 eyes, 0–8 legs (hips just above the bottom edge), a motion preset. Every
+// thing has the legs its animal really has (pig 4, chicken 2, spider and crab 8, chair 4, fish 0). Each outline is the union of a few ellipses, rectangles
 // and thick lines, rasterised and traced into a single polygon, then simplified and smoothed.
 //   node tools/make-starter.mjs           writes the file
 //   node tools/make-starter.mjs --check   exits 1 if the file is out of date
@@ -9,8 +10,16 @@ import { writeFileSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { simplify, smooth, snapInside, pointInPolygon, signedArea } from "../web/js/geometry/stroke.js";
-import { roundPoints, FORMAT_VERSION, MIN_READER_FORMAT } from "../web/js/farm/snapshot.js";
+import * as snapshot from "../web/js/farm/snapshot.js";
 import { bottomAt } from "../web/js/farm/legs.js";
+
+const { roundPoints, FORMAT_VERSION, MIN_READER_FORMAT } = snapshot;
+/**
+ * The most things a starter scene holds. The scenes list up to eight (meeting 2: "eight animals is
+ * more fun"), best spread first, and keep as many as the snapshot allows per place while leaving
+ * room for the parent's first own thing (a full scene would refuse "+ Add" on day one).
+ */
+export const STARTER_MAX = Math.min(8, (snapshot.MAX_THINGS_PER_PLACE ?? 9) - 1);
 
 // Shapes are designed on a virtual 1200 × 900 board (4:3, square pixels), then normalised to 0..1.
 const VW = 1200, VH = 900;
@@ -141,11 +150,11 @@ const SPECIES = {
     eyes: [[-8, -14], [8, -14]],
   },
   crab: {
-    names: { en: "Crab", sv: "Krabba", de: "Krabbe", fr: "Crabe", es: "Cangrejo" }, color: "red", motion: "walk",
+    names: { en: "Crab", sv: "Krabba", de: "Krabbe", fr: "Crabe", es: "Cangrejo" }, color: "red", motion: "scuttle",
     shapes: [E(0, -22, 27, 15), C(2.5, [-18, -28], [-30, -34]), C(2.5, [18, -28], [30, -34]), E(-35, -39, 10, 8), E(35, -39, 10, 8),
       C(2.4, [-7, -34], [-9, -45]), C(2.4, [7, -34], [9, -45]), E(-9, -47, 5, 5), E(9, -47, 5, 5)],
     eyes: [[-9, -47], [9, -47]],
-    legs: [-20, -12, -4, 4, 12, 20],
+    legs: [-21, -15, -9, -3, 3, 9, 15, 21],
   },
   spoon: {
     names: { en: "Spoon", sv: "Sked", de: "Löffel", fr: "Cuillère", es: "Cuchara" }, color: "silver", motion: "float",
@@ -168,7 +177,53 @@ const SPECIES = {
     names: { en: "Chair", sv: "Stol", de: "Stuhl", fr: "Chaise", es: "Silla" }, color: "wood", motion: "walk",
     shapes: [R(-18, -80, 18, -36), R(-24, -40, 24, -28)],
     eyes: [[-6, -64], [6, -64]],
-    legs: [-20, 20],
+    legs: [-21, -8, 8, 21],
+  },
+  sheep: {
+    names: { en: "Sheep", sv: "Får", de: "Schaf", fr: "Mouton", es: "Oveja" }, color: "cream", motion: "walk",
+    shapes: [E(0, 0, 28, 18), E(-17, -9, 14, 13), E(0, -15, 15, 12), E(17, -9, 14, 13), E(-19, 6, 12, 10), E(19, 6, 12, 10),
+      E(34, -8, 11, 13), P([26, -16], [20, -24], [30, -20])],
+    eyes: [[33, -11], [40, -11]],
+    legs: [-20, -8, 8, 20],
+  },
+  duck: {
+    names: { en: "Duck", sv: "Anka", de: "Ente", fr: "Canard", es: "Pato" }, color: "white", motion: "walk",
+    shapes: [E(0, 0, 24, 15), P([-18, -8], [-32, -16], [-24, 4]), C(5, [12, -6], [17, -18]), E(18, -22, 10, 10), E(30, -20, 9, 4)],
+    eyes: [[21, -25]],
+    legs: [-6, 6],
+  },
+  dog: {
+    names: { en: "Dog", sv: "Hund", de: "Hund", fr: "Chien", es: "Perro" }, color: "tan", motion: "walk",
+    shapes: [E(0, 0, 30, 14), C(6, [22, -4], [28, -12]), E(32, -16, 13, 11), E(43, -12, 8, 6), E(25, -12, 5, 10),
+      C(2.5, [-29, -4], [-38, -16], [-34, -24])],
+    eyes: [[33, -20], [40, -19]],
+    legs: [-20, -8, 8, 20],
+  },
+  horse: {
+    names: { en: "Horse", sv: "Häst", de: "Pferd", fr: "Cheval", es: "Caballo" }, color: "brown", motion: "walk",
+    shapes: [E(0, 0, 40, 18), P([22, -10], [38, -40], [52, -32], [38, 0]), E(53, -36, 15, 9), P([40, -42], [42, -54], [48, -42]),
+      C(3, [-38, -6], [-48, 4], [-50, 18])],
+    eyes: [[50, -38], [58, -37]],
+    legs: [-28, -15, 15, 28],
+  },
+  bunny: {
+    names: { en: "Bunny", sv: "Kanin", de: "Hase", fr: "Lapin", es: "Conejo" }, color: "lilac", motion: "hop",
+    shapes: [E(0, 0, 20, 15), E(18, -12, 11, 10), C(3.5, [14, -20], [12, -38]), C(3.5, [22, -20], [25, -37]), E(-20, -4, 6, 6)],
+    eyes: [[16, -14], [23, -14]],
+    legs: [-12, -4, 5, 13],
+  },
+  mouse: {
+    names: { en: "Mouse", sv: "Mus", de: "Maus", fr: "Souris", es: "Ratón" }, color: "silver", motion: "scuttle",
+    shapes: [E(0, 0, 22, 12), E(20, -4, 10, 8), P([26, -9], [38, -2], [26, 3]), E(15, -14, 7, 7),
+      C(1.8, [-21, 0], [-32, -6], [-38, -2])],
+    eyes: [[24, -6]],
+    legs: [-13, -5, 5, 13],
+  },
+  spider: {
+    names: { en: "Spider", sv: "Spindel", de: "Spinne", fr: "Araignée", es: "Araña" }, color: "brown", motion: "scuttle",
+    shapes: [E(0, 0, 26, 15), E(0, -20, 13, 11)],
+    eyes: [[-5, -22], [5, -22]],
+    legs: [-22, -16, -10, -4, 4, 10, 16, 22],
   },
 };
 
@@ -266,26 +321,39 @@ const place = (id, name, backdrop, skyColor, groundColor, pieces, things) => ({
   id, name, backdrop, skyColor, groundColor, pieces, thingOrder: things.map((t) => t.id), createdAt: T0, updatedAt: T0,
 });
 
-/** The whole starter snapshot with readable placeholder ids (io/starter.js gives them fresh ids). */
-export function buildStarter() {
+/**
+ * The whole starter snapshot with readable placeholder ids (io/starter.js gives them fresh ids).
+ * Each scene lists its things best spread first; a scene keeps the first `maxPerPlace`.
+ * Sizes vary (horse and cow big, mouse and chicken small). Things stand apart so each keeps its
+ * 120 px tap target, and walkers start with their feet in the ground band.
+ */
+export function buildStarter({ maxPerPlace = STARTER_MAX } = {}) {
   const r = mulberry(42);
   const S = 2.5; // virtual px per local unit
-  const farmThings = [
-    makeThing("thing-pig", "place-farm", "pig", 330, 640, S, 1),
-    makeThing("thing-cow", "place-farm", "cow", 760, 600, S, 2),
-    makeThing("thing-chicken", "place-farm", "chicken", 560, 780, S, 3),
-  ];
-  const seaThings = [
-    makeThing("thing-fish", "place-sea", "fish", 380, 360, S, 4),
-    makeThing("thing-octopus", "place-sea", "octopus", 820, 330, S, 5),
-    makeThing("thing-crab", "place-sea", "crab", 600, 840, S, 6),
-  ];
-  const kitchenThings = [
-    makeThing("thing-spoon", "place-kitchen", "spoon", 190, 400, 2.8, 7),
-    makeThing("thing-teapot", "place-kitchen", "teapot", 600, 430, S, 8),
-    makeThing("thing-cat", "place-kitchen", "cat", 420, 760, S, 9),
-    makeThing("thing-chair", "place-kitchen", "chair", 900, 800, S, 10),
-  ];
+  const scene = (list) => list.slice(0, maxPerPlace).map((args) => makeThing(...args));
+  const farmThings = scene([
+    ["thing-pig", "place-farm", "pig", 930, 600, 2.3, 1],
+    ["thing-cow", "place-farm", "cow", 545, 590, 2.5, 2],
+    ["thing-chicken", "place-farm", "chicken", 395, 800, 2.1, 3],
+    ["thing-sheep", "place-farm", "sheep", 140, 810, 2.2, 11],
+    ["thing-horse", "place-farm", "horse", 190, 600, 2.6, 12],
+    ["thing-duck", "place-farm", "duck", 850, 810, 2.2, 13],
+    ["thing-dog", "place-farm", "dog", 625, 805, 2.2, 14],
+    ["thing-bunny", "place-farm", "bunny", 1070, 800, 2.3, 15],
+  ]);
+  const seaThings = scene([
+    ["thing-fish", "place-sea", "fish", 380, 360, S, 4],
+    ["thing-octopus", "place-sea", "octopus", 820, 330, S, 5],
+    ["thing-crab", "place-sea", "crab", 600, 840, S, 6],
+  ]);
+  const kitchenThings = scene([
+    ["thing-teapot", "place-kitchen", "teapot", 600, 430, S, 8],
+    ["thing-cat", "place-kitchen", "cat", 420, 760, S, 9],
+    ["thing-chair", "place-kitchen", "chair", 900, 800, S, 10],
+    ["thing-spoon", "place-kitchen", "spoon", 190, 400, 2.8, 7],
+    ["thing-mouse", "place-kitchen", "mouse", 650, 830, 1.9, 16],
+    ["thing-spider", "place-kitchen", "spider", 1085, 640, 2.2, 17],
+  ]);
   const places = [
     place("place-farm", "Farm", "meadow", "sky", "grass", farmPieces(r), farmThings),
     place("place-sea", "Sea", "sea", "sky", "water", seaPieces(r), seaThings),

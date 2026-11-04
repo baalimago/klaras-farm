@@ -64,7 +64,7 @@ idle ──rest timer──▶ moving ──arrived──▶ idle
 - Idle gaps are skipped cheaply: timers advance in one jump (`advanceIdle`), up to one day.
 - `move` ramps 0..1 over 0.25 s, so walks start and stop without pops.
 - First rest is 1 to 4 s. Back to play from edit, rest is 1 to 3 s.
-- Walkers (`ground`, `hop`) keep their feet below `GROUND_TOP`. Everyone stays inside the board and turns at the edges.
+- Walkers (`travel.mode` `ground` or `hop`: walk, hop and scuttle) keep their feet below `GROUND_TOP`. Everyone stays inside the board and turns at the edges.
 - Reduce motion sets `speedFactor = 0.5`.
 - Surviving things keep their offset when the store changes. A redrawn thing that was walking rests and picks a new target.
 
@@ -127,7 +127,7 @@ idle ──startRound──▶ asking ──right tap──▶ idle (celebration
 - Tokens guard every async callback (`_askToken`, `_roundToken`, mash token). An old prompt ending must never unfreeze things or repeat a question.
 - No allocation in `step`. `hitTargets` allocates, so call it on taps only.
 - Every reaction returns to idle within 3 s (US-5.2). Confetti lasts at most 1 s.
-- Performance budget on the base iPad (A16): frame work under 2 ms with 4 things moving, tap to visible reaction in the same frame, tap to sound under 50 ms, and 0 fps when nothing moves.
+- Performance budget on the base iPad (A16): frame work under 2 ms with 8 things moving, tap to visible reaction in the same frame, tap to sound under 50 ms, and 0 fps when nothing moves.
 - `play/hit.js` duplicates the contract of `geometry/hit.js`. Keep them in step, or merge them.
 
 ## Tests
@@ -136,6 +136,7 @@ idle ──startRound──▶ asking ──right tap──▶ idle (celebration
 - `web/js/play/hit.test.js`, `mash.test.js`, `sleep.test.js`, `find.test.js`: each pure module, with fixed rng.
 - `tests/unit/play-engine.test.js`: the engine with a fake audio and a MemoryRepo-backed store. Taps, sounds, confetti, 1.3x hit target, catch-up after idle.
 - `tests/unit/find-it.test.js`: find games end to end. Never starts by itself, button visibility, voice fallbacks, nudges, hints, timeouts.
+- `tests/browser/animals.test.js`: eight walking things (the designed Farm) on the real `PlayEngine` and `Renderer`: over 50 fps and a small frame-work budget at 1x and 2x, then idle at 0 fps once edit mode settles.
 - `tests/browser/`: the board in Chromium. Run with `npm test` and `npm run test:browser`.
 
 Keep this file current: update it in the same commit as any change to this domain.

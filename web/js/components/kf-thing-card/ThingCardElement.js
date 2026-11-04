@@ -1,6 +1,6 @@
 // <kf-thing-card>: everything about one thing on one card (flow 2; US-3.6–3.8, 4.5, 4.7, 9.1).
 // One tab per language (typed name, name clip, 3 questions with editable cues, sound) plus
-// "+ Language"; felt colour, motion, Redraw, Re-stamp eyes, Place legs, Delete with confirm and Undo.
+// "+ Language"; felt colour, motion, size (Small / Medium / Big), Redraw, Re-stamp eyes, Place legs, Delete with confirm and Undo.
 // Changes save immediately; there is no Save button. Props: `services`, `params = {thingId}`.
 import { h, ensureElement, languageName } from "../kf-guided-add/dom.js";
 import { loadGeometry, snapPoint } from "../kf-guided-add/geometry.js";
@@ -10,7 +10,7 @@ import { ShapeDrawing } from "../kf-guided-add/drawing.js";
 import { ShapeEditor } from "../kf-guided-add/shape-editor.js";
 import { bodyGuide } from "../kf-guided-add/guide.js";
 import { LegPlacer } from "../kf-guided-add/legs.js";
-import { THING_SIZE, MOTIONS, stripClip, refitEyes } from "../kf-guided-add/steps.js";
+import { MOTIONS, THING_SIZES, stripClip, refitEyes, nearestSize, sizeScale, sizeBox, resizeThing, sizedFill } from "../kf-guided-add/steps.js";
 import { languageOptions } from "./languages.js";
 import { THING_COLORS, hex } from "../../farm/palette.js";
 import { cueLines } from "../../farm/scripts.js";
@@ -300,6 +300,17 @@ export class ThingCardElement extends HTMLElement {
           }),
         ),
       ),
+      h("h3", { text: "Size" }),
+      h(
+        "div",
+        { class: "kf-row", role: "group", "aria-label": "Size" },
+        THING_SIZES.map((sz) =>
+          h("button", {
+            class: "kf-btn kf-tc-size", type: "button", "data-size": sz.id, "aria-pressed": String(nearestSize(thing.outline) === sz.id), text: sz.label,
+            onclick: () => this._update(resizeThing(thing, sz.scale)),
+          }),
+        ),
+      ),
       h(
         "div",
         { class: "kf-row kf-tc-shape" },
@@ -313,7 +324,7 @@ export class ThingCardElement extends HTMLElement {
   _drawPreview() {
     const thing = this.thing;
     if (!this._preview || !thing) return;
-    this._preview.setView(viewFor(thing.outline, { fill: 0.6, geo: this.geo }));
+    this._preview.setView(viewFor(thing.outline, { fill: sizedFill(thing.outline, 0.6), geo: this.geo }));
     this._preview.draw(thing);
   }
 
@@ -418,7 +429,8 @@ export class ThingCardElement extends HTMLElement {
         done.disabled = true;
         const cur = this.thing;
         const b = this.geo.bbox(cur.outline);
-        const outline = this.geo.fitOutline(merged, { maxW: THING_SIZE.w, maxH: THING_SIZE.h, cx: b.x + b.w / 2, cy: b.y + b.h / 2 }).map(([x, y]) => [x, y]);
+        const box = sizeBox(sizeScale(cur.outline)); // a redraw keeps the thing's size
+        const outline = this.geo.fitOutline(merged, { maxW: box.w, maxH: box.h, cx: b.x + b.w / 2, cy: b.y + b.h / 2 }).map(([x, y]) => [x, y]);
         const snap = (p, poly) => snapPoint(this.geo, p, poly);
         const eyes = refitEyes(cur.eyes ?? [], cur.outline, outline, snap);
         const legs = refitEyes(cur.legs ?? [], cur.outline, outline, snap);

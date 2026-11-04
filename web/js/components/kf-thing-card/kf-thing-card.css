@@ -20,7 +20,8 @@ kf-thing-card {
 .kf-tc-addlang { align-items: flex-end; margin-bottom: 8px; }
 .kf-tc-preview { position: relative; width: 100%; max-width: 320px; aspect-ratio: 4 / 3; background: var(--cream); border-radius: var(--radius-sm); overflow: hidden; }
 .kf-tc-preview canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.kf-tc-motion[aria-pressed="true"] { background: var(--ink); color: #fff; }
+.kf-tc-motion[aria-pressed="true"],
+.kf-tc-size[aria-pressed="true"] { background: var(--ink); color: #fff; }
 .kf-tc-shape { margin-top: 14px; }
 .kf-tc-foot { margin-top: 20px; padding-top: 12px; border-top: 2px dashed #eadcc6; }
 .kf-tc-spacer { flex: 1; }
