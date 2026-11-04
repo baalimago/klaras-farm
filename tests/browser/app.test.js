@@ -164,7 +164,7 @@ test("a parent adds a thing with a recorded name, and it survives a reload", asy
   const e1 = await page.locator('[data-testid="eye-stamping"]').boundingBox();
   await page.mouse.click(e1.x + e1.width * 0.45, e1.y + e1.height * 0.5);
   await page.mouse.click(e1.x + e1.width * 0.55, e1.y + e1.height * 0.5);
-  const strip = await page.locator(".kf-eyes-strip").boundingBox();
+  const strip = await page.locator('[data-action="eyes-done"]').boundingBox();
   await page.mouse.move(strip.x + strip.width / 2, strip.y + strip.height / 2);
   await page.mouse.down();
   await page.waitForTimeout(1200);

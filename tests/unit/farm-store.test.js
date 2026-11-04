@@ -18,7 +18,7 @@ test("fresh hydrate reports fresh and yields a valid empty snapshot", async () =
   assert.equal(s.snapshot.places.length, 0);
 });
 
-test("each intent emits exactly one change after the write commits, and persists", async () => {
+test("each intent emits exactly one change at once, and persists", async () => {
   const { s, repo } = await store();
   const events = [];
   s.addEventListener("change", (e) => events.push(e.detail.kind));
@@ -30,15 +30,85 @@ test("each intent emits exactly one change after the write commits, and persists
   assert.equal(again.thingsIn(again.currentPlace.id).length, 1);
 });
 
-test("a failed write leaves the snapshot unchanged and rejects with FarmError", async () => {
+test("the snapshot and the change event follow an intent synchronously, before the disk commits", async () => {
+  const { s, repo } = await store();
+  await s.createPlace({ name: "Farm" });
+  let release;
+  const write = repo.write.bind(repo);
+  repo.write = (w) => new Promise((ok) => { release = ok; }).then(() => write(w));
+  const seen = [];
+  s.addEventListener("change", (e) => seen.push(e.detail.kind));
+  let done = false;
+  const p = s.renamePlace({ placeId: s.currentPlace.id, name: "Barn" }).then(() => { done = true; });
+  assert.equal(s.currentPlace.name, "Barn", "visible at once");
+  assert.deepEqual(seen, ["place-renamed"]);
+  await Promise.resolve();
+  assert.equal(done, false, "the promise still waits for the commit");
+  while (!release) await new Promise((r) => setImmediate(r));
+  release();
+  await p;
+  assert.equal(done, true);
+  assert.equal((await repo.load()).places[0].name, "Barn");
+});
+
+test("invalid input rejects without a change", async () => {
+  const { s } = await store();
+  let changed = 0;
+  s.addEventListener("change", () => changed++);
+  await assert.rejects(s.addThing({ placeId: "nope", outline: square(), color: "red" }), { name: "FarmError" });
+  assert.equal(changed, 0);
+});
+
+test("a failed write rolls the snapshot back, emits 'reverted' and rejects with FarmError", async () => {
   const { s } = await store({ failOn: (_w, n) => (n === 2 ? Object.assign(new Error("disk"), { name: "QuotaExceededError" }) : null) });
   await s.createPlace({ name: "Farm" });
   const before = s.snapshot;
-  let changed = 0;
-  s.addEventListener("change", () => changed++);
+  const kinds = [];
+  s.addEventListener("change", (e) => kinds.push(e.detail.kind));
   await assert.rejects(s.addThing({ placeId: s.currentPlace.id, outline: square(), color: "red" }), { name: "FarmError", code: "quota" });
   assert.equal(s.snapshot, before);
-  assert.equal(changed, 0);
+  assert.deepEqual(kinds, ["thing-added", "reverted"]);
+});
+
+test("a failed write drops the intents applied after it, so storage never holds half a change", async () => {
+  const { s, repo } = await store({ failOn: (_w, n) => (n === 2 ? new Error("disk") : null) });
+  await s.createPlace({ name: "Farm" });
+  const placeId = s.currentPlace.id;
+  const before = s.snapshot;
+  const kinds = [];
+  s.addEventListener("change", (e) => kinds.push(e.detail.kind));
+  const a = s.addThing({ placeId, outline: square(), color: "red" });
+  const b = s.addThing({ placeId, outline: square(), color: "blue" });
+  assert.equal(s.thingsIn(placeId).length, 2, "both show at once");
+  await assert.rejects(a, { name: "FarmError", code: "storage" });
+  await assert.rejects(b, { name: "FarmError", code: "storage" });
+  assert.equal(s.snapshot, before);
+  assert.deepEqual(kinds, ["thing-added", "thing-added", "reverted"]);
+  const again = new FarmStore(repo, fixedEnv());
+  await again.hydrate();
+  assert.equal(again.thingsIn(placeId).length, 0);
+  await s.addThing({ placeId, outline: square(), color: "yellow" });
+  assert.equal(s.thingsIn(placeId).length, 1, "later intents work again");
+});
+
+test("a blob is readable from the moment its write is queued", async () => {
+  const { s, repo } = await store();
+  let release;
+  const write = repo.write.bind(repo);
+  repo.write = (w) => new Promise((ok) => { release = ok; }).then(() => write(w));
+  const blob = { sha256: "b".repeat(64), mime: "audio/mp4", size: 1, createdAt: "2026-01-01T00:00:00.000Z", bytes: new Uint8Array([1]).buffer };
+  const p = s.putBlob(blob);
+  assert.equal(await s.getBlob(blob.sha256), blob);
+  while (!release) await new Promise((r) => setImmediate(r));
+  release();
+  await p;
+  assert.equal(s._pendingBlobs.size, 0);
+  assert.ok(await s.getBlob(blob.sha256));
+});
+
+test("a failed draft write rejects with FarmError('storage')", async () => {
+  const { s } = await store({ failOn: () => new Error("disk") });
+  await assert.rejects(s.saveDraft({ placeId: "p", step: 0, thing: {}, clips: [] }), { name: "FarmError", code: "storage" });
 });
 
 test("intents run in call order even when not awaited one by one", async () => {
@@ -56,4 +126,22 @@ test("replaceAll re-hydrates from storage and drafts survive", async () => {
   await s.replaceAll(snap, []);
   assert.equal(s.currentPlace.name, "Imported");
   assert.equal((await s.listDrafts())[0].id, d.id);
+});
+
+test("an intent called during replaceAll applies to the replaced farm", async () => {
+  const { s } = await store();
+  const snap = aSnapshot().withPlace(aPlace({ name: "Imported" })).build();
+  const replacing = s.replaceAll(snap, []);
+  const renamed = s.renamePlace({ placeId: snap.places[0].id, name: "Renamed" });
+  await Promise.all([replacing, renamed]);
+  assert.equal(s.currentPlace.name, "Renamed");
+});
+
+test("a failed replaceAll rejects with FarmError('storage')", async () => {
+  const repo = new MemoryRepo();
+  const s = new FarmStore(repo, fixedEnv());
+  await s.hydrate();
+  repo.replaceAll = async () => { throw new Error("disk"); };
+  await assert.rejects(s.replaceAll(aSnapshot().build(), []), { name: "FarmError", code: "storage" });
+  assert.equal(s._replacing, 0);
 });

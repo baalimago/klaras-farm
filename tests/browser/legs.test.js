@@ -65,7 +65,7 @@ test("a parent adds a thing with 4 legs through guided add; the legs survive a r
   await page.locator('.kf-swatch[data-color="blue"]').click();
   await page.getByRole("button", { name: "Next" }).click();
   // Eyes: hand straight over to the grown-up.
-  const strip = await page.locator(".kf-eyes-strip").boundingBox();
+  const strip = await page.locator('[data-action="eyes-done"]').boundingBox();
   await page.mouse.move(strip.x + strip.width / 2, strip.y + strip.height / 2);
   await page.mouse.down();
   await page.waitForTimeout(1200);
@@ -81,7 +81,7 @@ test("a parent adds a thing with 4 legs through guided add; the legs survive a r
     return { x0: Math.min(...xs), x1: Math.max(...xs), y1: Math.max(...ys) };
   });
   for (let i = 0; i < 4; i++) {
-    await page.getByRole("heading", { name: `Tap where leg ${i + 1} goes` }).waitFor();
+    await page.getByRole("heading", { name: `Tap where leg ${i + 1} of 4 goes` }).waitFor();
     await tapPreview(page, b.x0 + (b.x1 - b.x0) * (0.25 + i * 0.17), b.y1 - 0.01);
   }
   await page.getByRole("heading", { name: "4 legs" }).waitFor();

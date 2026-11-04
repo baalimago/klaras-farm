@@ -280,13 +280,27 @@ export class GuidedAddElement extends HTMLElement {
         holdMs: this.params?.holdMs ?? 1000,
         chime: (kind) => this.services.audio?.chime?.(kind),
         onStamp: (eyes) => { this.thing.eyes = eyes; this._save(); },
-        onDone: () => { this._stamping = false; this._render(); },
+        onDone: (eyes) => this._stampEnded(eyes),
+        onCancel: (before) => this._stampEnded(before),
       }).mount(this);
     }
   }
 
+  /** Done keeps the stamped eyes, Cancel the ones from before; either way back to the Eyes panel. */
+  _stampEnded(eyes) {
+    this._stamping = false;
+    this._stamper = null;
+    this.thing.eyes = eyes;
+    this._save();
+    this._render();
+  }
+
   _step_legs(panel) {
-    const next = () => this._go(this.draft.step + 1);
+    // Next keeps the legs placed so far (the count follows them), so the step never blocks.
+    const next = () => {
+      this.thing.legTarget = this.thing.legs?.length ? this.thing.legs.length : this.thing.legTarget;
+      this._go(this.draft.step + 1);
+    };
     this._legs = new LegPlacer({
       preview: this.preview,
       geo: this.geo,
@@ -301,8 +315,9 @@ export class GuidedAddElement extends HTMLElement {
         this._save();
       },
       buttons: (phase) => [
-        h("button", { class: "kf-btn ghost", type: "button", text: "Skip", "data-action": "skip-legs", onclick: next }),
-        phase === "count" ? null : h("button", { class: "kf-btn primary", type: "button", text: "Next", disabled: phase === "place", onclick: next }),
+        phase === "choose-count"
+          ? h("button", { class: "kf-btn ghost", type: "button", text: "Skip", "data-action": "skip-legs", onclick: next })
+          : h("button", { class: "kf-btn primary", type: "button", text: "Next", "data-action": "next-legs", onclick: next }),
       ],
     });
     fill(panel, this._legs.panel());

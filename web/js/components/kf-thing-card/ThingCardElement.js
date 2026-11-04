@@ -62,7 +62,8 @@ export class ThingCardElement extends HTMLElement {
     };
     store.addEventListener("change", this._onStore);
     audio?.addEventListener?.("decode-failed", this._onDecodeFailed);
-    this.addEventListener("focusout", () => queueMicrotask(() => { if (this._dirty && !this._editing()) this._render(); }));
+    // A field that was being typed in has let go: now the words column can catch up too.
+    this.addEventListener("focusout", () => queueMicrotask(() => { if (this._dirty && this._canRenderAll()) this._render(); }));
     if (!this.thing) return this._close();
     this._render();
   }
@@ -72,17 +73,35 @@ export class ThingCardElement extends HTMLElement {
     return !!a && this.contains(a) && a.matches("input, select, textarea");
   }
 
+  /** A full render would rebuild the text field being typed in, the open recorder, or the overlay's page. */
+  _canRenderAll() {
+    return !this._recording && !this._overlay && !this._editing();
+  }
+
+  /** Every store change shows at once (playtest 2). While the parent types in a field or records,
+   *  everything but the words column (title, felt, moves, preview) renders now; the words column
+   *  follows when the field lets go or the recorder closes. An open overlay re-renders the card
+   *  when it closes. */
   _storeChanged() {
     if (!this.isConnected) return;
     if (!this.thing) {
       if (!this._deleting) this._close();
       return;
     }
-    if (this._recording || this._overlay || this._editing()) {
-      this._dirty = true;
-      return;
-    }
-    this._render();
+    if (this._canRenderAll()) return this._render();
+    this._dirty = true;
+    if (!this._overlay) this._renderAround();
+  }
+
+  /** Renders the title and the look column from the store, leaving the words column alone. */
+  _renderAround() {
+    const thing = this.thing;
+    const title = this.querySelector("#kf-tc-title");
+    if (title) title.textContent = this.displayName(thing);
+    const look = this.querySelector(".kf-tc-look");
+    if (!look) return;
+    look.replaceWith(this._look(thing));
+    this._drawPreview();
   }
 
   displayName(thing = this.thing) {
@@ -117,7 +136,10 @@ export class ThingCardElement extends HTMLElement {
         h("button", { class: "kf-btn primary", type: "button", text: "Close", onclick: () => this._close() }),
       ),
     );
-    this.replaceChildren(sheet);
+    // Only the sheet is replaced: an open overlay (eyes, legs, redraw) stays on top of it.
+    if (this._sheet?.parentNode === this) this._sheet.replaceWith(sheet);
+    else this.prepend(sheet);
+    this._sheet = sheet;
     this._drawPreview();
   }
 
@@ -328,12 +350,16 @@ export class ThingCardElement extends HTMLElement {
 
   async _addLanguage(lang) {
     if (!lang) return;
+    const prev = this.lang;
+    this.lang = lang;
+    this._addingLang = false;
+    const saved = this.services.store.updateSettings({ patch: { languages: [...this.languages, lang] } });
+    this._render(); // the store already has the language: the new tab shows now
     try {
-      await this.services.store.updateSettings({ patch: { languages: [...this.languages, lang] } });
-      this.lang = lang;
-      this._addingLang = false;
-      this._render();
+      await saved;
     } catch (e) {
+      this.lang = prev;
+      this._render();
       this._error(e);
     }
   }
@@ -383,12 +409,12 @@ export class ThingCardElement extends HTMLElement {
     const warn = h("p", { class: "kf-warning", role: "status", hidden: true, text: "Close the outline: the two ends are too far apart. Draw it again." });
     const status = h("p", { class: "kf-note kf-tc-shapes", role: "status" });
     let changed = false;
-    const close = () => { root.remove(); this._overlay = null; if (this._dirty) this._render(); };
+    const close = () => { root.remove(); this._overlay = null; this._render(); };
     const undo = h("button", { class: "kf-btn", type: "button", text: "Undo last shape", "data-action": "undo-shape", onclick: () => { if (drawing.undo()) { changed = true; sync(); } } });
     const restart = h("button", { class: "kf-btn", type: "button", text: "Start over", "data-action": "start-over", onclick: () => { drawing.clear(); changed = true; sync(); } });
     const done = h("button", {
       class: "kf-btn primary", type: "button", text: "Done", "data-action": "redraw-done",
-      onclick: async () => {
+      onclick: () => {
         const merged = drawing.merged;
         if (!changed || merged.length < 3) return close();
         done.disabled = true;
@@ -398,8 +424,7 @@ export class ThingCardElement extends HTMLElement {
         const snap = (p, poly) => snapPoint(this.geo, p, poly);
         const eyes = refitEyes(cur.eyes ?? [], cur.outline, outline, snap);
         const legs = refitEyes(cur.legs ?? [], cur.outline, outline, snap);
-        await this._update({ outline, eyes, legs });
-        this._dirty = true;
+        this._update({ outline, eyes, legs }); // shows at once; never wait for the disk to close
         close();
       },
     });
@@ -436,35 +461,37 @@ export class ThingCardElement extends HTMLElement {
       thing: { ...thing, eyes: [] },
       holdMs: this.params?.holdMs ?? 1000,
       chime: (kind) => this.services.audio?.chime?.(kind),
-      onStamp: () => {},
-      onDone: async (eyes) => {
+      onDone: (eyes) => {
         this._overlay = null;
-        if (eyes.length) await this._update({ eyes });
+        if (eyes.length) this._update({ eyes });
+        this._render();
+      },
+      onCancel: () => {
+        this._overlay = null;
         this._render();
       },
     }).mount(this);
     this._overlay = { close: () => stamper.unmount(), stamper };
   }
 
-  /** Pick how many legs, then tap where each goes (like eyes). Saved on Done; Cancel keeps the old legs. */
+  /** Choose how many legs, then place them (edit/leg-flow.js). Done saves; Cancel keeps the old legs. */
   _placeLegs() {
     const thing = this.thing;
     const { root, preview } = this._overlayShell("legs");
     preview.setView(viewFor(thing.outline, { fill: 0.5, centerX: 0.36, geo: this.geo }));
-    const close = () => { placer.detach(); root.remove(); this._overlay = null; if (this._dirty) this._render(); };
+    const close = () => { placer.detach(); root.remove(); this._overlay = null; this._render(); };
     const placer = new LegPlacer({
       preview,
       geo: this.geo,
       thing,
       chime: (kind) => this.services.audio?.chime?.(kind),
       onChange: () => this.services.session?.activity?.(),
-      buttons: (phase) => [
+      buttons: () => [
         h("button", { class: "kf-btn ghost", type: "button", text: "Cancel", "data-action": "cancel-legs", onclick: close }),
         h("button", {
-          class: "kf-btn primary", type: "button", text: "Done", "data-action": "done-legs", disabled: phase === "place",
-          onclick: async () => {
-            await this._update({ legs: placer.legs });
-            this._dirty = true;
+          class: "kf-btn primary", type: "button", text: "Done", "data-action": "done-legs",
+          onclick: () => {
+            this._update({ legs: placer.legs }); // shows at once; never wait for the disk to close
             close();
           },
         }),

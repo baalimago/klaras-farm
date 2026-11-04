@@ -1,6 +1,10 @@
 // FarmStore: the single owner of the persisted Snapshot.
-// Every intent: pure function → await repo.write(writes) (one transaction) → swap snapshot → emit 'change'.
-// If the write fails, nothing changes and the intent rejects with FarmError('storage').
+// Every intent: pure function → swap snapshot → emit 'change' (synchronously, inside the caller's
+// tap) → repo.write(writes) in one transaction, one write at a time in call order. The intent's
+// promise resolves after the commit. The UI never waits for the disk (playtest 2: "state updates
+// must propagate immediately"); if a write fails, the snapshot rolls back to the last committed
+// one, a 'reverted' change is emitted, and that intent and the ones applied after it reject with
+// FarmError('storage' | 'quota') without writing.
 import * as I from "./farm/intents.js";
 import { FarmError } from "./farm/intents.js";
 import { emptySnapshot, migrate, validateSnapshot, storedFormat, FORMAT_VERSION, MIN_READER_FORMAT } from "./farm/snapshot.js";
@@ -16,6 +20,10 @@ export class FarmStore extends EventTarget {
     this.snapshot = emptySnapshot(env, appVersion);
     this.meta = {};
     this._queue = Promise.resolve();
+    /** Blobs written but not yet committed, so getBlob agrees with the optimistic snapshot. */
+    this._pendingBlobs = new Map();
+    this._replacing = 0;
+    this._epoch = 0; // bumped by a failed write: intents applied before it are dropped
   }
 
   /** Loads from the repository. Returns {fresh:true} when there was no data yet. */
@@ -44,20 +52,26 @@ export class FarmStore extends EventTarget {
     return { ...this.snapshot, formatVersion: FORMAT_VERSION, minReaderFormat: MIN_READER_FORMAT, appVersion: this.appVersion, exportedAt: this.env.now(), deviceId: this.env.deviceId };
   }
 
-  /** Replaces everything (import, starter content). Re-hydrates from what was read back. */
+  /** Replaces everything (import, starter content). Re-hydrates from what was read back. Intents
+   *  called meanwhile wait and apply to the replaced farm. */
   async replaceAll(snapshot, blobs = []) {
-    await this._serial(async () => {
-      try {
-        await this.repo.replaceAll(snapshot, blobs);
-      } catch (e) {
-        throw new FarmError("storage", e?.message ?? String(e));
-      }
-    });
-    await this.hydrate();
+    this._replacing++;
+    try {
+      await this._serial(async () => {
+        try {
+          await this.repo.replaceAll(snapshot, blobs);
+        } catch (e) {
+          throw new FarmError("storage", e?.message ?? String(e));
+        }
+        await this.hydrate();
+      });
+    } finally {
+      this._replacing--;
+    }
     this._emit({ kind: "replaced", ids: [] });
   }
 
-  // ---- intents (each resolves after commit) ----
+  // ---- intents (the snapshot and 'change' follow at once; each resolves after commit) ----
   createPlace(args) { return this._run(I.createPlace, args); }
   renamePlace(args) { return this._run(I.renamePlace, args); }
   updatePlace(args) { return this._run(I.updatePlace, args); }
@@ -88,7 +102,10 @@ export class FarmStore extends EventTarget {
     this.meta = { ...this.meta, [key]: value };
   }
 
-  getBlob(sha) { return this.repo.getBlob(sha); }
+  getBlob(sha) {
+    const pending = this._pendingBlobs.get(sha);
+    return pending ? Promise.resolve(pending) : this.repo.getBlob(sha);
+  }
 
   /** Stores a recording's bytes ahead of the clip that will reference it (drafts, re-records). */
   async putBlob(blob) { await this._write([{ store: "blobs", op: "put", value: blob }]); }
@@ -101,26 +118,64 @@ export class FarmStore extends EventTarget {
   canAddThing(placeId) { return I.canAddThing(this.snapshot, placeId); }
 
   // ---- internals ----
-  async _run(fn, args) {
-    return this._serial(async () => {
-      const result = fn(this.snapshot, args, this.env); // may throw FarmError (invalid input)
+  _run(fn, args) {
+    // While a replace is running, the intent must see the replaced farm: apply it in the queue.
+    if (this._replacing) return this._serial(() => this._commit(this._apply(fn, args)));
+    let result;
+    try {
+      result = this._apply(fn, args);
+    } catch (e) {
+      return Promise.reject(e);
+    }
+    return this._serial(() => this._commit(result));
+  }
+
+  /** Runs the pure intent (may throw FarmError for invalid input), swaps the snapshot, emits. */
+  _apply(fn, args) {
+    const prev = this.snapshot;
+    const result = fn(prev, args, this.env);
+    this.snapshot = result.snapshot;
+    this._holdBlobs(result.writes);
+    this._emit(result.change);
+    return { ...result, prev, epoch: this._epoch };
+  }
+
+  /** Persists one applied intent. Intents applied after a failed one were built on it, so they
+   *  are dropped too: the snapshot goes back to the last committed one and they all reject. */
+  async _commit(result) {
+    try {
+      if (result.epoch !== this._epoch) throw new FarmError("storage", "an earlier change could not be saved");
       try {
         await this.repo.write(result.writes);
       } catch (e) {
+        this._epoch++;
+        this.snapshot = result.prev; // every intent before this one has committed
+        this._emit({ kind: "reverted", ids: [] });
         throw new FarmError(e?.name === "QuotaExceededError" ? "quota" : "storage", e?.message ?? String(e));
       }
-      this.snapshot = result.snapshot;
-      this._emit(result.change);
-      return result.change;
-    });
+    } finally {
+      this._releaseBlobs(result.writes);
+    }
+    return result.change;
+  }
+
+  _holdBlobs(writes) {
+    for (const w of writes ?? []) if (w.store === "blobs" && w.op === "put" && w.value?.sha256) this._pendingBlobs.set(w.value.sha256, w.value);
+  }
+
+  _releaseBlobs(writes) {
+    for (const w of writes ?? []) if (w.store === "blobs" && w.op === "put" && this._pendingBlobs.get(w.value?.sha256) === w.value) this._pendingBlobs.delete(w.value.sha256);
   }
 
   async _write(writes) {
+    this._holdBlobs(writes);
     return this._serial(async () => {
       try {
         await this.repo.write(writes);
       } catch (e) {
         throw new FarmError("storage", e?.message ?? String(e));
+      } finally {
+        this._releaseBlobs(writes);
       }
     });
   }

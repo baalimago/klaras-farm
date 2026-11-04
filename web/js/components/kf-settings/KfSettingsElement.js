@@ -39,6 +39,9 @@ export class KfSettingsElement extends HTMLElement {
     this._exportReady = null;
     this._message = "";
     this._exportTimer = 0;
+    // View state that must survive a re-render (every store change re-renders at once).
+    this._scrollTop = 0;
+    this._openHelp = new Set(); // keys of the open Help sections
     this._onChange = () => {
       this.render();
       this.scheduleExport();
@@ -81,9 +84,10 @@ export class KfSettingsElement extends HTMLElement {
     const focusKey = this.contains(document.activeElement) ? document.activeElement.dataset.key : null;
     const titleId = newId("settings-title");
     const s = this.store.settings;
+    const sheet = h("section", { class: "kf-sheet full kf-settings", role: "dialog", "aria-labelledby": titleId, onscroll: (e) => { this._scrollTop = e.target.scrollTop; } });
     this.replaceChildren(
       h("div", { class: "kf-settings-scrim", onclick: () => this.close() }),
-      h("section", { class: "kf-sheet full kf-settings", role: "dialog", "aria-labelledby": titleId }, [
+      fillSheet(sheet, [
         h("div", { class: "kf-settings-head" }, [
           h("h2", { id: titleId, text: "Settings" }),
           h("button", { type: "button", class: "kf-btn ghost icon", "aria-label": "Close", "data-key": "close", text: "✕", onclick: () => this.close() }),
@@ -98,6 +102,7 @@ export class KfSettingsElement extends HTMLElement {
         h("p", { class: "kf-note kf-settings-version", text: `Klara's Farm, version ${this.services.appVersion ?? "dev"}` }),
       ]),
     );
+    sheet.scrollTop = this._scrollTop;
     if (focusKey) this.querySelector(`[data-key="${CSS.escape(focusKey)}"]`)?.focus();
   }
 
@@ -282,13 +287,13 @@ export class KfSettingsElement extends HTMLElement {
   helpSection() {
     return h("section", { class: "kf-settings-section", "aria-label": "Help" }, [
       h("h3", { text: "Help" }),
-      h("details", { class: "kf-settings-details" }, [
+      this.helpDetails("privacy", [
         h("summary", { text: "Privacy" }),
         h("p", { text: "Everything stays on this iPad. Drawings, names and recordings are never uploaded." }),
         h("p", { text: "The app never records during play. The microphone is on only while a parent is recording a clip, and Klara may be audible in the background of those clips." }),
         h("p", { text: "An export file contains your recordings: keep it somewhere private." }),
       ]),
-      h("details", { class: "kf-settings-details" }, [
+      this.helpDetails("guided-access", [
         h("summary", { text: "Lock the iPad to this app (Guided Access)" }),
         h("ol", {}, [
           h("li", { text: "Open the iPad's Settings app, then Accessibility, then Guided Access, and turn it on." }),
@@ -300,6 +305,17 @@ export class KfSettingsElement extends HTMLElement {
         h("p", { class: "kf-note", text: "Klara then can't leave the app, and the edit mode still needs the hold and the adult check." }),
       ]),
     ]);
+  }
+
+  /** A Help section that stays open across re-renders once the parent opens it. */
+  helpDetails(key, children) {
+    const d = h("details", { class: "kf-settings-details", "data-help": key }, children);
+    d.open = this._openHelp.has(key);
+    d.addEventListener("toggle", () => {
+      if (d.open) this._openHelp.add(key);
+      else this._openHelp.delete(key);
+    });
+    return d;
   }
 
   dangerSection() {
@@ -443,6 +459,11 @@ export class KfSettingsElement extends HTMLElement {
     }
     this.reload();
   }
+}
+
+function fillSheet(sheet, children) {
+  sheet.append(...children.filter((c) => c != null));
+  return sheet;
 }
 
 function formatBytes(n) {
