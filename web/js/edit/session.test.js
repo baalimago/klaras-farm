@@ -39,6 +39,26 @@ test("within grace a hold that asks for a panel opens edit with it at once", () 
   assert.deepEqual(s.panel, { name: "find-setup", params: { game: "animal" } });
 });
 
+test("closing a panel a hold opened from play goes back to play, with grace; other panels stay in edit", () => {
+  const then = { name: "find-setup", params: { game: "animal" } };
+  const open = nextSession(nextSession(initialSession(0), { type: "hold-armed", then }, 1000), { type: "gate-pass" }, 1500);
+  const closed = nextSession(open, { type: "close-panel" }, 9000);
+  assert.equal(closed.mode, "play", "the parent came from the child's game");
+  assert.equal(closed.panel, null);
+  assert.equal(closed.graceUntil, 9000 + GRACE_MS, "a hold within grace reopens without the check");
+  // In grace, the same hold opens the setup at once and Done on it again returns to play.
+  const again = nextSession(closed, { type: "hold-armed", then }, 9500);
+  assert.equal(again.mode, "edit");
+  assert.equal(nextSession(again, { type: "close-panel" }, 9600).mode, "play");
+  // A panel opened from edit mode (a card) closes back into edit mode.
+  const card = nextSession(inEdit(0), { type: "open-panel", name: "thing-card", params: { thingId: "t" } }, 10);
+  assert.equal(nextSession(card, { type: "close-panel" }, 20).mode, "edit");
+  // Opening another panel from edit forgets the way back; Done always ends in play.
+  const other = nextSession(open, { type: "open-panel", name: "settings" }, 1600);
+  assert.equal(nextSession(other, { type: "close-panel" }, 1700).mode, "edit");
+  assert.equal(nextSession(open, { type: "done" }, 1700).back, null);
+});
+
 test("Done ends the session: the next hold needs the check again", () => {
   let s = nextSession(inEdit(), { type: "done" }, 5000);
   assert.equal(s.mode, "play");

@@ -3,6 +3,8 @@
 //   panel: null | {name, params}  (a card, guided add, scenes, settings … over the edit view)
 //   then:  null | {name, params}  the panel a hold asked for (a long press on a find game button
 //          opens that game's setup): kept through the adult check, opened when edit mode starts
+//   back:  null | 'play'  a panel a hold opened from play returns to play when it closes (the
+//          parent came from the child's game, not from edit mode), with the grace window open
 // Edit mode always ends: Done ends it fully; 60 s without activity in the plain edit/scene view
 // closes it and opens a 5-minute grace in which the hold alone reopens it. A play tap cancels grace.
 
@@ -10,7 +12,7 @@ export const AUTO_CLOSE_MS = 60000;
 export const GRACE_MS = 5 * 60000;
 
 export function initialSession(nowMs = 0) {
-  return { mode: "play", panel: null, then: null, lastActivityAt: nowMs, graceUntil: 0 };
+  return { mode: "play", panel: null, then: null, back: null, lastActivityAt: nowMs, graceUntil: 0 };
 }
 
 const editing = (s) => s.mode === "edit" || s.mode === "scene";
@@ -26,22 +28,24 @@ export function nextSession(s, e, now) {
     case "hold-armed": {
       if (s.mode !== "play") return s;
       const then = e.then ? { name: e.then.name, params: e.then.params ?? {} } : null;
-      if (now < s.graceUntil) return { ...s, mode: "edit", panel: then, then: null, lastActivityAt: now, graceUntil: 0 };
+      if (now < s.graceUntil) return { ...s, mode: "edit", panel: then, then: null, back: then ? "play" : null, lastActivityAt: now, graceUntil: 0 };
       return { ...s, mode: "gate", panel: null, then, lastActivityAt: now };
     }
     case "gate-pass":
-      return s.mode === "gate" ? { ...s, mode: "edit", panel: s.then ?? null, then: null, lastActivityAt: now, graceUntil: 0 } : s;
+      return s.mode === "gate" ? { ...s, mode: "edit", panel: s.then ?? null, then: null, back: s.then ? "play" : null, lastActivityAt: now, graceUntil: 0 } : s;
     case "gate-fail":
       return s.mode === "gate" ? { ...s, mode: "play", panel: null, then: null } : s;
     case "done":
-      return s.mode === "play" ? s : { ...s, mode: "play", panel: null, graceUntil: 0 };
+      return s.mode === "play" ? s : { ...s, mode: "play", panel: null, back: null, graceUntil: 0 };
     case "activity":
       return s.mode === "play" || s.lastActivityAt === now ? s : { ...s, lastActivityAt: now };
     case "open-panel":
       if (!editing(s)) return s;
-      return { ...s, panel: { name: e.name, params: e.params ?? {} }, lastActivityAt: now };
+      return { ...s, panel: { name: e.name, params: e.params ?? {} }, back: null, lastActivityAt: now };
     case "close-panel":
-      return s.panel ? { ...s, panel: null, lastActivityAt: now } : s;
+      if (!s.panel) return s;
+      if (s.back === "play") return { ...s, mode: "play", panel: null, back: null, lastActivityAt: now, graceUntil: now + GRACE_MS };
+      return { ...s, panel: null, lastActivityAt: now };
     case "scene-tools":
       return s.mode === "edit" ? { ...s, mode: "scene", panel: null, lastActivityAt: now } : s;
     case "scene-done":

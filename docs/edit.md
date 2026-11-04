@@ -19,7 +19,7 @@ Edit is how a grown-up gets from the toddler's play board into edit mode and bac
 ### Session state (`edit/session.js`)
 
 ```
-state = {mode: 'play'|'gate'|'edit'|'scene', panel: null | {name, params}, then: null | {name, params}, lastActivityAt, graceUntil}
+state = {mode: 'play'|'gate'|'edit'|'scene', panel: null | {name, params}, then: null | {name, params}, back: null | 'play', lastActivityAt, graceUntil}
 
 play ──hold-armed──▶ gate ──gate-pass──▶ edit ⇄ scene ──done──▶ play
   │                   └──gate-fail──▶ play        (scene-tools / scene-done)
@@ -29,7 +29,7 @@ edit|scene ──tick, 60 s no activity, no panel──▶ play, grace for 5 min
 
 - `AUTO_CLOSE_MS = 60000`, `GRACE_MS = 300000`.
 - `initialSession(nowMs)`, `nextSession(state, event, nowMs)`. Returns the same object when nothing changed.
-- Events: `hold-armed {then?}` (a panel to open once in: the find buttons pass `find-setup`), `gate-pass` (opens `then` as the panel), `gate-fail`, `done` (to play, clears grace), `activity`, `open-panel {name, params}`, `close-panel`, `scene-tools` (edit to scene), `scene-done` (scene to edit), `tick`, `play-tap` (cancels grace).
+- Events: `hold-armed {then?}` (a panel to open once in: the find buttons pass `find-setup`), `gate-pass` (opens `then` as the panel and sets `back: 'play'`), `gate-fail`, `done` (to play, clears grace), `activity`, `open-panel {name, params}` (clears `back`), `close-panel` (with `back: 'play'`, a panel a hold opened from play, such as the find setup, returns to play with the grace window open; otherwise back to edit), `scene-tools` (edit to scene), `scene-done` (scene to edit), `tick`, `play-tap` (cancels grace).
 - Panels open only in edit or scene. An open panel pauses auto-close.
 - During grace the hold alone reopens edit (with `then` as its panel). A play tap cancels grace. `gate-fail` drops `then`.
 - Panel names in use: `card`, `guided`, `scenes`, `settings`. `shell.js` maps them to components.
