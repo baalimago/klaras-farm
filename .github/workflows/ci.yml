@@ -45,9 +45,10 @@ jobs:
         run: uv run npm run test:browser
 
   promote:
-    # Only a fully green develop reaches main (and so the live app).
+    # Only a fully green develop reaches main (and so the live app). A manual run on develop
+    # promotes too, for when a push did not start CI.
     needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/develop'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
