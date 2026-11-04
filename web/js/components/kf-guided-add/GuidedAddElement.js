@@ -1,6 +1,8 @@
 // <kf-guided-add>: add a thing in eight steps (flow 1; US-3.1–3.5, 3.10, 4.1, 4.2, 4.8).
 // Body (draw one or more shapes, glued into one outline, each editable) → Felt → Eyes → Legs → Moves → Name → Ask → Sound, with a step bar, Back and ✕ (Keep draft / Discard)
-// on every step. The draft is saved after every step and every kept recording, and an open draft for
+// on every step. Ask shows the same 1–6 free-text questions as the thing card (kf-thing-card/questions.js),
+// kept in the draft until Finish (draft-questions.js). Finish closes at once and saves after.
+// The draft is saved after every step and every kept recording, and an open draft for
 // the place is resumed. Props: `services`, `params = {placeId?, at?: [x, y], holdMs?}`.
 // Events: `kf-close` when done (bubbles), `kf-added {thingId}` after a thing was added.
 import { h, ensureElement, languageName } from "./dom.js";
@@ -16,12 +18,22 @@ import { ShapeDrawing } from "./drawing.js";
 import { ShapeEditor } from "./shape-editor.js";
 import { bodyGuide } from "./guide.js";
 import { LegPlacer } from "./legs.js";
+import { setDraftLine, addDraftQuestion, removeDraftQuestion, draftClips } from "./draft-questions.js";
 import { THING_COLORS, hex } from "../../farm/palette.js";
-import { cueLines } from "../../farm/scripts.js";
 import { editSound } from "../kf-dialog/feedback.js";
+import { failMessage } from "../kf-dialog/dom.js";
+import { questionsSection } from "../kf-thing-card/questions.js";
+import { clipSlot } from "../kf-thing-card/clip-slot.js";
 
 const DEFAULT_MOTION = Object.freeze({ kind: "preset", preset: "walk", params: {} });
 const DRAW_FELT = "tan";
+
+/** The Legs step's way on, by phase: Skip before a count, Spread the rest while legs are missing, else Next. */
+function legsButton(phase, { skip, spread, next }) {
+  if (phase === "choose-count") return h("button", { class: "kf-btn ghost", type: "button", text: "Skip", "data-action": "skip-legs", onclick: skip });
+  if (phase === "placing") return h("button", { class: "kf-btn primary", type: "button", text: "Spread the rest and continue", "data-action": "spread-rest", onclick: spread });
+  return h("button", { class: "kf-btn primary", type: "button", text: "Next", "data-action": "next-legs", onclick: next });
+}
 
 /** Appends the non-empty children (optional parts of a step are null). */
 const fill = (parent, ...children) => parent.append(...children.filter((c) => c != null && c !== false));
@@ -38,8 +50,8 @@ export class GuidedAddElement extends HTMLElement {
     this._stamper = null;
     this._stamping = false;
     this._leaving = false;
-    this._editingLine = false;
-    this.askIndex = 0;
+    /** The question being recorded on the Ask step: {language, take}, or null. */
+    this._recording = null;
   }
 
   connectedCallback() {
@@ -146,8 +158,8 @@ export class GuidedAddElement extends HTMLElement {
     );
   }
 
-  _nextBtn(onclick = () => this._go(this.draft.step + 1)) {
-    return h("button", { class: "kf-btn primary", type: "button", text: "Next", disabled: !canAdvance(this.step, this.thing), onclick });
+  _nextBtn(onclick = () => this._go(this.draft.step + 1), text = "Next") {
+    return h("button", { class: "kf-btn primary", type: "button", text, disabled: !canAdvance(this.step, this.thing), onclick });
   }
 
   _langTabs() {
@@ -156,7 +168,7 @@ export class GuidedAddElement extends HTMLElement {
       "div",
       { class: "kf-tabs", role: "tablist", "aria-label": "Language" },
       this.languages.map((l) =>
-        h("button", { type: "button", role: "tab", "aria-selected": String(l === this.lang), text: languageName(l), onclick: () => { this.lang = l; this.askIndex = 0; this._render(); } }),
+        h("button", { type: "button", role: "tab", "aria-selected": String(l === this.lang), text: languageName(l), onclick: () => { this.lang = l; this._recording = null; this._render(); } }),
       ),
     );
   }
@@ -322,10 +334,12 @@ export class GuidedAddElement extends HTMLElement {
   }
 
   _step_legs(panel) {
-    // Next keeps the legs placed so far (the count follows them), so the step never blocks.
-    const next = () => {
-      this.thing.legTarget = this.thing.legs?.length ? this.thing.legs.length : this.thing.legTarget;
-      this._go(this.draft.step + 1);
+    // Leaving never ends with fewer legs than chosen: while legs are missing the button spreads the
+    // rest (the placed ones stay) and moves on; Skip leaves the count unpicked.
+    const next = () => this._go(this.draft.step + 1);
+    const spreadAndNext = () => {
+      this._legs?.spreadRest();
+      next();
     };
     this._legs = new LegPlacer({
       preview: this.preview,
@@ -340,11 +354,7 @@ export class GuidedAddElement extends HTMLElement {
         this.services.session?.activity?.();
         this._save();
       },
-      buttons: (phase) => [
-        phase === "choose-count"
-          ? h("button", { class: "kf-btn ghost", type: "button", text: "Skip", "data-action": "skip-legs", onclick: next })
-          : h("button", { class: "kf-btn primary", type: "button", text: "Next", "data-action": "next-legs", onclick: next }),
-      ],
+      buttons: (phase) => [legsButton(phase, { skip: next, spread: spreadAndNext, next })],
     });
     fill(panel, this._legs.panel());
   }
@@ -388,56 +398,83 @@ export class GuidedAddElement extends HTMLElement {
   }
 
   _step_ask(panel) {
-    const lang = this.lang;
-    const cue = (this.thing.cues[lang] ??= {});
-    const { lines, fallback, articles } = cueLines(this.services.scripts ?? {}, this.thing, lang);
-    const q = Math.min(this.askIndex, Math.max(0, lines.length - 1));
-    const line = lines[q] ?? "";
-    const recorded = [1, 2, 3].filter((take) => findClip(this.draft.clips, { language: lang, kind: "prompt", take })).length;
-    this._askStatus = h("p", { class: "kf-note kf-ga-count", role: "status", text: `Recorded ${recorded} of 3` });
-
-    const cueBox = this._editingLine
-      ? h("label", { class: "kf-field" }, h("span", { text: `Question ${q + 1} words` }),
-          h("input", {
-            type: "text", name: "cue", value: line,
-            onchange: (e) => {
-              const prev = cue.lines ?? ["", "", ""];
-              cue.lines = [0, 1, 2].map((i) => (i === q ? e.target.value : (prev[i] ?? "")));
-              this._editingLine = false;
-              this._save();
-              this._render();
-            },
-          }))
-      : h("blockquote", { class: "kf-ga-cue", text: `“${line}”` });
-
+    // Nothing recorded yet: the iPad voice asks instead, so going on is a skip and says so.
+    const recorded = draftClips(this.draft, { language: this.lang, kind: "prompt" }).length > 0;
     fill(panel,
       h("h2", { text: "Ask for it" }),
       this._langTabs(),
-      fallback ? h("p", { class: "kf-warning", text: `No script for ${languageName(lang)} yet: say this in your language.` }) : null,
-      articles.length
-        ? h("label", { class: "kf-field" }, h("span", { text: "Article" }),
-            h("select", {
-              name: "article",
-              onchange: (e) => { if (e.target.value) cue.article = e.target.value; else delete cue.article; this._save(); this._render(); },
-            }, h("option", { value: "", text: "(none)", selected: !cue.article }), articles.map((a) => h("option", { value: a, text: a, selected: cue.article === a }))))
-        : null,
-      h("p", { class: "kf-note", text: `Question ${q + 1} of 3 · say it like you would to Klara` }),
-      cueBox,
-      this._editingLine ? null : h("button", { class: "kf-btn ghost", type: "button", text: "✎ Change the words", onclick: () => { this._editingLine = true; this._render(); } }),
-      q < 2 ? h("p", { class: "kf-note", text: `Next: ${lines.slice(q + 1).map((l) => `“${l}”`).join(" · ")}` }) : null,
-      this._recorder({ kind: "prompt", take: q + 1, label: line }),
-      this._askStatus,
-      h(
-        "div",
-        { class: "kf-row end" },
-        h("button", { class: "kf-btn ghost", type: "button", text: "Skip for now", onclick: () => this._go(this.draft.step + 1) }),
-        q > 0 ? h("button", { class: "kf-btn", type: "button", text: "Previous question", onclick: () => { this.askIndex = q - 1; this._editingLine = false; this._render(); } }) : null,
-        this._nextBtn(() => {
-          this._editingLine = false;
-          if (q < 2) { this.askIndex = q + 1; this._render(); } else this._go(this.draft.step + 1);
-        }),
-      ),
+      questionsSection({
+        store: this._questionStore(),
+        scripts: this.services.scripts,
+        thing: { ...this.thing, id: null },
+        lang: this.lang,
+        busy: !!this._recording,
+        slot: (take, line) => this._questionSlot(take, line),
+        onArticle: (article) => this._setArticle(article),
+        onError: (e) => this._error(e),
+      }),
+      h("div", { class: "kf-row end" }, this._nextBtn(undefined, recorded ? "Next" : "Skip for now")),
     );
+  }
+
+  /**
+   * What questionsSection needs from a store, over the draft: every edit changes the draft, shows at
+   * once, then saves (the thing is not in the farm until Finish).
+   */
+  _questionStore() {
+    // `rebuild: false` for new words: the field the parent typed in already shows them and nothing
+    // else on the panel depends on them, while rebuilding the panel as the field lets go would
+    // swallow the tap that took the focus away (Record, the next field). An open recorder shows the
+    // old words, so it closes and the panel rebuilds.
+    const edit = (fn, { rebuild = true } = {}) => (args) => {
+      try {
+        const next = fn({ thing: this.thing, clips: this.draft.clips }, args);
+        this.draft.thing = next.thing;
+        this.draft.clips = next.clips;
+        if (rebuild || this._recording) {
+          this._recording = null; // a rebuilt panel cannot keep a take going; the old clip stays
+          this._render();
+        }
+        return this._save();
+      } catch (e) {
+        return Promise.reject(e);
+      }
+    };
+    return {
+      clipsFor: (_thingId, filter) => draftClips(this.draft, filter),
+      setQuestionLine: edit(setDraftLine, { rebuild: false }),
+      addQuestion: edit(addDraftQuestion),
+      removeQuestion: edit(removeDraftQuestion),
+    };
+  }
+
+  /** Record / Re-record / ▶ for question `take`; the open recorder shows the words to say. */
+  _questionSlot(take, line) {
+    const lang = this.lang;
+    const clip = findClip(this.draft.clips, { language: lang, kind: "prompt", take });
+    const open = this._recording?.language === lang && this._recording.take === take;
+    return clipSlot({
+      services: this.services,
+      clip,
+      kind: "prompt",
+      take,
+      what: `question ${take}`,
+      recordText: clip ? "Re-record" : "Record",
+      cue: open ? line : "",
+      open,
+      clipRef: { thingId: null, language: lang, kind: "prompt", take },
+      onOpen: () => { this._recording = { language: lang, take }; this._render(); },
+      onCancel: () => { this._recording = null; this._render(); },
+      onRecorded: (detail) => this._saveRecording(detail),
+    });
+  }
+
+  _setArticle(article) {
+    const cue = (this.thing.cues[this.lang] ??= {});
+    if (article) cue.article = article;
+    else delete cue.article;
+    this._render();
+    this._save();
   }
 
   _step_sound(panel) {
@@ -513,8 +550,7 @@ export class GuidedAddElement extends HTMLElement {
     const forward = index > this.draft.step;
     if (index !== this.draft.step) editSound(this.services, forward ? "next" : "back");
     this.draft.step = index;
-    this.askIndex = 0;
-    this._editingLine = false;
+    this._recording = null;
     this._stamping = forward && STEPS[index] === "eyes";
     this.services.session?.activity?.();
     this._save();
@@ -533,31 +569,40 @@ export class GuidedAddElement extends HTMLElement {
     return run;
   }
 
-  /** A take finished (every good take is kept): store its blob first, then the draft that references it. */
-  async _saveRecording(detail) {
+  /**
+   * A take finished (every good take is kept). The draft shows it at once (an open question
+   * recorder closes now, never after the disk write); then its blob is stored, then the draft that
+   * references it, in the save queue so no save can reference a blob that is not stored yet.
+   */
+  _saveRecording(detail) {
     const { clip, blob } = detail ?? {};
-    if (!clip) return;
-    try {
-      if (blob) await this.services.store.putBlob(blob);
-      this.draft.clips = upsertClip(this.draft.clips, stripClip({ ...clip, language: clip.language ?? this.lang }));
-      await this._save();
-      if (this.step === "ask" && this._askStatus) {
-        const n = [1, 2, 3].filter((take) => findClip(this.draft.clips, { language: this.lang, kind: "prompt", take })).length;
-        this._askStatus.textContent = `Recorded ${n} of 3`;
-      }
-    } catch (e) {
-      this._error(e);
+    if (!clip) return Promise.resolve();
+    this.draft.clips = upsertClip(this.draft.clips, stripClip({ ...clip, language: clip.language ?? this.lang }));
+    if (this._recording) {
+      this._recording = null;
+      this._render();
     }
+    if (blob) {
+      const put = this._saving.then(() => this.services.store.putBlob(blob));
+      this._saving = put.catch((e) => this._error(e));
+    }
+    return this._save().catch((e) => this._error(e));
   }
 
-  async _finish() {
+  /**
+   * Finish: the store shows the new thing at once, so the sheet closes and the chime plays right
+   * after the tap (AGENTS.md rule 5: never await before closing UI). The commit and the draft's
+   * removal finish afterwards; a refused thing (scene full) keeps the sheet open instead.
+   */
+  _finish() {
     if (this._finishing) return;
     this._finishing = true;
-    const { store, engine, audio } = this.services;
+    const { store } = this.services;
     const t = this.thing;
+    const before = store.snapshot?.things ?? [];
+    let committed;
     try {
-      await this._saving;
-      const change = await store.addThing({
+      committed = store.addThing({
         placeId: this.placeId,
         names: cleanNames(t.names),
         outline: t.outline,
@@ -568,17 +613,63 @@ export class GuidedAddElement extends HTMLElement {
         cues: cleanCues(t.cues),
         clips: this.draft.clips.map(stripClip),
       });
-      if (this.draft.id) await store.discardDraft(this.draft.id);
-      const thingId = change.ids[0];
+    } catch (e) {
+      committed = Promise.reject(e);
+    }
+    const added = (store.snapshot?.things ?? []).find((thing) => !before.includes(thing));
+    if (!added) return this._finishRefused(committed);
+    this._announce(added.id);
+    return this._afterFinish(committed);
+  }
+
+  /** The new thing drops onto the board with a chime and the sheet closes; one failing step never keeps it open. */
+  _announce(thingId) {
+    const { engine, audio } = this.services;
+    try {
       engine?.dropIn?.(thingId);
       audio?.chime?.("plink");
       this.dispatchEvent(new CustomEvent("kf-added", { bubbles: true, detail: { thingId } }));
+    } catch (e) {
+      console.warn("kf-guided-add:", e);
+    } finally {
       this._close();
+    }
+  }
+
+  /** The store did not take the thing on the spot: the sheet stays and says why. */
+  async _finishRefused(committed) {
+    try {
+      const change = await committed; // only when the store queued it behind a replace
+      this._announce(change.ids[0]);
+      await this._dropDraft();
     } catch (e) {
       this._finishing = false;
       if (e?.code === "place-full") this._renderFull();
       else this._error(e);
     }
+  }
+
+  /** After the sheet closed: once the thing is saved the draft goes; if it was not, the draft stays. */
+  async _afterFinish(committed) {
+    try {
+      await committed;
+    } catch (e) {
+      console.warn("kf-guided-add:", e);
+      const msg = e?.code === "quota" ? failMessage(e) : "The new thing didn't save. It's kept as a draft: tap + to finish it.";
+      this.services.shell?.toast?.(msg);
+      return;
+    }
+    try {
+      await this._dropDraft();
+    } catch (e) {
+      console.warn("kf-guided-add: draft not removed", e);
+    }
+  }
+
+  /** Removes the draft after any save still running, so that save cannot bring it back. */
+  async _dropDraft() {
+    await this._saving;
+    if (this.draft.id) await this.services.store.discardDraft(this.draft.id);
   }
 
   _renderFull() {

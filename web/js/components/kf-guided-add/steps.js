@@ -1,4 +1,5 @@
 // Pure helpers for the add-a-thing flow (no DOM). Unit tested in steps.test.js.
+import { DEFAULT_QUESTIONS, MAX_CUE_LINES } from "../../farm/scripts.js";
 
 export const STEPS = Object.freeze(["draw", "felt", "eyes", "legs", "moves", "name", "ask", "sound"]);
 export const STEP_LABELS = Object.freeze(["Body", "Felt", "Eyes", "Legs", "Moves", "Name", "Ask", "Sound"]);
@@ -155,13 +156,18 @@ export function cleanNames(names = {}) {
   return out;
 }
 
-/** Cues without empty overrides (empty lines fall back to the template). */
+/**
+ * Cues as handed to addThing: trimmed lines, all of them (1 to MAX_CUE_LINES; their number is how
+ * many questions there are, an empty line plays the example). Only the untouched default, that
+ * many empty lines, is left out, since it means the same as no lines.
+ */
 export function cleanCues(cues = {}) {
   const out = {};
   for (const [lang, cue] of Object.entries(cues)) {
     const c = {};
     if (cue?.article) c.article = cue.article;
-    if (cue?.lines?.some((l) => l && l.trim())) c.lines = [0, 1, 2].map((i) => (cue.lines[i] ?? "").trim());
+    const lines = Array.isArray(cue?.lines) ? cue.lines.slice(0, MAX_CUE_LINES).map((l) => String(l ?? "").trim()) : [];
+    if (lines.some(Boolean) || (lines.length && lines.length !== DEFAULT_QUESTIONS)) c.lines = lines;
     if (Object.keys(c).length) out[lang] = c;
   }
   return out;

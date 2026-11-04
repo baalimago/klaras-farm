@@ -6,7 +6,7 @@
 import { h } from "./dom.js";
 import { snapPoint } from "./geometry.js";
 import {
-  legFlow, legPhase, legView, chooseCount, pressLeg, moveLeg, releaseLeg, cancelPress, spreadEvenly, clearLegs, undoLeg,
+  legFlow, legPhase, legView, chooseCount, pressLeg, moveLeg, releaseLeg, cancelPress, spreadEvenly, spreadRest, clearLegs, undoLeg,
 } from "../../edit/leg-flow.js";
 
 /** A press turns into a drag only after the finger travels this far (CSS px), so taps stay taps. */
@@ -58,7 +58,14 @@ export class LegPlacer {
   }
 
   redraw() {
-    return this.preview.draw({ ...this.thing, legs: this.state.legs }, { ...this.drawOpts, markLegs: this.phase !== "choose-count" });
+    const markCount = Math.max(this.state.target ?? 0, this.state.legs.length);
+    return this.preview.draw({ ...this.thing, legs: this.state.legs }, { ...this.drawOpts, markLegs: this.phase !== "choose-count", markCount });
+  }
+
+  /** Keeps the placed legs and adds the missing ones (the host's "Spread the rest and continue"). */
+  spreadRest() {
+    this._set(spreadRest(this.state, this.thing.outline));
+    return this.state;
   }
 
   // ---------- state ----------

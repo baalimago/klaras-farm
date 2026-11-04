@@ -21,6 +21,10 @@ test("selected: press on the shape drags it; on the handle resizes; on another s
   assert.equal(move.mode, DRAGGING);
   assert.deepEqual(move.gesture, { kind: "move", t: { dx: 0, dy: 0, k: 1 }, lifted: false });
   assert.equal(editReducer(sel, { type: "press", onHandle: true }).gesture.kind, "resize");
+  // the handle sits inside the selection box, so a real press on it carries both flags
+  const both = editReducer(sel, { type: "press", hit: 1, onHandle: true, inSelection: true });
+  assert.equal(both.mode, DRAGGING);
+  assert.equal(both.gesture.kind, "resize", "the handle wins over the box");
   const other = editReducer(sel, { type: "press", hit: 0, inSelection: false });
   assert.equal(other.index, 0);
   assert.equal(other.gesture.kind, "move");

@@ -56,14 +56,6 @@ kf-guided-add {
   }
 }
 .kf-ga-panel kf-recorder { display: block; margin: 12px 0; }
-.kf-ga-cue {
-  margin: 8px 0;
-  padding: 12px 16px;
-  background: #fff;
-  border-radius: var(--radius-sm);
-  font-size: 1.35rem;
-  font-weight: 700;
-}
 .kf-ga-motion { min-height: 64px; font-size: 1.15rem; padding: 0 24px; }
 .kf-ga-motion[aria-pressed="true"] { background: var(--ink); color: #fff; }
 .kf-ga-sizes { margin-top: 12px; }
@@ -197,3 +189,26 @@ kf-draw-pad .kf-se-layer > canvas.kf-se-outlines { position: absolute; inset: 0;
 .kf-body-guide-pic { flex: none; }
 .kf-body-guide-pic .felt { fill: var(--sand); stroke: var(--ink); stroke-width: 2; stroke-dasharray: 5 4; }
 .kf-body-guide-pic .ghost { fill: none; stroke: var(--ink-soft); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 1 6; opacity: 0.6; }
+
+/* Ask step: the card's questions in the narrow side sheet. Each question is its words on one row,
+   then its recording controls with ✕ at the end, so nothing wraps onto a stray line. */
+.kf-ga-panel.ask .kf-question {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: 2px dashed #eadcc6;
+  margin-bottom: 10px;
+}
+.kf-ga-panel.ask .kf-question > .kf-field { grid-column: 1 / -1; margin-bottom: 0; }
+.kf-ga-panel.ask .kf-question [data-action="remove-question"] { margin: 0; align-self: center; }
+.kf-ga-panel.ask .kf-question .kf-tc-recorder { grid-column: 1 / -1; }
+/* The way on stays in reach under a long list of questions. */
+.kf-ga-panel.ask > .kf-row.end {
+  position: sticky;
+  bottom: -20px;
+  margin: 0 -20px -20px;
+  padding: 12px 20px 20px;
+  background: var(--paper);
+}

@@ -29,7 +29,7 @@ Elements (one folder per tag):
 - `kf-hold-ring`: felt ring that fills during hold-to-edit; created by `session.js`, attribute driven.
 - `kf-adult-check`: the parental gate (keypad code or sum, keys at least 64 px).
 - `kf-edit-layer`: edit bar (Scenes, Change scene, + Add, Settings, Done) and per-thing badges.
-- `kf-guided-add`: add a thing in eight steps (the step bar reads Body for the first step, whose id is still `draw`): Body, Felt (felt colour and Size: Small, Medium, Big), Eyes, Legs, Moves (Walks, Hops, Scuttles, Floats, with a live CSS preview), Name, Ask, Sound.
+- `kf-guided-add`: add a thing in eight steps (the step bar reads Body for the first step, whose id is still `draw`): Body, Felt (felt colour and Size: Small, Medium, Big), Eyes, Legs, Moves (Walks, Hops, Scuttles, Floats, with a live CSS preview), Name, Ask (the same 1 to 6 editable questions as the thing card, each with Record / Re-record; "Skip for now" until one is recorded, then "Next"), Sound.
 - `kf-thing-card`: one card per thing: languages, names, clips, questions (1 to 6 editable lines, "Examples, change them freely", each with its recording), colour, motion (the same four), Size, Redraw, Re-stamp eyes, Place legs, Delete.
 - Size has no field in the Thing; it is baked into the outline. `kf-guided-add/steps.js` owns it: `THING_SIZES` (Small 0.7, Medium 1, Big 1.3 of `THING_SIZE`), `sizeScale(outline)` reads it back, `nearestSize` picks the pressed button, `resizeThing(thing, scale)` scales outline, eyes and legs about the bottom centre (the feet stay put) and keeps them on the board, `sizeBox(scale)` is the box `fitOutline` fills, and `sizedFill` makes the Felt-step and card previews show the size. A redraw (more shapes in Draw, or Redraw on the card) keeps the current size.
 - `kf-recorder`: one recording slot; keeps every passing take and offers Play and Re-record.
@@ -44,7 +44,7 @@ Helper modules inside element folders:
 
 - `kf-dialog/dom.js`: `h()` DOM builder, `newId`, `plural`, `joinAnd`, `swatches`, `reportFailure`, `languageName`.
 - `kf-dialog/feedback.js`: `editSound(services, kind)`, the one helper every edit action plays its sound through (unlocks audio, then `audio.chime(kind)`; never throws). Kinds are `dsp/chimes.js` `EDIT_CHIMES` plus `poof` for a delete.
-- `kf-guided-add/`: `dom.js` (`h`, `ensureElement`), `drawing.js` (`ShapeDrawing`, pure: up to 6 shapes merged with `geometry/union.js`, each editable, with an undo history), `shape-edit.js` (pure shape editing state machine), `shape-editor.js` (`ShapeEditor`, the shape editing UI over the pad), `guide.js` (the "Draw the body only" guidance with its picture), `eyes.js` (`EyeStamper`, `attachEyeDrag`), `legs.js` (`LegPlacer`, a view over `edit/leg-flow.js`), `preview.js` (`ThingPreview`), `steps.js` (pure step helpers), `geometry.js` and `shape.js` (geometry loader and fallback).
+- `kf-guided-add/`: `dom.js` (`h`, `ensureElement`), `drawing.js` (`ShapeDrawing`, pure: up to 6 shapes merged with `geometry/union.js`, each editable, with an undo history), `shape-edit.js` (pure shape editing state machine), `shape-editor.js` (`ShapeEditor`, the shape editing UI over the pad), `guide.js` (the "Draw the body only" guidance with its picture), `eyes.js` (`EyeStamper`, `attachEyeDrag`), `legs.js` (`LegPlacer`, a view over `edit/leg-flow.js`), `preview.js` (`ThingPreview`; `legMarkRadius(thing, count)` shrinks the numbered leg rings above 4 legs to fit the spread spacing, while taps still use `legRadius`), `steps.js` (pure step helpers; `cleanCues` keeps every question line, dropping only three empty ones), `draft-questions.js` (pure: `setDraftLine`, `addDraftQuestion`, `removeDraftQuestion`, `draftClips`, the store's question rules applied to a draft's cues and clips), `geometry.js` and `shape.js` (geometry loader and fallback).
 - `kf-scene-tools/pieces.js` (pure hit testing, moving, resizing (`resizeScale`, `scaleStroke`, `strokeBox`) and reordering (`sendToBack`) of pieces), `kf-scenes/thumbnail.js`, `kf-thing-card/languages.js`.
 - `kf-thing-card/clip-slot.js`: `clipSlot()`, one recording slot (`.kf-tc-clip[data-kind][data-take][data-color]`, Play, Record, Cancel), shared by the thing card and the find setup.
 - `kf-thing-card/questions.js`: `questionsSection()`, a thing's questions in one language: article, one input per line (the value is the parent's text, the placeholder the example), remove (at least 1) and "+ Add a question" (up to 6), each line with its prompt recording. It calls `setQuestionLine`, `addQuestion` and `removeQuestion` on the store.
@@ -113,7 +113,13 @@ Helper modules inside element folders:
 - The flow is the pure state machine `edit/leg-flow.js` (see `docs/edit.md`): choose-count → placing (leg k of n) → done. `LegPlacer` turns canvas pointer events into its events (`pressLeg`, `moveLeg` after 6 px of travel, `releaseLeg`, `cancelPress`) and, after every event, renders the whole panel from `legView(state)` and redraws the preview. Pointer steps are guarded so one failure never eats the tap.
 - Panel (`data-testid="leg-placing"`, `data-phase`): heading ("How many legs?", "Tap where leg 3 of 4 goes", "4 legs"), a note, the count buttons 0 to 8 (always shown, `aria-pressed` on the chosen one), then Spread evenly, Undo and Clear once a count is chosen, then the caller's buttons.
 - A stray tap never undoes progress: a tap on a placed leg grabs it (a drag moves it, a still tap places the next leg there while legs are missing); a tap off the shape is snapped inside it; taps once all legs are placed only grab.
-- `onChange({target, legs})` fires once per finished change (not per drag move). Guided add saves the draft (`thing.legs`, `thing.legTarget`); Skip shows until a count is chosen, then Next (never disabled: the count follows the legs placed). The thing card saves on Done and keeps the old legs on Cancel.
+- `onChange({target, legs})` fires once per finished change (not per drag move). Guided add saves the draft (`thing.legs`, `thing.legTarget`); its button is Skip until a count is chosen, "Spread the rest and continue" while legs are missing (`LegPlacer.spreadRest()`, then the next step), and Next once all are placed. The markers are drawn for `max(target, placed)` legs, so they shrink as soon as more than 4 are chosen. The thing card saves on Done and keeps the old legs on Cancel.
+
+### kf-guided-add
+
+- The draft (`{id, placeId, step, at, thing, clips}`) is the state; every step renders from it and every change is saved after it shows (`_save`, one save after another).
+- Ask: `questionsSection()` from `kf-thing-card/questions.js` with a store-shaped adapter over the draft (`clipsFor`, `setQuestionLine`, `addQuestion`, `removeQuestion`, using `draft-questions.js`). Add and remove rebuild the panel; new words do not, because the field already shows them and a rebuild as the field lets go would swallow the tap that moved the focus (Record, the next field). A question recorder is one `clipSlot`; `_recording {language, take}` says which is open, remove is disabled while it is (`busy`), and a take closes it at once, then the blob and the draft are saved in the save queue.
+- Finish: `store.addThing` applies at once, so the sheet closes, the thing drops in and `plink` plays right after the tap (AGENTS.md rule 5). The draft is removed only after the commit; if the commit fails the store rolls back, the draft stays and the parent gets a toast ("The new thing didn't save. It's kept as a draft: tap + to finish it."). A scene that is full refuses on the spot and the sheet shows "This scene is full" instead of closing.
 
 ### kf-thing-card
 
@@ -173,13 +179,14 @@ Helper modules inside element folders:
 
 ## Tests
 
-- Unit (Node, `npm test`): pure helpers next to their element: `kf-guided-add/drawing.test.js`, `shape-edit.test.js`, `shape.test.js`, `steps.test.js`, `kf-scene-tools/pieces.test.js`, `kf-find-buttons/press.test.js`, `kf-find-setup/setup.test.js`.
+- Unit (Node, `npm test`): pure helpers next to their element: `kf-guided-add/drawing.test.js`, `draft-questions.test.js`, `shape-edit.test.js`, `shape.test.js`, `steps.test.js`, `kf-scene-tools/pieces.test.js`, `kf-find-buttons/press.test.js`, `kf-find-setup/setup.test.js`.
 - Browser (`npm run test:browser`, Playwright Chromium against the real Python app):
   - `app.test.js`: the whole app booted and driven like a parent and a child.
   - `package-a.test.js`: `kf-board` and `kf-draw-pad`.
   - `package-c.test.js`: hold ring, adult check, edit layer, Session timers with a fake clock.
   - `package-d.test.js`: `kf-recorder` with a fake mic.
   - `package-f1.test.js`: `kf-guided-add` and `kf-thing-card` with stubs (`tests/browser/stubs/f1-stubs.js`).
+  - `guided-add-steps.test.js`: `kf-guided-add` steps alone at 1180 × 820 with the F1 stubs: Spread the rest and continue, Skip and 0 legs, small markers with 8 legs and a drag, the Ask step's add, edit, remove, record and language switch, typing then tapping Record in one tap, Finish closing before the save, a failed save (toast, draft kept) and a full scene.
   - `animal-panels.test.js`: Size and the four walking styles in `kf-thing-card` and `kf-guided-add`, each mounted alone (set `KF_SHOTS=<dir>` to save iPad-sized screenshots).
   - `package-f2.test.js`: scenes, scene tools, settings, welcome, dialogs (`tests/browser/stubs/f2-stubs.js`).
   - `package-f2.test.js`: scenes, settings, welcome, dialogs (`tests/browser/stubs/f2-stubs.js`; its board stub records `setLift` calls in `board.lifts`).

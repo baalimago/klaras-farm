@@ -195,13 +195,14 @@ test("add a thing end to end: draw, felt, eyes, legs, moves, name, one question,
   await page.waitForFunction(async () => (await window.__t.store.listDrafts())[0]?.clips.length === 1);
   await page.getByRole("button", { name: "Next" }).click();
 
-  // Ask: one question clip, then skip the rest
+  // Ask: the three example questions, editable; record one, then go on
   assert.equal(await step(page), "ask");
-  assert.equal(await page.locator(".kf-ga-cue").textContent(), "“Where is the Pig?”");
+  assert.equal(await page.locator('input[name="cue-1"]').inputValue(), "Where is the Pig?");
   assert.doesNotMatch(await page.locator(".kf-ga-panel").textContent(), /null|undefined/, "no stray optional parts");
-  await page.locator('kf-recorder[data-kind="prompt"][data-take="1"] [data-stub="take"]').click();
-  await page.getByText("Recorded 1 of 3").waitFor();
-  await page.getByRole("button", { name: "Skip for now" }).click();
+  await page.getByRole("button", { name: "Record question 1" }).click();
+  await page.locator('kf-recorder [data-stub="take"]').click();
+  await page.getByRole("heading", { name: "Questions (1/3)" }).waitFor();
+  await page.getByRole("button", { name: "Next" }).click();
 
   // Sound: skip → finish
   assert.equal(await step(page), "sound");
@@ -301,13 +302,11 @@ test("guided add records the article and edited question words in another langua
   await page.locator('input[name="name"]').fill("Schwein");
   await page.getByRole("button", { name: "Next" }).click();
   await page.locator('select[name="article"]').selectOption("das");
-  assert.equal(await page.locator(".kf-ga-cue").textContent(), "“Wo ist das Schwein?”");
-  await page.getByRole("button", { name: "✎ Change the words" }).click();
-  await page.locator('input[name="cue"]').fill("Wo ist denn das Schwein?");
-  await page.locator('input[name="cue"]').press("Tab");
-  assert.equal(await page.locator(".kf-ga-cue").textContent(), "“Wo ist denn das Schwein?”");
-  await page.getByRole("button", { name: "Next" }).click();
-  assert.match(await page.locator(".kf-ga-cue").textContent(), /Kannst du das Schwein finden/);
+  assert.equal(await page.locator('input[name="cue-1"]').inputValue(), "Wo ist das Schwein?");
+  await page.locator('input[name="cue-1"]').fill("Wo ist denn das Schwein?");
+  await page.locator('input[name="cue-1"]').press("Tab");
+  assert.equal(await page.locator('input[name="cue-1"]').inputValue(), "Wo ist denn das Schwein?");
+  assert.match(await page.locator('input[name="cue-2"]').inputValue(), /Kannst du das Schwein finden/);
   const cues = await page.evaluate(() => window.__el.thing.cues.de);
   assert.equal(cues.article, "das");
   assert.equal(cues.lines[0], "Wo ist denn das Schwein?");

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   LEG_CHOICES, SUGGESTED_LEGS, UNDO_DEPTH, legFlow, legPhase, chooseCount, legAt, pressLeg, moveLeg, releaseLeg,
-  cancelPress, spreadEvenly, clearLegs, undoLeg, legView,
+  cancelPress, spreadEvenly, spreadRest, clearLegs, undoLeg, legView,
 } from "./leg-flow.js";
 
 const square = [[0.4, 0.5], [0.6, 0.5], [0.6, 0.7], [0.4, 0.7]];
@@ -78,8 +78,10 @@ test("a press on a leg grabs it; moving drags it; Undo puts it back", () => {
   assert.equal(up.action, "moved");
   assert.deepEqual(up.state.legs[0], { x: 0.48, y: 0.58 });
   assert.equal(up.state.drag, null);
+  assert.deepEqual(up.state.legs[1], { x: 0.55, y: 0.69 }, "the other leg stays put");
   s = undoLeg(up.state);
-  assert.deepEqual(s.legs[0], { x: 0.45, y: 0.69 });
+  assert.deepEqual(s.legs, [{ x: 0.45, y: 0.69 }, { x: 0.55, y: 0.69 }], "leg 1 back, leg 2 kept, nothing removed");
+  assert.equal(s.target, 2);
 });
 
 test("stray presses never remove a leg", () => {
@@ -153,4 +155,54 @@ test("legAt finds the nearest leg within the radius", () => {
   assert.equal(legAt(legs, [0.515, 0.5], 0.02), 1);
   assert.equal(legAt(legs, [0.505, 0.5], 0.02), 0);
   assert.equal(legAt(legs, [0.7, 0.5], 0.02), -1);
+});
+
+test("Spread evenly after a bigger count replaces the placed legs with all of them", () => {
+  let s = chooseCount(legFlow(), 2);
+  s = tap(s, [0.45, 0.69]);
+  s = tap(s, [0.55, 0.69]);
+  s = chooseCount(s, 4);
+  assert.equal(legPhase(s), "placing");
+  s = spreadEvenly(s, square);
+  assert.equal(s.legs.length, 4);
+  assert.equal(legPhase(s), "done");
+  s = undoLeg(s);
+  assert.deepEqual(s.legs, [{ x: 0.45, y: 0.69 }, { x: 0.55, y: 0.69 }], "Undo brings the two placed legs back");
+});
+
+test("Spread the rest keeps the placed legs and fills the gaps up to the count", () => {
+  let s = chooseCount(legFlow(), 4);
+  s = tap(s, [0.45, 0.69]);
+  assert.equal(legView(s).missing, 3);
+  const r = spreadRest(s, square);
+  assert.equal(r.legs.length, 4);
+  assert.deepEqual(r.legs[0], { x: 0.45, y: 0.69 }, "the placed leg stays where it was put");
+  assert.equal(legPhase(r), "done");
+  assert.equal(legView(r).missing, 0);
+  assert.ok(r.legs.every((l) => l.x > 0.4 && l.x < 0.6 && l.y > 0.68 && l.y < 0.7), "new legs along the bottom");
+  const xs = r.legs.map((l) => l.x);
+  assert.equal(new Set(xs).size, 4, "no two legs on one spot");
+  assert.ok(Math.max(...xs) > 0.55, "the gap on the far side gets a leg");
+  assert.deepEqual(undoLeg(r).legs, s.legs, "Undo takes the spread legs off again");
+});
+
+test("Spread the rest with none placed spreads them all; with none missing it does nothing", () => {
+  const none = spreadRest(chooseCount(legFlow(), 3), square);
+  assert.deepEqual(none.legs, spreadEvenly(chooseCount(legFlow(), 3), square).legs);
+  let s = chooseCount(legFlow(), 1);
+  s = tap(s, [0.5, 0.69]);
+  assert.equal(spreadRest(s, square), s, "all placed: same state");
+  assert.equal(spreadRest(legFlow(), square).legs.length, 0, "no count picked");
+  const placing = chooseCount(legFlow(), 2);
+  assert.equal(spreadRest(placing, null), placing, "no outline");
+});
+
+test("Spread the rest after a drag that is still held ends the drag", () => {
+  let s = chooseCount(legFlow(), 3);
+  s = tap(s, [0.45, 0.69]);
+  s = moveLeg(pressLeg(s, [0.45, 0.69], [0.45, 0.69], R).state, [0.47, 0.68]);
+  const r = spreadRest(s, square);
+  assert.equal(r.drag, null);
+  assert.equal(r.legs.length, 3);
+  assert.deepEqual(r.legs[0], { x: 0.47, y: 0.68 });
 });

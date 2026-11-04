@@ -57,8 +57,23 @@ export class ThingPreview {
     return Math.max(0.012, this.eyeRadius(thing) * 1.4);
   }
 
-  /** @param {{backdrop?: boolean, markLegs?: boolean}} [opts]  markLegs: ring each hip (leg placing) */
-  async draw(thing, { backdrop = true, markLegs = false } = {}) {
+  /**
+   * Radius of a leg's numbered marker in board-x units. Up to 4 legs it is a big ring; with more it
+   * shrinks to fit the spacing of evenly spread legs, so neighbours never cover each other's number.
+   * Only the drawing shrinks: tapping and dragging still use legRadius.
+   */
+  legMarkRadius(thing, count = thing.legs?.length ?? 0) {
+    const base = this.legRadius(thing) * 0.6;
+    if (count <= 4 || !thing.outline?.length) return base;
+    const gap = (this.geo.bbox(thing.outline).w * 0.56) / (count - 1); // spreadLegs' spacing
+    return Math.min(base, gap * 0.45);
+  }
+
+  /**
+   * @param {{backdrop?: boolean, markLegs?: boolean, markCount?: number}} [opts]
+   *   markLegs: ring each hip (leg placing); markCount: the legs there will be (sizes the rings)
+   */
+  async draw(thing, { backdrop = true, markLegs = false, markCount } = {}) {
     const seq = ++this._seq;
     const felt = thing.outline?.length && thing.color ? await loadFelt() : null;
     if (seq !== this._seq) return; // a newer draw started
@@ -125,7 +140,7 @@ export class ThingPreview {
       ctx.setLineDash([]);
     }
     if (markLegs) {
-      const lr = (this.legRadius(thing) / s) * W * 0.6;
+      const lr = Math.max(9 * dpr, (this.legMarkRadius(thing, Math.max(markCount ?? 0, legs.length)) / s) * W);
       ctx.lineWidth = Math.max(2, lr * 0.25);
       legs.forEach((l, i) => {
         ctx.beginPath();
