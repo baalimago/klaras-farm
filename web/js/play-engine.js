@@ -16,7 +16,7 @@
 // Time: step(dt) takes the frame delta. While the world is idle the renderer may stop calling
 // step; the engine then counts the idle gap with its own clock (`now`), so a wake-up step can pass
 // any dt (even 0). Pass the frame delta, not the time since the last frame before the loop stopped.
-import { createWorld, syncWorld, step, setMode, react, dropActor, sleepAll, isIdle, nextWakeMs, hitTargets, actorFor, holdActor, placeActor, settleActor } from "./play/world.js";
+import { createWorld, syncWorld, step, setMode, react, dropActor, sleepAll, isIdle, nextWakeMs, hitTargets, actorFor, holdActor, placeActor, settleActor, isSpreading } from "./play/world.js";
 import { hitTest } from "./play/hit.js";
 import { decideTap, idleMash, startPlaying, stopPlaying } from "./play/mash.js";
 import { createSleep, tickSleep, sleepRemainingS } from "./play/sleep.js";
@@ -261,6 +261,9 @@ export class PlayEngine extends EventTarget {
   isIdle() {
     return isIdle(this.world) && this._glowIds.size === 0;
   }
+
+  /** Edit mode: overlapping things are still gliding apart (play/world.js spreadActors). */
+  get spreading() { return isSpreading(this.world); }
 
   /** Milliseconds until something happens by itself (wander, blink, sleep, a find nudge or timeout); Infinity if never. */
   nextWakeMs() {

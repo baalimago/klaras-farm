@@ -11,9 +11,11 @@
 //   tx, ty         walk target; rest: seconds until the next walk
 //   blinkIn        seconds until the next blink; blinkT: seconds into a blink (< 0 none)
 //   stir           seconds left of a sleepy stir (tap while asleep)
+//   glideT         seconds into an edit-mode spread glide (< 0 none), from (gx, gy) to (tx, ty)
 import { resolveMotion, pose, newPose, restPose } from "../motion/pose.js";
 import { travelSpeed, REACT_S, DROP_S, WIGGLE_S, SLEEP_SETTLE_S, jump, jumpStretch, jumpSpin, drop, dropStretch, wiggle, yawn } from "../motion/blocks.js";
 import { centroid, extents, ASPECT } from "./hit.js";
+import { spreadBoxes } from "./spread.js";
 
 export const TICK = 1 / 60;
 const MAX_LEGS = 8;
@@ -27,6 +29,12 @@ const FIRST_REST = [1, 4];
 const BACK_TO_PLAY_REST = [1, 3];
 const STIR_S = 0.6;
 const DROP_STAGGER_S = 0.12;
+/** Edit mode spreads overlapping things apart in this long a glide (the badges are re-placed at 400 ms). */
+export const GLIDE_S = 0.3;
+// Room around each thing in edit mode, in board widths: its pencil and cross (52 px) sit centred
+// on its top edge, 0.3 of its width (at least 32 px) each side of the middle. A moved thing also
+// stays above the edit toolbar along the bottom (about 75 px, legs included).
+const SPREAD = { gap: 0.015, padTop: 0.03, minHalfWidth: 0.055, margin: MARGIN, bottomInset: 0.07 };
 
 const lerp = (a, b, u) => a + (b - a) * u;
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
@@ -54,6 +62,7 @@ export function syncWorld(world, things, rng, { drop: dropNew = false } = {}) {
     let a = old.get(thing.id);
     const [cx, cy] = centroid(thing.outline);
     if (a) {
+      endGlide(a); // the store moved on: finish the spread first, then keep the offset
       const offX = a.x - a.homeX, offY = a.y - a.homeY, reshaped = a.outline !== thing.outline;
       fitThing(world, a, thing, cx, cy);
       a.x = cx + offX;
@@ -68,6 +77,8 @@ export function syncWorld(world, things, rng, { drop: dropNew = false } = {}) {
     writePose(a);
     world.actors.push(a);
   }
+  // A thing added (or a place switched to) while editing must not land on another one.
+  if (n > 0 && world.mode === "edit") spreadActors(world);
 }
 
 function fitThing(world, a, thing, cx, cy) {
@@ -86,7 +97,7 @@ function newActor(world, thing, cx, cy, rng) {
   const a = {
     thingId: thing.id, x: cx, y: cy, facing: 1, t: 0, state: "idle", stateTime: 0, pose: newPose(0),
     homeX: cx, homeY: cy, ext: null, outline: null, eyes: 0, motion: null, nLegs: 0,
-    move: 0, tx: cx, ty: cy, rest: 0, blinkIn: 0, blinkT: -1, stir: 0,
+    move: 0, tx: cx, ty: cy, rest: 0, blinkIn: 0, blinkT: -1, stir: 0, glideT: -1, gx: cx, gy: cy,
   };
   fitThing(world, a, thing, cx, cy);
   a.rest = lerp(FIRST_REST[0], FIRST_REST[1], rng());
@@ -128,6 +139,7 @@ export function setMode(world, mode, rng) {
   world.mode = mode;
   world.asleep = false;
   for (const a of world.actors) {
+    endGlide(a);
     a.move = 0;
     a.blinkT = -1;
     a.stir = 0;
@@ -140,6 +152,40 @@ export function setMode(world, mode, rng) {
     }
     writePose(a);
   }
+  if (mode === "edit") spreadActors(world);
+}
+
+/**
+ * Edit mode: things that overlap glide apart (spread.js), so each one, and its pencil and cross,
+ * can be reached. Only the actors move; the farm is unchanged until a parent drags a thing, and
+ * then the drop point (spread offset included) is saved like any drag. Play wanders on from there.
+ */
+export function spreadActors(world) {
+  const boxes = world.actors.map((a) => ({ x: a.x, y: a.y, left: a.ext.left, right: a.ext.right, top: a.ext.top, bottom: a.ext.bottom }));
+  const to = spreadBoxes(boxes, SPREAD);
+  world.actors.forEach((a, i) => {
+    const { x, y } = to[i];
+    if (x === a.x && y === a.y) return;
+    a.gx = a.x;
+    a.gy = a.y;
+    a.tx = x;
+    a.ty = y;
+    a.glideT = 0;
+  });
+}
+
+/** True while an edit-mode spread glide is under way (the edit badges wait for it). */
+export function isSpreading(world) {
+  for (const a of world.actors) if (a.glideT >= 0) return true;
+  return false;
+}
+
+/** Jumps a gliding actor to where it was going. */
+function endGlide(a) {
+  if (a.glideT < 0) return;
+  a.x = a.tx;
+  a.y = a.ty;
+  a.glideT = -1;
 }
 
 /**
@@ -149,6 +195,7 @@ export function setMode(world, mode, rng) {
 export function holdActor(world, thingId) {
   const a = actorFor(world, thingId);
   if (!a) return null;
+  a.glideT = -1; // stays exactly where the finger found it
   a.state = "wiggle";
   a.stateTime = WIGGLE_S;
   a.move = 0;
@@ -161,6 +208,7 @@ export function holdActor(world, thingId) {
 export function placeActor(world, thingId, x, y) {
   const a = actorFor(world, thingId);
   if (!a) return null;
+  a.glideT = -1;
   a.x = x;
   a.y = y;
   a.tx = x;
@@ -247,6 +295,7 @@ export function step(world, dt, input, rng) {
 function tick(world, h, rng) {
   const finger = world.finger, play = world.mode === "play" && !world.asleep;
   for (const a of world.actors) {
+    if (a.glideT >= 0) glide(a, h);
     switch (a.state) {
       case "react":
         a.stateTime += h;
@@ -292,6 +341,14 @@ function tick(world, h, rng) {
       }
     }
   }
+}
+
+function glide(a, h) {
+  a.glideT += h;
+  const u = Math.min(1, a.glideT / GLIDE_S), e = u * u * (3 - 2 * u);
+  a.x = lerp(a.gx, a.tx, e);
+  a.y = lerp(a.gy, a.ty, e);
+  if (u >= 1) a.glideT = -1;
 }
 
 /** Only called while isIdle and with no timer crossing zero: timers advance, nothing else. */
@@ -401,6 +458,7 @@ function writePose(a) {
 /** True when nothing moves, so the renderer can stop its loop. */
 export function isIdle(world) {
   for (const a of world.actors) {
+    if (a.glideT >= 0) return false;
     switch (a.state) {
       case "react":
       case "drop":

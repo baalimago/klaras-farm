@@ -173,7 +173,7 @@ Helper modules inside element folders:
 - CSP is `script-src 'self'`: no inline scripts and no inline event handler attributes. Inline styles are allowed.
 - No build step. Every file is served as is under a hashed path. Use relative imports, and add new stylesheets to `css/main.css` so they are precached.
 - Offline: everything must work from the service worker cache. Do not fetch from other origins.
-- Things fade in scene mode; badges in the edit layer are placed on store changes, resize and drops, never per frame.
+- Things fade in scene mode; badges in the edit layer are placed on store changes, resize and drops, never per frame. Edit mode spreads overlapping things apart in a 0.3 s glide (`docs/play.md`): while `engine.spreading` the layer shows no badges and places them again 400 ms later (`SETTLE_MS`, also scheduled after every store change), so they never pile up where the things were.
 - Editing controls always sit above the canvas. Never write the store on `pointermove`: drags move a cached sprite and persist on release.
 - `#parent-layer` has `pointer-events: none`; its children turn them back on.
 - Respect `prefers-reduced-motion`; base CSS shortens animations.
@@ -193,6 +193,7 @@ Helper modules inside element folders:
   - `package-f2.test.js`: scenes, settings, welcome, dialogs (`tests/browser/stubs/f2-stubs.js`; its board stub records `setLift` calls in `board.lifts`).
   - `scene-tools.test.js`: `kf-scene-tools` alone at 1180 × 820: tool bar, the picker on top of the real draw pad with the canvas paused, drawing and moving a piece with exact lifts and one write, tap-away keeps the selection, resize, To back, sky, ground, templates, undo, delete; with a slow disk, quick edits, colour and Undo show in the same task, a failed write takes its edit and Undo step back, a drop ends its lift at once; a failing pointer capture or board rect never eats a drag or tap.
   - `drag.test.js`: the real app at iPad size and dpr 2: a thing dragged in edit mode and a piece dragged in the scene tools track the pointer with zero error before release, render each frame in well under 8 ms (median), write once, and keep their cached sprites.
+  - `edit-spread.test.js`: the real app at iPad size: things piled on one spot glide apart in edit mode with no two things or badges overlapping, the farm unchanged, taps and drags hitting the spread things, and no badges shown mid-glide.
   - `shapes.test.js`: multi-shape drawing in guided add and Redraw. `legs.test.js`: leg placing and format migration.
   - `playtest2.test.js`: the playtest 2 bugs, each element mounted alone: changing the leg count while placing, eight close legs, drag, Undo, Clear, Spread evenly, stray taps; the eye screen's way out and hint; thing card and settings edits visible in the same task with a slow disk; an overlay surviving a focus change.
   - `shapes.test.js`: multi-shape drawing in guided add and Redraw; the body guidance and step bar; selecting, moving, resizing, deleting and redrawing a shape, Undo and Start over; an open stroke inside the body joins it; Redraw opens with the body as an editable shape. `legs.test.js`: leg placing and format migration.

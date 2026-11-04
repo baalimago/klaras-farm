@@ -9,6 +9,7 @@ import { editSound } from "../kf-dialog/feedback.js";
 
 const BADGE = 52; // px, ≥ 44 pt target
 const EDGE = BADGE / 2 + 4;
+const SETTLE_MS = 400; // > GLIDE_S (0.3 s)
 
 export class KfEditLayerElement extends HTMLElement {
   connectedCallback() {
@@ -24,7 +25,7 @@ export class KfEditLayerElement extends HTMLElement {
       target.addEventListener(type, fn);
       this._subs.push(() => target.removeEventListener(type, fn));
     };
-    sub(s.store, "change", () => this.render());
+    sub(s.store, "change", () => { this.render(); this._settleLater(); });
     sub(s.session, "change", () => this.render());
     sub(s.session, "update-ready", () => this.render());
     sub(window, "resize", () => this.placeBadges());
@@ -43,8 +44,17 @@ export class KfEditLayerElement extends HTMLElement {
       this.placeBadges(); // the actor is already where it was put down
     });
     this.render();
-    // The board settles things in place as edit mode starts; place the badges again once it has.
-    this._late = setTimeout(() => this.placeBadges(), 400);
+    this._settleLater();
+  }
+
+  /**
+   * The board spreads overlapping things apart as edit mode starts and when a thing is added
+   * (a glide of play/world.js GLIDE_S); place the badges again once it has. Never per frame:
+   * while the engine still reports `spreading`, placeBadges shows none and asks again later.
+   */
+  _settleLater() {
+    clearTimeout(this._late);
+    this._late = setTimeout(() => this.placeBadges(), SETTLE_MS);
   }
 
   disconnectedCallback() {
@@ -142,6 +152,8 @@ export class KfEditLayerElement extends HTMLElement {
     const s = this.services ?? {};
     this._badges.replaceChildren();
     if (s.session?.state?.panel) return;
+    // Things are gliding apart: badges placed now would pile up where the things were.
+    if (s.engine?.spreading) { this._settleLater(); return; }
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const clampX = (x) => Math.max(EDGE, Math.min(vw - EDGE, x));

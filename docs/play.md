@@ -7,6 +7,7 @@ Play is the live board a toddler touches. Things wander, blink, jump and speak w
 ## Files
 
 - `web/js/play/world.js`: the pure simulation. Actors, wandering, blinking, reactions, drop-in, edit wiggle, sleep, fixed timestep, `isIdle` and `nextWakeMs`.
+- `web/js/play/spread.js`: `spreadBoxes(boxes, opts)`, moves overlapping boxes apart for edit mode (below).
 - `web/js/play/hit.js`: point in polygon, `hitTest` with a 1.3x outline and a minimum radius, `centroid`, `extents`, `ASPECT = 0.75`.
 - `web/js/play/mash.js`: mash policy for taps (restart after 300 ms, nothing queues).
 - `web/js/play/sleep.js`: the sleep timer.
@@ -38,6 +39,7 @@ Play is the live board a toddler touches. Things wander, blink, jump and speak w
 | `asking`, `findRound`, `findAvailable` | Current animal target, current round `{kind, thingId, color}`, and whether the find buttons should show. |
 | `dropIn(thingId)` | A newly added thing falls in. Works before or after the store's change event. |
 | `isIdle()`, `nextWakeMs()` | For the renderer's 0 fps idle (below). |
+| `spreading` | Edit mode: overlapping things are still gliding apart. `<kf-edit-layer>` places no badges until it is false. |
 | `hitMinRadius` | Board widths. The board sets it to `60 / boardWidthPx` (targets at least 120 CSS px across). |
 | `actorFor(id)`, `dispose()` | Live actor lookup; removes the store listener. |
 
@@ -51,7 +53,7 @@ Events (all `CustomEvent`):
 
 ### World (`play/world.js`)
 
-`createWorld(things, {rng, presets, mode, reduceMotion})`, `syncWorld(world, things, rng, {drop})`, `setMode`, `react`, `dropActor`, `sleepAll`, `step(world, dt, {fingerDown}, rng)`, `isIdle`, `nextWakeMs`, `hitTargets`, `actorFor`, and for the edit drag `holdActor` (still, settled wiggle), `placeActor(world, id, x, y)` and `settleActor` (the drop point becomes home; the actor's outline moves with it so taps hit it before the store catches up; returns `[dx, dy]`). Constants: `TICK = 1/60`, `GROUND_TOP = 0.55`.
+`createWorld(things, {rng, presets, mode, reduceMotion})`, `syncWorld(world, things, rng, {drop})`, `setMode`, `react`, `dropActor`, `sleepAll`, `step(world, dt, {fingerDown}, rng)`, `isIdle`, `nextWakeMs`, `hitTargets`, `actorFor`, `spreadActors` and `isSpreading` (edit-mode spread, below), and for the edit drag `holdActor` (still, settled wiggle), `placeActor(world, id, x, y)` and `settleActor` (the drop point becomes home; the actor's outline moves with it so taps hit it before the store catches up; returns `[dx, dy]`). Constants: `TICK = 1/60`, `GROUND_TOP = 0.55`, `GLIDE_S = 0.3`.
 
 Actor states:
 
@@ -59,7 +61,7 @@ Actor states:
 idle ──rest timer──▶ moving ──arrived──▶ idle
   any ──tap──▶ react (1 s jump) ──▶ idle
   new / place switched ──▶ drop (0.7 s, staggered 0.12 s) ──▶ idle | wiggle | sleep
-  setMode('edit') ──▶ wiggle (decays over 2 s, then still)
+  setMode('edit') ──▶ wiggle (decays over 2 s, then still); overlapping things glide apart (0.3 s)
   edit: grab ──▶ wiggle, settled (held still, follows dragTo) ──release──▶ same, home = drop point
   sleepAll ──▶ sleep (yawn 1.6 s, settled at 2.2 s; a tap only stirs for 0.6 s)
 ```
@@ -72,6 +74,16 @@ idle ──rest timer──▶ moving ──arrived──▶ idle
 - Walkers (`travel.mode` `ground` or `hop`: walk, hop and scuttle) keep their feet below `GROUND_TOP`. Everyone stays inside the board and turns at the edges.
 - Reduce motion sets `speedFactor = 0.5`.
 - Surviving things keep their offset when the store changes. A redrawn thing that was walking rests and picks a new target.
+
+### Edit-mode spread (`play/spread.js`, `spreadActors`)
+
+Owner request after meeting 2: in edit mode no two things overlap, so each one and its pencil and cross can be reached.
+
+- When: entering edit mode (`setMode('edit')`), and when `syncWorld` adds things while in edit mode (a new thing, or a place switched to while editing).
+- `spreadBoxes(boxes, {gap, padTop, minHalfWidth, margin, bottomInset})` works in board widths on both axes. A box that overlaps nothing keeps its exact position. The others are placed one by one in drawing order: each keeps its spot if free, else takes the nearest free spot flush beside a placed box (or a board edge), clamped onto the board; if nothing is free, the spot with the least overlap. Greedy placement instead of pairwise pushes, because pushes jam when a row is wider than the board. Deterministic; about n³ candidate checks for n ≤ 12, once per mode switch.
+- World settings (`SPREAD` in `world.js`): gap 0.015, `padTop` 0.03 (the 52 px badges sit centred on each thing's top edge), `minHalfWidth` 0.055 (pencil and cross sit 0.3 of the width, at least 32 px, each side of the middle), margin 0.01, `bottomInset` 0.07 (a moved thing stays above the edit bar). A moved box never goes further past an edge than it already was.
+- Each moved actor glides over `GLIDE_S` (smoothstep, `glideT`, from `gx, gy` to `tx, ty`). `isIdle` is false while gliding. Picking a thing up (`holdActor`, `placeActor`) stops its glide under the finger; leaving edit mode or a store change (`syncWorld`) finishes a glide at once.
+- Only actors move; the farm is unchanged. When a parent drags a spread thing, `settleActor` returns the offset from home including the spread, so the store saves where the thing was shown. Back in play, things wander on from where they stand.
 
 ### Mash (`play/mash.js`)
 
