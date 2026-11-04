@@ -9,6 +9,19 @@
 //             input (paused), so a tap meant for a colour can never draw a stroke.
 //   drag:     null | {mode: 'move' | 'resize', id}   a piece under the finger (Move tool)
 //   colors:   {shape, line}    felt colour for the next drawn shape / line
+//   lifted:   null | pieceId   a dropped piece the board still shows lifted, until the store's change
+//                              for it arrives (then the renderer draws it from the store itself)
+//   undo:     UndoEntry[]      the edits that can be taken back, newest last, at most UNDO_LIMIT.
+//                              UndoEntry = {seq, placeId, before}: `before` is the place's
+//                              {pieces, skyColor, groundColor, backdrop} as it was, so Undo is one
+//                              store.updatePlace with it.
+//   undoing:  UndoEntry[]      entries taken back whose Undo write has not committed yet
+//   seq:      number           the last entry's number (each edit gets the next one)
+//
+// Edits reach the store synchronously (FarmStore applies and emits inside the tap); its write
+// commits later, in call order. So an entry is pushed at once and only dropped again if its write
+// fails. A failed write rolls the store back to its last committed snapshot and fails every write
+// queued after it, so each failure drops exactly the entries whose edits the store no longer has.
 //
 // Transitions (anything not listed leaves the state as it is, and returns the same object):
 //   tool {tool}          → that tool, sheet closed (Sky and Ground open their sheet), drag dropped;
@@ -21,7 +34,15 @@
 //   drag-start {mode,id} → Move tool only, no sheet; selects the piece. Resize needs it selected.
 //   drag-end / drag-cancel → no drag.
 //   draw-colour {key}    → the colour for the current drawing tool.
-//   pieces {ids}         → the place's pieces changed: a selection or drag of a gone piece ends.
+//   drop                 → (a drag that moved) no drag; the piece stays lifted until `pieces` or `lift-done`.
+//   lift-done            → nothing lifted (the drop changed nothing in the store).
+//   pieces {ids}         → the store changed: the lift ends; a selection or drag of a gone piece ends.
+//   edited {placeId, before} → push an undo entry (the oldest goes past UNDO_LIMIT).
+//   edit-failed {seq}    → that edit's write failed: its entry goes (from undo or undoing).
+//   undo                 → the newest entry moves to undoing (read it first with undoTop).
+//   undo-saved {seq}     → the Undo committed: the entry is gone for good.
+//   undo-failed {seq}    → the Undo's write failed, so the store has the edit again: the entry is back
+//                          on top. (If the edit itself had failed, edit-failed already dropped it.)
 
 export const TOOLS = Object.freeze(["shape", "line", "move", "colour", "sky", "ground", "delete"]);
 
@@ -33,9 +54,27 @@ export const TEMPLATES = Object.freeze({
   room: Object.freeze({ skyColor: "wall", groundColor: "floor" }),
 });
 
+/** How many edits Undo can take back. */
+export const UNDO_LIMIT = 50;
+
 export function initialSceneTools({ tool = "shape", colors = { shape: "yellow", line: "brown" } } = {}) {
-  return { tool, selected: null, sheet: null, drag: null, colors: { ...colors } };
+  return { tool, selected: null, sheet: null, drag: null, colors: { ...colors }, lifted: null, undo: [], undoing: [], seq: 0 };
 }
+
+/** The entry Undo would take back next, or null. */
+export const undoTop = (s) => s.undo.at(-1) ?? null;
+
+/** True when there is an edit to take back. */
+export const canUndo = (s) => s.undo.length > 0;
+
+/** The place fields an undo entry keeps. Snapshots are never mutated (FarmStore intents are pure), so
+ *  the pieces can be shared; the list itself is copied. */
+export function placeBefore(place) {
+  return { pieces: [...place.pieces], skyColor: place.skyColor, groundColor: place.groundColor, backdrop: place.backdrop };
+}
+
+const withoutSeq = (list, seq) => list.filter((u) => u.seq !== seq);
+const capped = (list) => (list.length > UNDO_LIMIT ? list.slice(list.length - UNDO_LIMIT) : list);
 
 /** True while a sheet is open: the board underneath takes no input. */
 export const isPaused = (s) => s.sheet !== null;
@@ -52,7 +91,7 @@ export function templatePatch(backdrop) {
 
 /**
  * @param {ReturnType<typeof initialSceneTools>} s
- * @param {{type: string, tool?: string, sheet?: string, id?: string, mode?: string, key?: string, ids?: string[]}} e
+ * @param {{type: string, tool?: string, sheet?: string, id?: string, mode?: string, key?: string, ids?: string[], seq?: number, placeId?: string, before?: object}} e
  */
 export function nextSceneTools(s, e) {
   switch (e.type) {
@@ -89,6 +128,10 @@ export function nextSceneTools(s, e) {
     case "drag-end":
     case "drag-cancel":
       return s.drag ? { ...s, drag: null } : s;
+    case "drop":
+      return s.drag ? { ...s, drag: null, lifted: s.drag.id } : s;
+    case "lift-done":
+      return s.lifted === null ? s : { ...s, lifted: null };
     case "draw-colour": {
       if (!isDrawTool(s.tool) || !e.key) return s;
       const kind = s.tool;
@@ -98,13 +141,37 @@ export function nextSceneTools(s, e) {
       const ids = new Set(e.ids ?? []);
       const lost = s.selected !== null && !ids.has(s.selected);
       const dragLost = s.drag !== null && !ids.has(s.drag.id);
-      if (!lost && !dragLost) return s;
+      if (!lost && !dragLost && s.lifted === null) return s;
       return {
         ...s,
         selected: lost ? null : s.selected,
         sheet: lost && s.sheet === "piece" ? null : s.sheet,
         drag: dragLost ? null : s.drag,
+        lifted: null,
       };
+    }
+    case "edited": {
+      if (!e.placeId || !e.before) return s;
+      const seq = s.seq + 1;
+      return { ...s, seq, undo: capped([...s.undo, { seq, placeId: e.placeId, before: e.before }]) };
+    }
+    case "edit-failed": {
+      const undo = withoutSeq(s.undo, e.seq);
+      const undoing = withoutSeq(s.undoing, e.seq);
+      return undo.length === s.undo.length && undoing.length === s.undoing.length ? s : { ...s, undo, undoing };
+    }
+    case "undo": {
+      const top = undoTop(s);
+      return top ? { ...s, undo: s.undo.slice(0, -1), undoing: [...s.undoing, top] } : s;
+    }
+    case "undo-saved": {
+      const undoing = withoutSeq(s.undoing, e.seq);
+      return undoing.length === s.undoing.length ? s : { ...s, undoing };
+    }
+    case "undo-failed": {
+      const entry = s.undoing.find((u) => u.seq === e.seq);
+      if (!entry) return s;
+      return { ...s, undoing: withoutSeq(s.undoing, e.seq), undo: capped([...s.undo, entry]) };
     }
     default:
       return s;

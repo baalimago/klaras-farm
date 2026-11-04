@@ -16,7 +16,7 @@ Boot and shell:
 - `web/js/flags.js`: `DEFAULT_FLAGS` and `readFlags(search)` for `?flag=name:value`. Read only in `main.js`.
 - `web/js/report-boot.js`: installs `io/report.js` error reporting before anything else loads.
 - `web/sw.template.js`: service worker; the server fills `__VERSION__` and `__PRECACHE__`.
-- `web/css/tokens.css` (design tokens, `--tap: 44px`), `web/css/parent.css` (sheets, buttons, fields, tabs), `web/css/main.css` (base, stage, and `@import` of every component stylesheet).
+- `web/css/tokens.css` (design tokens, `--tap: 44px`, `--stitch` for stitched edges), `web/css/parent.css` (sheets, buttons, fields, tabs), `web/css/main.css` (base, stage, and `@import` of every component stylesheet).
 
 Elements (one folder per tag):
 
@@ -93,13 +93,13 @@ Helper modules inside element folders:
 
 ### kf-scene-tools
 
-- State: `edit/scene-tools.js` (`tool`, `selected`, `sheet`, `drag`, `colors`). `send(event)` runs the reducer and `render()` rebuilds the rail, panel, sheet and selection outline from the state and the store. The store's `change` re-renders and sends `pieces {ids}`.
+- State: `edit/scene-tools.js` (`tool`, `selected`, `sheet`, `drag`, `colors`, `lifted`, `undo`, `undoing`, `seq`). `send(event)` runs the reducer and `render()` rebuilds the rail, panel, sheet and selection outline from the state and the store. The store's `change` re-renders and sends `pieces {ids}`.
 - Foreground: the side panel, the sheet and Done have `z-index: 20`; the stage over the board is `z-index: 1`, so `kf-draw-pad`'s fixed overlay (z 5) stays inside it. While a sheet is open the stage is `inert` and the pad gets `pointer-events: none` and is cleared: a tap meant for a colour never draws.
 - Sheets: `draw` (felt colour for the next shape or line; closes on pick), `piece`, `sky`, `ground` (apply at once, stay open to try colours), `start` (templates; asks first when pieces would be cleared). Close with "Close".
-- Move: a press on a piece selects it and starts a `move` drag; the round handle on the selected piece starts a `resize` drag. Moves call `board.setLift({id, dx, dy})` or `{id, s, cx, cy}` and move the outline with a transform once per frame. Nothing is written until release; then one `updatePiece` (`moveStroke` or `scaleStroke`), and the lift stays until the store's change arrives, so the piece never jumps back.
+- Move: a press on a piece selects it and starts a `move` drag; the round handle on the selected piece starts a `resize` drag. Moves call `board.setLift({id, dx, dy})` or `{id, s, cx, cy}` and move the outline with a transform once per frame. Nothing is written until release; then `drop` and one `updatePiece` (`moveStroke` or `scaleStroke`). The lift stays while `state.lifted` is set, until the store's change arrives, so the piece never jumps back. Pointer handlers run guarded (`_guard`), and `setPointerCapture` and the board rect each on their own, so one failure never eats the tap; `boardRect()` falls back to a 4:3 letterbox.
 - Taps: Colour and Delete select on tap; Delete then confirms. Tapping empty board keeps the selection; "Let go" or another piece changes it.
 - Sounds: `tool` (tool, sheet), `select`, `pick`, `drop` (drop, To back), `colour`, `add`, `poof`, `undo`, `back` (close sheet, Let go), `save` (Done, template).
-- Undo: a local stack (50) of `{pieces, skyColor, groundColor, backdrop}`, applied with `store.updatePlace`.
+- Edits show at once: `edit(change)` calls the store intent synchronously in the tap (FarmStore emits `change` before returning and queues the write), sends `edited` and renders in the same task, and only watches the promise to send `edit-failed` and show the failure (the store has already rolled back). Undo sends `undo` and calls `store.updatePlace` with the entry's `before` at once; its promise sends `undo-saved` or `undo-failed`. Nothing waits on IndexedDB.
 - Device pixel ratio is capped at 2. Hit targets are at least 120 CSS px across (`engine.hitMinRadius`).
 
 ### Eye stamping (`kf-guided-add/eyes.js`, `EyeStamper`)
@@ -184,7 +184,7 @@ Helper modules inside element folders:
   - `animal-panels.test.js`: Size and the four walking styles in `kf-thing-card` and `kf-guided-add`, each mounted alone (set `KF_SHOTS=<dir>` to save iPad-sized screenshots).
   - `package-f2.test.js`: scenes, scene tools, settings, welcome, dialogs (`tests/browser/stubs/f2-stubs.js`).
   - `package-f2.test.js`: scenes, settings, welcome, dialogs (`tests/browser/stubs/f2-stubs.js`; its board stub records `setLift` calls in `board.lifts`).
-  - `scene-tools.test.js`: `kf-scene-tools` alone at 1180 × 820: tool bar, the picker on top of the real draw pad with the canvas paused, drawing and moving a piece with exact lifts and one write, tap-away keeps the selection, resize, To back, sky, ground, templates, undo, delete.
+  - `scene-tools.test.js`: `kf-scene-tools` alone at 1180 × 820: tool bar, the picker on top of the real draw pad with the canvas paused, drawing and moving a piece with exact lifts and one write, tap-away keeps the selection, resize, To back, sky, ground, templates, undo, delete; with a slow disk, quick edits, colour and Undo show in the same task, a failed write takes its edit and Undo step back, a drop ends its lift at once; a failing pointer capture or board rect never eats a drag or tap.
   - `drag.test.js`: the real app at iPad size and dpr 2: a thing dragged in edit mode and a piece dragged in the scene tools track the pointer with zero error before release, render each frame in well under 8 ms (median), write once, and keep their cached sprites.
   - `shapes.test.js`: multi-shape drawing in guided add and Redraw. `legs.test.js`: leg placing and format migration.
   - `playtest2.test.js`: the playtest 2 bugs, each element mounted alone: changing the leg count while placing, eight close legs, drag, Undo, Clear, Spread evenly, stray taps; the eye screen's way out and hint; thing card and settings edits visible in the same task with a slow disk; an overlay surviving a focus change.
