@@ -16,6 +16,9 @@ Run on the base iPad (11th generation, A16) with iPadOS 18 or later before a rel
 | Guided Access | `components/kf-settings/` | Follow the in-app guide; triple-click locks the app. |
 | Wake lock | `io/wake.js` | Screen stays on for 5 minutes of play. |
 | Smoothness | `io/renderer.js`, `io/felt.js`, `play/` | Safari Web Inspector Timelines, 2 minutes of play with 4 things: no frame over 4 ms of script, idle board shows no rAF. |
+| Dragging under the finger | `components/kf-board/`, `components/kf-scene-tools/`, `io/renderer.js`, `play-engine.js` | In edit mode drag a thing in fast circles, then in Change scene → Move drag and resize a piece: it stays under the fingertip with no visible trail or offset, 60 fps in Timelines, no hitch on release. |
+| Colour sheet over the canvas | `components/kf-scene-tools/` | Shape tool → colour button: every swatch takes the tap first time, no stroke appears behind the sheet. |
+| Editing sounds | `dsp/chimes.js`, `components/kf-dialog/feedback.js` | With the volume at half, each edit (tool, select, pick up, drop, colour, add, delete, undo, Next/Back in Add a thing) gives one soft, short sound, quieter than a child's tap; mashing a button gives one sound, not a pile-up. |
 
 ## Log
 

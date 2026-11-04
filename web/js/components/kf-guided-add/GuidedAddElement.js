@@ -15,6 +15,7 @@ import { ShapeDrawing } from "./drawing.js";
 import { LegPlacer } from "./legs.js";
 import { THING_COLORS, hex } from "../../farm/palette.js";
 import { cueLines } from "../../farm/scripts.js";
+import { editSound } from "../kf-dialog/feedback.js";
 
 const DEFAULT_MOTION = Object.freeze({ kind: "preset", preset: "walk", params: {} });
 const DRAW_FELT = "tan";
@@ -470,6 +471,7 @@ export class GuidedAddElement extends HTMLElement {
   _go(index) {
     if (index < 0 || index >= STEPS.length) return;
     const forward = index > this.draft.step;
+    if (index !== this.draft.step) editSound(this.services, forward ? "next" : "back");
     this.draft.step = index;
     this.askIndex = 0;
     this._editingLine = false;

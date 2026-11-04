@@ -121,6 +121,28 @@ test("chimes play live and render at least 6 dB below a normalised voice", async
   assert.deepEqual(page.errors, []);
 });
 
+test("editing sounds render quietly, and a mashed edit sound plays once", async () => {
+  const page = await audioPage();
+  const r = await page.evaluate(async () => {
+    const { AudioEngine, renderChime } = await import("./js/io/audio.js");
+    const { EDIT_CHIMES } = await import("./js/dsp/chimes.js");
+    const { peak, dbfs } = await import("./js/dsp/level.js");
+    const audio = new AudioEngine({ getBlob: window.__getBlob });
+    audio.unlock();
+    const mashed = [audio.chime("select"), audio.chime("select"), audio.chime("select")];
+    const taps = [audio.chime("tap"), audio.chime("tap")];
+    const peaks = {};
+    for (const k of EDIT_CHIMES) peaks[k] = dbfs(peak(await renderChime(k)));
+    return { mashed, taps, peaks };
+  });
+  assert.ok(r.mashed[0] > 0);
+  assert.deepEqual(r.mashed.slice(1), [0, 0], "one sound for a burst");
+  assert.ok(r.taps.every((d) => d > 0), "the child's chime is never throttled here");
+  for (const [k, p] of Object.entries(r.peaks)) {
+    assert.ok(p <= -9 && p > -40, `${k} peaks at ${p.toFixed(1)} dBFS`);
+  }
+});
+
 test("a clip that fails to decode emits decode-failed and the thing still chimes", async () => {
   const page = await audioPage();
   const r = await page.evaluate(async () => {

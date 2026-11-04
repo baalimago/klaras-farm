@@ -1,10 +1,15 @@
 // <kf-board>: the child's felt board. A 4:3 letterboxed canvas, the Renderer, and pointer handling.
 // Pointer rules (US-5.1, US-11.1): primary pointer only, palms ignored, no scrolling or context menu.
 // Play: a tap reacts on pointerdown (same frame, sound under 50 ms). Edit: a short tap picks a thing
-// and dispatches `kf-thing-tap` {thingId} for the edit layer.
+// and dispatches `kf-thing-tap` {thingId} for the edit layer; pressing a thing and moving drags it
+// (US-11.3): the thing follows the finger 1:1 from the first pixel (engine.grab / dragTo, drawn in
+// the renderer's next frame, board rect read once per drag), and the store is written once, on release.
+// Drag events: `kf-thing-grab` {thingId} once the press has moved past the tap slop, `kf-thing-drop` {thingId}.
 import { Renderer } from "../../io/renderer.js";
 import { toBoard, fromBoard } from "../../geometry/stroke.js";
+import { movedThingPatch } from "../../geometry/transform.js";
 import { isPalm } from "../../edit/hold.js";
+import { editSound } from "../kf-dialog/feedback.js";
 
 const guard = (fn) => { try { fn(); } catch (e) { console.error(e); } };
 
@@ -20,6 +25,7 @@ export class KfBoardElement extends HTMLElement {
     this._frameEl = null;
     this._canvas = null;
     this._down = null;
+    this._drag = null; // edit mode: {id, rect, cx, cy, x, y, lifted}
     this._ro = null;
     this._onDown = this._onDown.bind(this);
     this._onMove = this._onMove.bind(this);
@@ -80,6 +86,14 @@ export class KfBoardElement extends HTMLElement {
     return fromBoard(x, y, this.boardRect());
   }
 
+  /**
+   * Scene tools: draw one scene piece moved/scaled (board units) until setLift(null). See Renderer.setLift.
+   * @param {{id: string, dx?: number, dy?: number, s?: number, cx?: number, cy?: number} | null} lift
+   */
+  setLift(lift) {
+    this.renderer?.setLift(lift);
+  }
+
   /** Client rect of a thing where it is drawn now (for edit badges), or null. */
   actorRect(thingId) {
     const b = this.renderer?.actorBounds(thingId);
@@ -119,14 +133,58 @@ export class KfBoardElement extends HTMLElement {
       const [x, y] = this.toBoard(e.clientX, e.clientY);
       s.engine?.tap?.(x, y);
       s.session?.playTap?.();
+    } else if (this._mode() === "edit" && !s.session?.state?.panel) {
+      guard(() => this._grab(e));
     }
     this.renderer?.wake();
+  }
+
+  /** Edit mode: a press on a thing picks it up (it follows the finger from the first pixel). */
+  _grab(e) {
+    const engine = this.services?.engine;
+    if (typeof engine?.grab !== "function") return;
+    const rect = this.boardRect(); // once per drag: no layout reads while moving
+    const id = engine.pick?.((e.clientX - rect.left) / rect.width, (e.clientY - rect.top) / rect.height);
+    const start = id ? engine.grab(id) : null;
+    if (!start) return;
+    this._drag = { id, rect, cx: e.clientX, cy: e.clientY, x: start.x, y: start.y, lifted: false };
+  }
+
+  /** Follows the pointer exactly: the newest position wins (coalesced events add nothing to a drag). */
+  _dragTo(clientX, clientY) {
+    const g = this._drag;
+    this.services?.engine?.dragTo?.(g.x + (clientX - g.cx) / g.rect.width, g.y + (clientY - g.cy) / g.rect.height);
+    if (!g.lifted && Math.hypot(clientX - g.cx, clientY - g.cy) > TAP_MOVE_PX) {
+      g.lifted = true;
+      editSound(this.services, "pick");
+      this.dispatchEvent(new CustomEvent("kf-thing-grab", { bubbles: true, composed: true, detail: { thingId: g.id } }));
+    }
+  }
+
+  /** Puts a dragged thing down: one store write. A press that never left the tap slop goes back. */
+  _drop(commit) {
+    const g = this._drag;
+    this._drag = null;
+    const s = this.services;
+    const engine = s?.engine;
+    if (!g || !engine) return;
+    if (!g.lifted || !commit) {
+      engine.release?.(false);
+      return;
+    }
+    const d = engine.release?.(true);
+    editSound(s, "drop");
+    this.dispatchEvent(new CustomEvent("kf-thing-drop", { bubbles: true, composed: true, detail: { thingId: g.id } }));
+    const thing = s.store?.snapshot?.things?.find((t) => t.id === g.id);
+    if (!d || !thing || (d.dx === 0 && d.dy === 0)) return;
+    s.store.updateThing({ thingId: g.id, patch: movedThingPatch(thing, d.dx, d.dy) }).catch((err) => console.error(err));
   }
 
   _onMove(e) {
     const d = this._down;
     if (!d || e.pointerId !== d.id) return;
     if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > TAP_MOVE_PX) d.moved = true;
+    if (this._drag) guard(() => this._dragTo(e.clientX, e.clientY));
   }
 
   _onUp(e) {
@@ -135,6 +193,12 @@ export class KfBoardElement extends HTMLElement {
     this._down = null;
     const s = this.services;
     s.engine?.fingerDown?.(false);
+    if (this._drag) {
+      const lifted = this._drag.lifted;
+      guard(() => this._dragTo(e.clientX, e.clientY));
+      guard(() => this._drop(true));
+      if (lifted) return void this.renderer?.wake();
+    }
     const moved = d.moved || Math.hypot(e.clientX - d.x, e.clientY - d.y) > TAP_MOVE_PX;
     if (!moved && e.timeStamp - d.t < TAP_MS && this._mode() === "edit") {
       const [x, y] = this.toBoard(e.clientX, e.clientY);
@@ -148,6 +212,7 @@ export class KfBoardElement extends HTMLElement {
     const d = this._down;
     if (!d || (e.pointerId !== undefined && e.pointerId !== d.id)) return;
     this._down = null;
+    guard(() => this._drop(false));
     this.services?.engine?.fingerDown?.(false);
     this.renderer?.wake();
   }

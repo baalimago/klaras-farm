@@ -4,11 +4,18 @@
 // button eyes; plus felt confetti
 // from a fixed pool. No shadowBlur, dashes, filters or clipping per frame; no allocation in the loop.
 // The loop stops when engine.isIdle() and wakes after engine.nextWakeMs(), or on wake().
+//
+// Scene mode (scene tools): the background is painted without its pieces, and each piece is a
+// cached sprite drawn per frame, so a piece being dragged or resized (setLift) is one moved or
+// scaled drawImage: no felt repaint while the finger moves. A piece or thing that was only moved
+// keeps its sprite when the store catches up (geometry/transform.js translationBetween), so the
+// drop costs no repaint either. Only a recoloured, reshaped or resized piece is repainted, alone.
 import { INK, hex } from "../farm/palette.js";
 import { bbox, centroid } from "../geometry/stroke.js";
+import { translationBetween } from "../geometry/transform.js";
 import { footY, legLength } from "../farm/legs.js";
 import {
-  paintBackground, paintThingSprite, eyeSprite, groundShadowSprite, glowSprite, confettiSprites, makeCanvas, releaseCanvas,
+  paintBackground, paintThingSprite, paintPieceSprite, eyeSprite, groundShadowSprite, glowSprite, confettiSprites, makeCanvas, releaseCanvas,
 } from "./felt.js";
 
 const LEG_SHADOW = "rgba(40,25,10,.25)";
@@ -37,8 +44,13 @@ export class Renderer {
     this._bgDirty = true;
     this._bgScene = false;
     this._place = store?.currentPlace ?? null;
+    this._baseKey = baseKey(this._place);
     /** @type {Map<string, any>} thingId → cached sprite and per-frame geometry */
     this.entries = new Map();
+    /** @type {Map<string, {piece: any, sprite: any, x: number, y: number}>} pieceId → sprite (scene mode only) */
+    this.pieceSprites = new Map();
+    /** The piece being dragged or resized in the scene tools, in board units; see setLift. */
+    this.lift = { id: null, dx: 0, dy: 0, s: 1, cx: 0, cy: 0 };
     this._raf = 0;
     this._timer = 0;
     this._last = 0;
@@ -74,15 +86,33 @@ export class Renderer {
     this.bg = makeCanvas(W, H);
     this._bgDirty = true;
     this._clearSprites();
+    this._clearPieces();
     for (const s of this._confettiSprites) releaseCanvas(s);
     this._confettiSprites = confettiSprites(Math.max(3, Math.round(5.5 * this.U)));
+    this.wake();
+  }
+
+  /**
+   * Scene tools: draw piece `id` moved by (dx, dy) and scaled by `s` about (cx, cy), all in board
+   * units, until setLift(null). Costs one number write and a frame request: call it on every
+   * pointermove; frames are coalesced to one per display refresh.
+   * @param {{id: string, dx?: number, dy?: number, s?: number, cx?: number, cy?: number} | null} lift
+   */
+  setLift(lift) {
+    const l = this.lift;
+    l.id = lift?.id ?? null;
+    l.dx = lift?.dx ?? 0;
+    l.dy = lift?.dy ?? 0;
+    l.s = lift?.s ?? 1;
+    l.cx = lift?.cx ?? 0;
+    l.cy = lift?.cy ?? 0;
     this.wake();
   }
 
   /** 'background' | 'sprites' | a thingId. Schedules a redraw. */
   invalidate(what) {
     if (what === "background") this._bgDirty = true;
-    else if (what === "sprites") this._clearSprites();
+    else if (what === "sprites") { this._clearSprites(); this._clearPieces(); }
     else if (what) this._dropEntry(what);
     this.wake();
   }
@@ -111,6 +141,7 @@ export class Renderer {
     this.engine?.removeEventListener?.("reaction", this._onReaction);
     for (const type of ["wake", "mode", "change"]) this.engine?.removeEventListener?.(type, this._onWakeEvent);
     this._clearSprites();
+    this._clearPieces();
     releaseCanvas(this.bg);
     this.bg = null;
   }
@@ -191,6 +222,7 @@ export class Renderer {
     c.setTransform(1, 0, 0, 1, 0, 0);
     c.globalAlpha = 1;
     c.drawImage(this.bg, 0, 0);
+    if (scene) this._drawPieces(c);
     const actors = this.engine?.actors;
     if (actors) {
       c.globalAlpha = scene ? SCENE_ALPHA : 1;
@@ -312,11 +344,65 @@ export class Renderer {
   }
 
   // ---------- caches ----------
+  /** Scene mode: each piece's cached sprite, in drawing order; the lifted one moved and scaled. */
+  _drawPieces(c) {
+    const pieces = this._place?.pieces;
+    if (!pieces) return;
+    const W = this.W, H = this.H, l = this.lift;
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.globalAlpha = 1;
+    for (let i = 0; i < pieces.length; i++) {
+      const piece = pieces[i];
+      let en = this.pieceSprites.get(piece.id);
+      if (en === undefined || en.piece !== piece) en = this._pieceSprite(piece, en);
+      const s = en.sprite.canvas;
+      if (l.id === piece.id) {
+        const k = l.s, px = l.cx * W, py = l.cy * H;
+        c.drawImage(s, px + (en.x - px) * k + l.dx * W, py + (en.y - py) * k + l.dy * H, s.width * k, s.height * k);
+      } else c.drawImage(s, en.x, en.y);
+    }
+  }
+
+  /** The sprite for a piece: the old one, moved, when only its position changed; else painted anew. */
+  _pieceSprite(piece, old) {
+    const W = this.W, H = this.H;
+    if (old && old.piece.color === piece.color && old.piece.kind === piece.kind) {
+      const d = translationBetween(old.piece.stroke, piece.stroke);
+      if (d) {
+        const en = { piece, sprite: old.sprite, x: old.x + d[0] * W, y: old.y + d[1] * H };
+        this.pieceSprites.set(piece.id, en);
+        return en;
+      }
+    }
+    if (old) releaseCanvas(old.sprite.canvas);
+    const sprite = paintPieceSprite(piece, W, H, { scene: true });
+    const en = { piece, sprite, x: sprite.ox, y: sprite.oy };
+    this.pieceSprites.set(piece.id, en);
+    return en;
+  }
+
+  _clearPieces() {
+    for (const en of this.pieceSprites.values()) releaseCanvas(en.sprite.canvas);
+    this.pieceSprites.clear();
+  }
+
+  /** Drops sprites of pieces no longer in the place (a deleted piece, another place). */
+  _prunePieces() {
+    if (this.pieceSprites.size === 0) return;
+    const live = new Set((this._place?.pieces ?? []).map((p) => p.id));
+    for (const [id, en] of this.pieceSprites) {
+      if (live.has(id)) continue;
+      releaseCanvas(en.sprite.canvas);
+      this.pieceSprites.delete(id);
+    }
+  }
+
   _paintBackground(scene) {
     const g = this.bg.getContext("2d");
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.clearRect(0, 0, this.W, this.H);
-    if (this._place) paintBackground(g, this._place, { w: this.W, h: this.H }, { scene });
+    if (!scene) this._clearPieces(); // play bakes the pieces into the background
+    if (this._place) paintBackground(g, this._place, { w: this.W, h: this.H }, { scene, pieces: !scene });
     else {
       g.fillStyle = hex("wall");
       g.fillRect(0, 0, this.W, this.H);
@@ -332,13 +418,13 @@ export class Renderer {
   }
 
   /** Builds (once) a thing's sprite and the geometry its eyes and legs need, in device px from the anchor. */
-  _build(thingId) {
+  _build(thingId, reuseSprite = null) {
     const thing = this._thing(thingId);
     if (!thing || !this.W) return null;
     this._eye ??= eyeSprite();
     this._shadow ??= groundShadowSprite();
     const W = this.W, H = this.H, U = this.U;
-    const sprite = paintThingSprite(thing, this.cssW, this.dpr);
+    const sprite = reuseSprite ?? paintThingSprite(thing, this.cssW, this.dpr);
     const [cx, cy] = centroid(thing.outline);
     const rel = thing.outline.map(([x, y]) => [(x - cx) * W, (y - cy) * H]);
     const b = bbox(rel);
@@ -386,11 +472,28 @@ export class Renderer {
   _storeChanged() {
     const place = this.store?.currentPlace ?? null;
     if (place !== this._place) {
+      const key = baseKey(place);
+      // In scene mode the pieces are sprites: a piece change leaves the background alone.
+      if (!this._bgScene || key !== this._baseKey) this._bgDirty = true;
       this._place = place;
-      this._bgDirty = true;
+      this._baseKey = key;
+      this._prunePieces();
     }
-    // Snapshots are immutable: a changed thing is a new object.
-    for (const [id, en] of this.entries) if (this._thing(id) !== en.thing) this._dropEntry(id);
+    // Snapshots are immutable: a changed thing is a new object. A thing that was only moved
+    // (edit mode drag) keeps its felt sprite; anything else is painted again.
+    for (const [id, en] of this.entries) {
+      const thing = this._thing(id);
+      if (thing === en.thing) continue;
+      if (thing && thing.color === en.thing.color && translationBetween(en.thing.outline, thing.outline)) {
+        this.entries.delete(id);
+        this._build(id, en.sprite);
+      } else this._dropEntry(id);
+    }
     this.wake();
   }
+}
+
+/** What the scene-mode background depends on (everything but the pieces). */
+function baseKey(place) {
+  return place ? `${place.id}|${place.backdrop}|${place.skyColor}|${place.groundColor}` : "";
 }

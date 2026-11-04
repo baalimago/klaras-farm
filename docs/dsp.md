@@ -47,7 +47,9 @@ Each module has a `*.test.js` next to it.
 ### chimes.js
 
 - A note is `{wave, at, freq, toFreq?, slide?, attack, decay, gain, partials?, filter?, toFilter?}`. `wave` is `'sine' | 'triangle' | 'noise'`. Times are seconds. The envelope is a linear attack to `gain`, then an exponential decay to `SILENT` (0.0001).
-- `CHIMES`: `tap`, `enter`, `leave`, `start`, `stop`, `plink`, `poof`, `hold-done`, `yay`. `CHIME_KINDS` lists them.
+- `CHIMES`: `tap`, `enter`, `leave`, `start`, `stop`, `plink`, `poof`, `hold-done`, `yay`, and the editing family. `CHIME_KINDS` lists them.
+- `EDIT_CHIMES`: `select`, `pick`, `drop`, `tool`, `colour`, `add`, `undo`, `next`, `back`, `toggle`, `save`. One family: sines with the same faint octave partial (or a filtered triangle click for `tool` and `toggle`), 4 ms attack, at most 0.35 s, C-major pentatonic pitches, every one quieter than the child's `tap`. Rising = picks up, adds or goes forward (`pick`, `add`, `next`); falling = lands, goes back or undoes (`drop`, `back`, `undo`). A delete uses `poof`.
+- `CHIME_REPEAT_S = 0.04` and `chimeAllowed(lastAt, now, gap?)`: the same kind again inside the window is skipped (mash-safe); a clock that went backwards never blocks.
 - `CHIME_BUS_DB = -8`: the chime bus level relative to the voice bus.
 - `HOLD_TONE`: the soft tone rising from 330 to 495 Hz over 1 s with the hold ring (US-11.1).
 - `envelopeAt(note, t)`, `chimeDuration(kind)`, `chimePeakDb(kind)` (upper bound at the output, partials in phase, after the bus gain).
@@ -68,7 +70,7 @@ Each module has a `*.test.js` next to it.
 ## How it fits
 
 - Imports: only other `dsp/` modules (and `types.js` if needed). `chimes.js` and `take.js` use `level.js`.
-- Used by `io/audio.js` (chimes, `fromDb`, `MUSIC_DUCK_DB`), `io/music.js` (`musicBar`, bus levels), `io/mic.js` (auto-stop, levels, `analyseTake`, `mixDown`).
+- Used by `io/audio.js` (chimes, `chimeAllowed`, `fromDb`, `MUSIC_DUCK_DB`), `io/music.js` (`musicBar`, bus levels), `io/mic.js` (auto-stop, levels, `analyseTake`, `mixDown`).
 - `dsp/` is one of the pure domains (`farm geometry motion play edit dsp`). `tests/unit/boundaries.test.js` fails if any file here uses `Date.now`, `new Date()`, `Math.random`, `crypto`, timers, `requestAnimationFrame`, `document`, `window`, `navigator`, `localStorage`, `indexedDB`, `AudioContext`, `performance.now` or `fetch`, or imports outside the pure domains.
 - Only `io/`, `components/` and `main.js` may touch IndexedDB, audio or the DOM.
 

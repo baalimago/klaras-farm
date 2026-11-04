@@ -1,0 +1,271 @@
+// <kf-scene-tools> use cases, the element mounted alone over a stub board (tests/browser/stubs/f2-stubs.js)
+// with a real FarmStore and the real confirm dialog. After each interaction the screen is checked
+// against the state: the active tool, the selection outline, the open sheet, the store.
+import { test, before, after } from "node:test";
+import assert from "node:assert/strict";
+import { join } from "node:path";
+import { setup } from "./harness.js";
+import { aSnapshot, aPlace, aThing, square } from "../builders.js";
+
+const STUBS = join(import.meta.dirname, "stubs/f2-stubs.js");
+let h;
+before(async () => { h = await setup(); });
+after(async () => { await h?.teardown(); });
+
+// Board stub rect: left 140, top 60, 900 × 675.
+const B = { left: 140, top: 60, width: 900, height: 675 };
+const toClient = ([x, y]) => [B.left + x * B.width, B.top + y * B.height];
+
+function farm() {
+  return aSnapshot()
+    .withPlace(
+      aPlace({ id: "farm", name: "Farm" })
+        .withPiece({ id: "barn", kind: "shape", color: "red", stroke: square(0.2, 0.5, 0.05) })
+        .withPiece({ id: "sun", kind: "shape", color: "yellow", stroke: square(0.8, 0.2, 0.05) })
+        .withThing(aThing({ id: "pig" })),
+    )
+    .build();
+}
+
+async function open({ snapshot = farm(), drawPad = true } = {}) {
+  const page = await h.modulePage('<div id="parent-layer" class="parent-layer"></div>');
+  await page.setViewportSize({ width: 1180, height: 820 });
+  await page.addScriptTag({ path: STUBS });
+  await page.evaluate(async ({ snapshot, drawPad }) => { await window.F2.boot(snapshot, { mode: "scene", drawPad }); }, { snapshot, drawPad });
+  await page.evaluate(async () => { await window.F2.mount("kf-scene-tools", {}); });
+  await page.locator("kf-scene-tools").getByRole("button", { name: "Shape" }).waitFor();
+  return page;
+}
+
+const tools = (page) => page.locator("kf-scene-tools");
+const place = (page) => page.evaluate(() => structuredClone(window.services.store.currentPlace));
+const pieceById = async (page, id) => (await place(page)).pieces.find((p) => p.id === id);
+const until = (page, fn, arg) => page.waitForFunction(fn, arg, { timeout: 5000 });
+const chimes = (page) => page.evaluate(() => window.F2.calls.filter((c) => c[0] === "audio.chime").map((c) => c[1]));
+const pressed = (page) => tools(page).locator('.kf-st-tool[aria-pressed="true"]').evaluateAll((els) => els.map((e) => e.dataset.tool));
+const selectedShown = (page) => page.evaluate(() => document.querySelectorAll("kf-scene-tools .kf-st-selected").length === 1);
+
+async function assertAccessible(page) {
+  const bad = await page.evaluate(() => window.F2.unnamed(document.querySelector("kf-scene-tools")));
+  assert.deepEqual(bad, [], "controls without an accessible name");
+  const small = await page.evaluate(() => window.F2.smallTargets(document.querySelector("kf-scene-tools")));
+  assert.deepEqual(small, [], "targets under 44 px");
+}
+
+async function drag(page, from, to, steps = 8) {
+  await page.mouse.move(from[0], from[1]);
+  await page.mouse.down();
+  await page.mouse.move(to[0], to[1], { steps });
+  await page.mouse.up();
+}
+
+test("tool bar: one tool is active at a time, shapes and lines are drawn with their felt colour, Done leaves", async () => {
+  const page = await open();
+  await assertAccessible(page);
+  assert.deepEqual(await pressed(page), ["shape"]);
+  for (const name of ["Shape", "Line", "Move", "Colour", "Sky", "Ground", "Delete", "Start", "Undo"]) {
+    assert.equal(await tools(page).getByRole("button", { name, exact: true }).count(), 1, name);
+  }
+  await tools(page).locator('kf-draw-pad[mode="shape"]').waitFor();
+  await page.evaluate(() => document.querySelector("kf-draw-pad").stroke([[0.4, 0.6], [0.5, 0.6], [0.5, 0.7], [0.4, 0.7]]));
+  await until(page, () => window.services.store.currentPlace.pieces.length === 3);
+  assert.equal((await place(page)).pieces[2].color, "yellow");
+
+  await tools(page).getByRole("button", { name: "Line", exact: true }).click();
+  assert.deepEqual(await pressed(page), ["line"]);
+  await tools(page).locator('kf-draw-pad[mode="yarn"]').waitFor();
+  await page.evaluate(() => document.querySelector("kf-draw-pad").stroke([[0.1, 0.8], [0.4, 0.8], [0.7, 0.75]]));
+  await until(page, () => window.services.store.currentPlace.pieces.length === 4);
+  const line = (await place(page)).pieces[3];
+  assert.equal(line.kind, "yarn");
+  assert.equal(line.color, "brown");
+
+  await tools(page).getByRole("button", { name: "Done", exact: true }).click();
+  const calls = await page.evaluate(() => window.F2.calls.map((c) => c[0]));
+  assert.ok(calls.includes("session.sceneDone"));
+  assert.deepEqual(await chimes(page), ["add", "tool", "add", "save"]);
+  assert.deepEqual(page.errors, []);
+});
+
+test("colour picker: on top of the drawing canvas, which is paused while it is open", async () => {
+  const page = await open({ drawPad: false }); // the real kf-draw-pad, a fixed overlay over the board
+  const pad = tools(page).locator('kf-draw-pad[mode="shape"]');
+  await pad.waitFor();
+  await tools(page).getByRole("button", { name: /Felt colour: Yellow/ }).click();
+  const sheet = page.getByRole("dialog", { name: "Shape colour" });
+  await sheet.waitFor();
+  // Every swatch is the topmost element at its centre: nothing of the canvas is above the picker.
+  const covered = await page.evaluate(() => {
+    const out = [];
+    for (const b of document.querySelectorAll(".kf-st-sheet .kf-swatch")) {
+      const r = b.getBoundingClientRect();
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      if (top !== b) out.push(`${b.dataset.color} under ${top?.tagName}`);
+    }
+    return out;
+  });
+  assert.deepEqual(covered, []);
+  assert.ok(await page.evaluate(() => {
+    const r = document.querySelector(".kf-st-sheet").getBoundingClientRect();
+    return r.bottom > 60 && r.top < 735;
+  }), "the sheet overlaps the board (the case that used to fail)");
+  assert.equal(await page.evaluate(() => document.querySelector(".kf-st-stage").inert), true, "the canvas takes no input");
+  // A stroke attempted on the board while picking draws nothing.
+  await drag(page, toClient([0.45, 0.3]), toClient([0.6, 0.35]), 12);
+  assert.equal((await place(page)).pieces.length, 2);
+
+  await sheet.getByRole("button", { name: "Red" }).click();
+  await sheet.waitFor({ state: "hidden" });
+  assert.equal(await pad.getAttribute("color"), "red");
+  assert.equal(await page.evaluate(() => document.querySelector(".kf-st-stage").inert), false, "drawing again after picking");
+  // A closed loop drawn with the finger becomes a red felt shape.
+  const c = toClient([0.5, 0.35]);
+  await page.mouse.move(c[0] + 60, c[1]);
+  await page.mouse.down();
+  for (let i = 1; i <= 24; i++) {
+    const a = (i / 24) * Math.PI * 2;
+    await page.mouse.move(c[0] + 60 * Math.cos(a), c[1] + 60 * Math.sin(a));
+  }
+  await page.mouse.up();
+  await until(page, () => window.services.store.currentPlace.pieces.length === 3);
+  assert.equal((await place(page)).pieces[2].color, "red");
+  assert.ok((await chimes(page)).includes("colour"));
+  assert.deepEqual(page.errors, []);
+});
+
+test("move: a drawn felt shape follows the pointer exactly and is saved once, on release", async () => {
+  const page = await open();
+  await page.evaluate(() => document.querySelector("kf-draw-pad").stroke([[0.45, 0.6], [0.55, 0.6], [0.55, 0.7], [0.45, 0.7]]));
+  await until(page, () => window.services.store.currentPlace.pieces.length === 3);
+  const id = (await place(page)).pieces[2].id;
+  await tools(page).getByRole("button", { name: "Move", exact: true }).click();
+  await page.evaluate(() => {
+    window.__writes = 0;
+    window.services.store.addEventListener("change", () => window.__writes++);
+  });
+  const from = toClient([0.5, 0.65]);
+  await page.mouse.move(from[0], from[1]);
+  await page.mouse.down();
+  for (let i = 1; i <= 10; i++) {
+    await page.mouse.move(from[0] + i * 9, from[1] - i * 6);
+    const lift = await page.evaluate(() => window.services.board.lifts.at(-1));
+    assert.ok(Math.abs(lift.dx - (i * 9) / B.width) < 1e-9 && Math.abs(lift.dy + (i * 6) / B.height) < 1e-9, `lift ${i} is exactly the pointer delta`);
+  }
+  assert.equal(await page.evaluate(() => window.__writes), 0, "nothing is written while dragging");
+  await page.mouse.up();
+  await until(page, () => window.__writes === 1);
+  const moved = await pieceById(page, id);
+  assert.ok(Math.abs(moved.stroke[0][0] - (0.45 + 90 / B.width)) < 0.0011);
+  assert.ok(Math.abs(moved.stroke[0][1] - (0.6 - 60 / B.height)) < 0.0011);
+  await until(page, () => window.services.board.lifts.at(-1) === null);
+  assert.equal(await selectedShown(page), true, "the moved piece stays selected");
+  assert.deepEqual((await chimes(page)).slice(-3), ["tool", "select", "drop"]);
+  assert.deepEqual(page.errors, []);
+});
+
+test("selection: tapping empty board keeps it; another piece or Let go changes it", async () => {
+  const page = await open();
+  await tools(page).getByRole("button", { name: "Move", exact: true }).click();
+  const [bx, by] = toClient([0.2, 0.5]);
+  await page.mouse.click(bx, by);
+  assert.equal(await selectedShown(page), true);
+  await tools(page).getByText("This piece:").waitFor();
+  const [ex, ey] = toClient([0.55, 0.85]);
+  await page.mouse.click(ex, ey); // tap-away
+  await page.mouse.click(ex - 100, ey - 80);
+  assert.equal(await selectedShown(page), true, "still selected after tapping empty board");
+  // Switching tool keeps it: Colour opens its colour sheet at once.
+  await tools(page).getByRole("button", { name: "Colour", exact: true }).click();
+  const sheet = page.getByRole("dialog", { name: "Piece colour" });
+  await sheet.waitFor();
+  await sheet.getByRole("button", { name: "Blue" }).click();
+  await until(page, () => window.services.store.currentPlace.pieces[0].color === "blue");
+  assert.equal(await sheet.getByRole("button", { name: "Blue" }).getAttribute("aria-pressed"), "true", "the sheet shows the new colour");
+  await sheet.getByRole("button", { name: "Close" }).click();
+  await tools(page).getByRole("button", { name: "Move", exact: true }).click();
+  const [sx, sy] = toClient([0.8, 0.2]);
+  await page.mouse.click(sx, sy);
+  const outline = await page.evaluate(() => document.querySelector(".kf-st-selected").getAttribute("d"));
+  assert.match(outline, /^M0\.75/, "the sun is selected now");
+  await tools(page).getByRole("button", { name: "Let go" }).click();
+  assert.equal(await selectedShown(page), false);
+  assert.deepEqual(page.errors, []);
+});
+
+test("resize with the handle, send to back, sky and ground, start from a template, undo each step", async () => {
+  const page = await open();
+  const t = tools(page);
+  await t.getByRole("button", { name: "Move", exact: true }).click();
+  const [sx, sy] = toClient([0.8, 0.2]);
+  await page.mouse.click(sx, sy);
+  const handle = t.getByRole("button", { name: /Resize/ });
+  await handle.waitFor();
+  const hb = await handle.boundingBox();
+  const hc = [hb.x + hb.width / 2, hb.y + hb.height / 2];
+  const centre = toClient([0.8, 0.2]);
+  // Drag the handle to twice its distance from the centre: the sun doubles.
+  await drag(page, hc, [centre[0] + (hc[0] - centre[0]) * 2, centre[1] + (hc[1] - centre[1]) * 2]);
+  await until(page, () => {
+    const s = window.services.store.currentPlace.pieces[1].stroke;
+    return Math.abs(s[1][0] - s[0][0] - 0.2) < 0.003;
+  });
+  const lifts = await page.evaluate(() => window.services.board.lifts.filter(Boolean));
+  assert.ok(Math.abs(lifts.at(-1).s - 2) < 0.02, `scale ${lifts.at(-1).s}`);
+
+  await t.getByRole("button", { name: "To back" }).click();
+  await until(page, () => window.services.store.currentPlace.pieces[0].id === "sun");
+  assert.equal(await t.getByRole("button", { name: "To back" }).isDisabled(), true);
+
+  await t.getByRole("button", { name: "Sky", exact: true }).click();
+  await page.getByRole("dialog", { name: "Sky colour" }).getByRole("button", { name: "Lilac" }).click();
+  await until(page, () => window.services.store.currentPlace.skyColor === "lilac");
+  await t.getByRole("button", { name: "Ground", exact: true }).click();
+  await page.getByRole("dialog", { name: "Ground colour" }).getByRole("button", { name: "Sand" }).click();
+  await until(page, () => window.services.store.currentPlace.groundColor === "sand");
+
+  await page.getByRole("dialog").getByRole("button", { name: "Close" }).click();
+  await t.getByRole("button", { name: "Start", exact: true }).click();
+  await page.getByRole("dialog", { name: "Start from" }).getByRole("button", { name: "Sea" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Start over" }).click();
+  await until(page, () => window.services.store.currentPlace.backdrop === "sea");
+  const sea = await place(page);
+  assert.deepEqual([sea.skyColor, sea.groundColor, sea.pieces.length], ["sky", "water", 0]);
+  assert.equal(await selectedShown(page), false, "the selected piece went with the template");
+
+  const undo = t.getByRole("button", { name: "Undo", exact: true });
+  await undo.click();
+  await until(page, () => window.services.store.currentPlace.backdrop === "meadow" && window.services.store.currentPlace.pieces.length === 2);
+  await undo.click();
+  await until(page, () => window.services.store.currentPlace.groundColor === "grass");
+  await undo.click();
+  await until(page, () => window.services.store.currentPlace.skyColor === "sky");
+  await undo.click();
+  await until(page, () => window.services.store.currentPlace.pieces[0].id === "barn");
+  await undo.click();
+  await until(page, () => {
+    const s = window.services.store.currentPlace.pieces[1].stroke;
+    return Math.abs(s[1][0] - s[0][0] - 0.1) < 0.002;
+  });
+  assert.equal(await undo.isDisabled(), true);
+  const sounds = await chimes(page);
+  for (const k of ["tool", "select", "pick", "drop", "colour", "save", "undo"]) assert.ok(sounds.includes(k), `plays ${k}`);
+  await assertAccessible(page);
+  assert.deepEqual(page.errors, []);
+});
+
+test("delete: tap a piece and confirm; Keep it keeps it; a deleted selection is let go", async () => {
+  const page = await open();
+  const t = tools(page);
+  await t.getByRole("button", { name: "Delete", exact: true }).click();
+  const [bx, by] = toClient([0.2, 0.5]);
+  await page.mouse.click(bx, by);
+  await page.getByRole("alertdialog").getByRole("button", { name: "Keep it" }).click();
+  await page.locator("kf-dialog").waitFor({ state: "detached" });
+  assert.equal((await place(page)).pieces.length, 2);
+  assert.equal(await t.getByRole("button", { name: "Undo", exact: true }).isDisabled(), true);
+  await page.mouse.click(bx, by);
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
+  await until(page, () => window.services.store.currentPlace.pieces.length === 1);
+  assert.equal(await selectedShown(page), false);
+  assert.ok((await chimes(page)).includes("poof"));
+});

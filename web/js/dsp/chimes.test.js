@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CHIMES, CHIME_KINDS, CHIME_BUS_DB, HOLD_TONE, envelopeAt, chimePeakDb, chimeDuration } from "./chimes.js";
+import { CHIMES, CHIME_KINDS, CHIME_BUS_DB, HOLD_TONE, EDIT_CHIMES, CHIME_REPEAT_S, envelopeAt, chimePeakDb, chimeDuration, chimeAllowed } from "./chimes.js";
 import { dbfs } from "./level.js";
 
 const VOICE_PEAK_DB = -1; // takes are normalised to a -1 dBFS peak (take.js)
@@ -43,4 +43,34 @@ test("envelope: silent before the note, peaks after the attack, decays away", ()
   assert.ok(envelopeAt(n, 0.2) < 0.5);
   assert.ok(envelopeAt(n, 0.41) < 0.001);
   assert.equal(envelopeAt(n, 1), 0);
+});
+
+test("editing sounds: one quiet, short family, all defined", () => {
+  const tapPeak = chimePeakDb("tap");
+  for (const k of EDIT_CHIMES) {
+    assert.ok(CHIMES[k]?.length, k);
+    assert.ok(chimeDuration(k) <= 0.35, `${k} is short (${chimeDuration(k)} s)`);
+    assert.ok(chimePeakDb(k) < tapPeak, `${k} is quieter than the child's tap`);
+    for (const n of CHIMES[k]) {
+      assert.ok(n.attack >= 0.002 && n.attack <= 0.01, `${k} attack`);
+      assert.ok(n.freq >= 100 && n.freq <= 1200, `${k} stays in the soft register`);
+    }
+  }
+});
+
+test("editing sounds: forward and pick-up rise; back, drop and undo fall", () => {
+  const dir = (k) => {
+    const [a, b] = CHIMES[k];
+    if (b && b.wave === a.wave && b.at > a.at) return Math.sign(b.freq - a.freq);
+    return Math.sign((a.toFreq ?? a.freq) - a.freq);
+  };
+  for (const k of ["next", "pick", "add"]) assert.equal(dir(k), 1, k);
+  for (const k of ["back", "drop", "undo"]) assert.equal(dir(k), -1, k);
+});
+
+test("chimeAllowed skips a repeat of the same kind inside the mash window", () => {
+  assert.equal(chimeAllowed(undefined, 1), true);
+  assert.equal(chimeAllowed(1, 1 + CHIME_REPEAT_S / 2), false);
+  assert.equal(chimeAllowed(1, 1 + CHIME_REPEAT_S), true);
+  assert.equal(chimeAllowed(5, 1), true, "a clock that went back (a new context) never blocks");
 });

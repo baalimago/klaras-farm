@@ -9,6 +9,7 @@ Edit is how a grown-up gets from the toddler's play board into edit mode and bac
 - `web/js/edit/hold.js`: pure reducer for the hold-to-edit gesture, plus `isPalm`, the palm rule the board also uses.
 - `web/js/edit/adult-check.js`: pure parental gate (keypad code or a sum).
 - `web/js/edit/session.js`: pure session state machine (`nextSession`).
+- `web/js/edit/scene-tools.js`: pure state machine of the scene tools UI (`nextSceneTools`), templates.
 - `web/js/session.js`: `Session`, the state owner. Wraps the reducers with a clock, timers, window listeners, the hold ring and chimes.
 - Tests: `web/js/edit/*.test.js`, `web/js/session.test.js`.
 
@@ -31,6 +32,15 @@ edit|scene ──tick, 60 s no activity, no panel──▶ play, grace for 5 min
 - Panels open only in edit or scene. An open panel pauses auto-close.
 - During grace the hold alone reopens edit. A play tap cancels grace.
 - Panel names in use: `card`, `guided`, `scenes`, `settings`. `shell.js` maps them to components.
+
+### Scene tools (`edit/scene-tools.js`)
+
+`<kf-scene-tools>` keeps one of these states and renders from it after every event.
+
+- State `{tool, selected, sheet, drag, colors}`. `tool`: `TOOLS` = shape, line, move, colour, sky, ground, delete. `selected`: a piece id or null. `sheet`: null, `draw`, `piece`, `sky`, `ground` or `start`. `drag`: null or `{mode: 'move'|'resize', id}`. `colors`: `{shape, line}` for the next drawn piece.
+- `initialSceneTools()`, `nextSceneTools(state, event)` (the same object when nothing changes), `isPaused(state)` (a sheet is open: the board takes no input), `isDrawTool(tool)`, `templatePatch(backdrop)` and `TEMPLATES` (blank, meadow, sea, room with their sky and ground colours).
+- Events: `tool {tool}` (Sky/Ground open their sheet; Colour with a selection opens the piece sheet; the selection stays), `open-sheet {sheet}`, `close-sheet`, `tap-piece {id}` (Move, Colour, Delete), `tap-empty` (changes nothing: tap-away keeps the selection), `deselect`, `drag-start {mode, id}` (Move only, no sheet; resize only on the selected piece), `drag-end`, `drag-cancel`, `draw-colour {key}`, `pieces {ids}` (a gone piece's selection, sheet and drag end).
+- Nothing happens under an open sheet: taps and drags are ignored while paused.
 
 ### Hold (`edit/hold.js`)
 
@@ -79,7 +89,7 @@ Ways in without the hold (US-7.6): the `e` key on a keyboard (not in a text fiel
 - `<kf-board>` filters input (primary pointer only, `isPalm` from `edit/hold.js`), then calls `session.holdStart` and, in play, `session.playTap`.
 - `Session` listens to window `pointerdown` (capture) to record activity.
 - `shell.js` mounts `<kf-adult-check>` for `gate`, the edit layer for `edit`, `<kf-scene-tools>` for `scene`, and the panel named in `state.panel`.
-- `<kf-adult-check>` uses `edit/adult-check.js` and calls `gatePassed` or `gateFailed`. `<kf-edit-layer>` opens `card`, `scenes`, `settings` and calls `done`. `<kf-scenes>` calls `sceneTools`. `<kf-scene-tools>` calls `sceneDone`.
+- `<kf-adult-check>` uses `edit/adult-check.js` and calls `gatePassed` or `gateFailed`. `<kf-edit-layer>` opens `card`, `scenes`, `settings` and calls `done`. `<kf-scenes>` calls `sceneTools`. `<kf-scene-tools>` runs `edit/scene-tools.js` and calls `sceneDone`.
 - `Session` drives `PlayEngine.setMode`. Things wiggle in edit and fade in scene. Find rounds end and the sleep timer pauses outside play.
 - `edit/` is a pure domain. It imports only other pure domains and `types.js`. No DOM, no time, no randomness: `rng` and times in ms are arguments. `tests/unit/boundaries.test.js` enforces this. `session.js` is the shell around it.
 
@@ -97,6 +107,7 @@ Ways in without the hold (US-7.6): the `e` key on a keyboard (not in a text fiel
 
 - `web/js/edit/hold.test.js`: ring timing, cancel reasons, wobble tolerance, palms, edges, second pointer.
 - `web/js/edit/adult-check.test.js`: shuffles, seeded determinism, edge rng values, pass, wrong key, missed tap, idle timeout, sum kind.
+- `web/js/edit/scene-tools.test.js`: every transition: tools, sheets, pausing, tap-away, deselect, drags, colours, pieces going away, templates.
 - `web/js/edit/session.test.js`: gate flow, Done, auto-close in edit and scene, grace, panels pause auto-close, play tap.
 - `web/js/session.test.js`: `Session` with fake timers and window. Ring and soft tone, cancels, no timers left in play, chimes, engine mode, hold in edit opens guided add.
 - `tests/browser/package-c.test.js`: edit mode in Chromium. Run with `npm test` and `npm run test:browser`.

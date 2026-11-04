@@ -13,6 +13,11 @@ export const CHIME_BUS_DB = -8;
 
 const C5 = 523.25, E5 = 659.25, G5 = 783.99, B5 = 987.77, D5 = 587.33, A5 = 880, G6 = 1567.98, D6 = 1174.66;
 
+/** One soft editing note: sine, faint octave, 4 ms attack. */
+function soft(freq, at, decay, gain) {
+  return { wave: "sine", at, freq, attack: 0.004, decay, gain, partials: [[2, 0.08]] };
+}
+
 export const CHIMES = Object.freeze({
   // A tap on a thing without a recording: a soft two-note music-box ding.
   tap: [
@@ -49,7 +54,37 @@ export const CHIMES = Object.freeze({
     { wave: "sine", at: 0.18, freq: G5, attack: 0.006, decay: 0.4, gain: 0.36, partials: [[2, 0.14]] },
     { wave: "sine", at: 0.27, freq: 1046.5, attack: 0.006, decay: 0.5, gain: 0.36, partials: [[2, 0.12], [3, 0.04]] },
   ],
+
+  // ---- Editing (parent): one quiet family of short felt "pocks". Every note is a sine with the
+  // same faint octave partial, a 4 ms attack and a short decay, on C-major pentatonic pitches, so
+  // the sounds feel like one set. Rising = something starts or goes forward; falling = it lands,
+  // goes back or is undone. Kept well under the child's `tap` chime.
+  select: [soft(E5, 0, 0.12, 0.24)],
+  pick: [{ ...soft(D5, 0, 0.14, 0.24), toFreq: A5, slide: 0.05 }],
+  drop: [
+    { ...soft(A5, 0, 0.16, 0.24), toFreq: D5, slide: 0.05 },
+    { wave: "sine", at: 0, freq: 180, toFreq: 120, slide: 0.06, attack: 0.004, decay: 0.08, gain: 0.18 },
+  ],
+  tool: [{ wave: "triangle", at: 0, freq: D6, attack: 0.004, decay: 0.06, gain: 0.16, filter: 2200 }],
+  colour: [soft(G5, 0, 0.14, 0.2), soft(D6, 0.05, 0.18, 0.18)],
+  add: [soft(C5, 0, 0.16, 0.24), soft(G5, 0.07, 0.22, 0.24)],
+  undo: [soft(G5, 0, 0.12, 0.22), soft(D5, 0.06, 0.16, 0.22)],
+  next: [soft(E5, 0, 0.1, 0.2), soft(A5, 0.05, 0.14, 0.2)],
+  back: [soft(A5, 0, 0.1, 0.2), soft(E5, 0.05, 0.14, 0.2)],
+  toggle: [{ wave: "triangle", at: 0, freq: A5, attack: 0.004, decay: 0.09, gain: 0.18, filter: 2400 }],
+  save: [soft(C5, 0, 0.22, 0.18), soft(E5, 0.04, 0.22, 0.18), soft(G5, 0.08, 0.26, 0.2)],
 });
+
+/** The editing sounds (parent UI). Each edit action plays exactly one of these, or `poof` for a delete. */
+export const EDIT_CHIMES = Object.freeze(["select", "pick", "drop", "tool", "colour", "add", "undo", "next", "back", "toggle", "save"]);
+
+/** A second chime of the same kind within this many seconds is skipped (mash-safe: a burst of taps is one sound). */
+export const CHIME_REPEAT_S = 0.04;
+
+/** True when a chime of a kind last started at `lastAt` (seconds, or undefined) may start again at `now`. */
+export function chimeAllowed(lastAt, now, gap = CHIME_REPEAT_S) {
+  return lastAt === undefined || now - lastAt >= gap || now < lastAt;
+}
 
 export const CHIME_KINDS = Object.freeze(Object.keys(CHIMES));
 

@@ -5,6 +5,7 @@ import { PlayEngine } from "../../web/js/play-engine.js";
 import { FarmStore } from "../../web/js/farm-store.js";
 import { MemoryRepo } from "../../web/js/io/memory-repo.js";
 import { fixedEnv, square, aSnapshot, aPlace, aThing, aClip } from "../builders.js";
+import { movedThingPatch } from "../../web/js/geometry/transform.js";
 
 const preset = (id) => JSON.parse(readFileSync(new URL(`../../web/data/motions/${id}.json`, import.meta.url), "utf8"));
 const presets = { walk: preset("walk"), float: preset("float") };
@@ -250,6 +251,49 @@ test("finger down pauses everything; lifting it wakes the renderer", async () =>
   engine.fingerDown(false);
   assert.ok(events.some((e) => e[0] === "wake"));
   assert.ok(Number.isFinite(engine.nextWakeMs()));
+});
+
+test("edit mode drag: grab holds still, dragTo follows exactly, release settles the new home", async () => {
+  const { engine, store, events, advance } = await setup();
+  assert.equal(engine.grab("pig"), null, "no dragging in play");
+  engine.setMode("edit");
+  assert.equal(engine.grab("nobody"), null);
+  const start = engine.grab("pig");
+  assert.ok(Math.abs(start.x - 0.3) < 1e-9 && Math.abs(start.y - 0.7) < 1e-9);
+  assert.equal(engine.held, "pig");
+  events.length = 0;
+  engine.dragTo(0.5, 0.4);
+  assert.ok(events.some((e) => e[0] === "wake"), "each move asks for a frame");
+  advance(0.5);
+  const a = actor(engine, "pig");
+  assert.equal(a.x + a.pose.dx, 0.5, "drawn exactly at the finger, no lag or smoothing");
+  assert.equal(a.y + a.pose.dy, 0.4);
+  assert.equal(a.pose.rot, 0);
+  const d = engine.release();
+  assert.equal(engine.held, null);
+  assert.ok(Math.abs(d.dx - 0.2) < 1e-9 && Math.abs(d.dy + 0.3) < 1e-9);
+  assert.equal(engine.pick(0.5, 0.4), "pig", "taps find it where it was put, before the store catches up");
+  const thing = store.snapshot.things.find((t) => t.id === "pig");
+  await store.updateThing({ thingId: "pig", patch: movedThingPatch(thing, d.dx, d.dy) });
+  const b = actor(engine, "pig");
+  assert.ok(Math.abs(b.x - 0.5) < 1e-3 && Math.abs(b.y - 0.4) < 1e-3, "no jump when the store has the moved outline");
+  assert.ok(Math.abs(b.homeX - b.x) < 1e-12, "the drop point is home");
+  engine.dragTo(0.9, 0.9);
+  assert.ok(Math.abs(actor(engine, "pig").x - 0.5) < 1e-3, "dragTo without a held thing does nothing");
+  assert.equal(engine.release(), null);
+});
+
+test("edit mode drag: release without commit puts the thing back; leaving edit mode drops the hold", async () => {
+  const { engine } = await setup();
+  engine.setMode("edit");
+  engine.grab("cow");
+  engine.dragTo(0.1, 0.1);
+  assert.equal(engine.release(false), null);
+  assert.ok(Math.abs(actor(engine, "cow").x - 0.7) < 1e-9);
+  assert.equal(actor(engine, "cow").homeX, actor(engine, "cow").x);
+  engine.grab("cow");
+  engine.setMode("play");
+  assert.equal(engine.held, null);
 });
 
 test("dispose stops listening to the store", async () => {

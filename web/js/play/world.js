@@ -142,6 +142,48 @@ export function setMode(world, mode, rng) {
   }
 }
 
+/**
+ * Edit mode: a parent picked a thing up. It stops wiggling and holds a still rest pose, so the
+ * sprite is exactly where placeActor puts it (the drag tracks the finger 1:1). Returns the actor or null.
+ */
+export function holdActor(world, thingId) {
+  const a = actorFor(world, thingId);
+  if (!a) return null;
+  a.state = "wiggle";
+  a.stateTime = WIGGLE_S;
+  a.move = 0;
+  a.blinkT = -1;
+  writePose(a);
+  return a;
+}
+
+/** Puts a held actor's anchor at (x, y), board coordinates. No clamping: the drag follows the finger. */
+export function placeActor(world, thingId, x, y) {
+  const a = actorFor(world, thingId);
+  if (!a) return null;
+  a.x = x;
+  a.y = y;
+  a.tx = x;
+  a.ty = y;
+  return a;
+}
+
+/**
+ * The thing was put down where it is: that is its new home. Returns how far the home moved
+ * [dx, dy]; the caller moves the thing's outline by the same amount, and syncWorld then finds
+ * the actor already in place (no jump when the store catches up).
+ */
+export function settleActor(world, thingId) {
+  const a = actorFor(world, thingId);
+  if (!a) return null;
+  const dx = a.x - a.homeX, dy = a.y - a.homeY;
+  a.homeX = a.x;
+  a.homeY = a.y;
+  // Taps hit the thing where it now is, even before the store has the moved outline.
+  a.outline = a.outline.map(([x, y]) => [x + dx, y + dy]);
+  return [dx, dy];
+}
+
 export function actorFor(world, thingId) {
   for (const a of world.actors) if (a.thingId === thingId) return a;
   return null;

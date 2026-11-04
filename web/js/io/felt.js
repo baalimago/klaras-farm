@@ -202,14 +202,15 @@ const rect = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
 
 /**
  * Paints a place: sky, backdrop ground (meadow, sea, room, blank), felt clouds, the scene pieces and the
- * stitched border. `scene: true` adds dashed outlines on pieces (scene tools). Used for the board's
- * background cache and for scene thumbnails.
+ * stitched border. `scene: true` adds dashed outlines on pieces (scene tools). `pieces: false` leaves
+ * the pieces out (the Renderer draws them as sprites in scene mode). Used for the board's background
+ * cache and for scene thumbnails.
  * @param {CanvasRenderingContext2D} c
  * @param {import('../types.js').Place} place
  * @param {{w:number, h:number}} size  canvas pixels
- * @param {{scene?: boolean, border?: boolean}} [opts]
+ * @param {{scene?: boolean, border?: boolean, pieces?: boolean}} [opts]
  */
-export function paintBackground(c, place, size, { scene = false, border = true } = {}) {
+export function paintBackground(c, place, size, { scene = false, border = true, pieces = true } = {}) {
   const { w, h } = size;
   const U = h / 600;
   const sky = hex(place?.skyColor ?? "sky");
@@ -259,27 +260,56 @@ export function paintBackground(c, place, size, { scene = false, border = true }
       paintClouds(c, w, h, U, r);
     }
   }
-  for (const piece of place?.pieces ?? []) {
-    const pts = piece.stroke.map(([x, y]) => [x * w, y * h]);
-    if (piece.kind === "yarn") paintYarn(c, pts, hex(piece.color), { U, w: 1.8 });
-    else paintFeltShape(c, pts, hex(piece.color), { U });
-  }
-  if (scene) {
-    c.save();
-    c.setLineDash([6 * U, 5 * U]);
-    c.strokeStyle = INK;
-    c.globalAlpha = 0.7;
-    c.lineWidth = 2 * U;
-    c.lineCap = c.lineJoin = "round";
+  if (pieces) {
     for (const piece of place?.pieces ?? []) {
       const pts = piece.stroke.map(([x, y]) => [x * w, y * h]);
-      smoothPath(c, pts, piece.kind === "shape");
-      c.stroke();
+      paintPiece(c, piece, pts, U);
+      if (scene) paintPieceOutline(c, piece, pts, U);
     }
-    c.restore();
   }
   if (border) paintBorder(c, w, h, U);
   c.restore();
+}
+
+/** One scene piece (felt shape or yarn line) at canvas-pixel points. */
+function paintPiece(c, piece, pts, U) {
+  if (piece.kind === "yarn") paintYarn(c, pts, hex(piece.color), { U, w: 1.8 });
+  else paintFeltShape(c, pts, hex(piece.color), { U });
+}
+
+/** The dashed outline that shows a piece can be picked up (scene tools). */
+function paintPieceOutline(c, piece, pts, U) {
+  c.save();
+  c.setLineDash([6 * U, 5 * U]);
+  c.strokeStyle = INK;
+  c.globalAlpha = 0.7;
+  c.lineWidth = 2 * U;
+  c.lineCap = c.lineJoin = "round";
+  smoothPath(c, pts, piece.kind === "shape");
+  c.stroke();
+  c.restore();
+}
+
+/**
+ * Pre-renders one scene piece into its own canvas (scene tools: the Renderer moves and scales the
+ * cached sprite while a piece is dragged, so nothing is repainted per frame).
+ * @param {import('../types.js').Piece} piece
+ * @param {number} W @param {number} H  board size in canvas pixels
+ * @param {{scene?: boolean}} [opts]  scene: bake the dashed outline in too
+ * @returns {{canvas: HTMLCanvasElement, ox: number, oy: number}}  ox, oy: the sprite's top-left in board px
+ */
+export function paintPieceSprite(piece, W, H, { scene = false } = {}) {
+  const U = H / 600;
+  const pts = piece.stroke.map(([x, y]) => [x * W, y * H]);
+  const b = bbox(pts);
+  const pad = Math.ceil(14 * U) + 2;
+  const canvas = makeCanvas(b.w + 2 * pad, b.h + 2 * pad);
+  const c = canvas.getContext("2d");
+  const ox = Math.floor(b.x - pad), oy = Math.floor(b.y - pad);
+  c.translate(-ox, -oy);
+  paintPiece(c, piece, pts, U);
+  if (scene) paintPieceOutline(c, piece, pts, U);
+  return { canvas, ox, oy };
 }
 
 function paintClouds(c, w, h, U, r) {

@@ -30,7 +30,7 @@ Elements (one folder per tag):
 - `kf-recorder`: one recording slot; keeps every passing take and offers Play and Re-record.
 - `kf-draw-pad`: overlay that captures one stroke at a time (`outline`, `shape`, `yarn`).
 - `kf-scenes`: the scenes shelf with felt thumbnails, switch, rename, delete, new scene.
-- `kf-scene-tools`: change the scene: Shape, Yarn, Paint, Move, Delete, Undo.
+- `kf-scene-tools`: draw and arrange the scene: Shape, Line, Move (with resize handle, To back, Let go), Colour, Sky, Ground, Delete, Start (template: Blank, Meadow, Sea, Room), Undo, Done. UI state is the pure machine `edit/scene-tools.js`.
 - `kf-settings`: languages, sleep timer, gate kind, music, export and import, storage, delete all data, update, version.
 - `kf-welcome`: one-time first-run card for the parent.
 - `kf-dialog`: shared confirm dialog and toast with Undo; removes itself.
@@ -38,8 +38,9 @@ Elements (one folder per tag):
 Helper modules inside element folders:
 
 - `kf-dialog/dom.js`: `h()` DOM builder, `newId`, `plural`, `joinAnd`, `swatches`, `reportFailure`, `languageName`.
+- `kf-dialog/feedback.js`: `editSound(services, kind)`, the one helper every edit action plays its sound through (unlocks audio, then `audio.chime(kind)`; never throws). Kinds are `dsp/chimes.js` `EDIT_CHIMES` plus `poof` for a delete.
 - `kf-guided-add/`: `dom.js` (`h`, `ensureElement`), `drawing.js` (`ShapeDrawing`, up to 6 shapes merged with `geometry/union.js`), `eyes.js` (`EyeStamper`), `legs.js` (`LegPlacer`), `legplace.js` (pure leg rules), `preview.js` (`ThingPreview`), `steps.js` (pure step helpers), `geometry.js` and `shape.js` (geometry loader and fallback).
-- `kf-scene-tools/pieces.js` (pure hit testing and moving of pieces), `kf-scenes/thumbnail.js`, `kf-thing-card/languages.js`.
+- `kf-scene-tools/pieces.js` (pure hit testing, moving, resizing (`resizeScale`, `scaleStroke`, `strokeBox`) and reordering (`sendToBack`) of pieces), `kf-scenes/thumbnail.js`, `kf-thing-card/languages.js`.
 
 ## Public API / contracts
 
@@ -50,7 +51,7 @@ Helper modules inside element folders:
 - Services are injected as a property before connecting: `el.services = services`, and panels also get `el.params`. Elements must not import `main.js` or reach for globals.
 - Components read state from `services.store`, `services.session` and `services.engine`, and change it only through store intents and session methods.
 - A panel dispatches `kf-close` (bubbling) when done. The Shell then calls `session.closePanel()`.
-- Other events: `kf-thing-tap {thingId}` (board, edit mode), `kf-stroke {points, closed}` and `kf-stroke-open {points, gap}` (draw pad), `kf-recorded {clip, blob}` (recorder), `kf-added {thingId}` (guided add).
+- Other events: `kf-thing-tap {thingId}` (board, edit mode), `kf-thing-grab {thingId}` and `kf-thing-drop {thingId}` (board, edit mode drag), `kf-stroke {points, closed}` and `kf-stroke-open {points, gap}` (draw pad), `kf-recorded {clip, blob}` (recorder), `kf-added {thingId}` (guided add).
 - Lazy children: guided add and thing card load `kf-draw-pad` and `kf-recorder` with `ensureElement(tag, () => import(define.js))`.
 
 ### Shell
@@ -71,8 +72,25 @@ Helper modules inside element folders:
 
 ### kf-board
 
-- `connect(services)`, `boardRect()`, `toBoard(clientX, clientY)`, `toClient(x, y)`, `actorRect(thingId)`, `renderer`.
-- `pointerdown`: primary pointer only, palms ignored. Each step is guarded so one failure never eats the tap: `audio.unlock()`, `engine.fingerDown`, `session.holdStart`, then in play `engine.tap(x, y)` and `session.playTap()`.
+- `connect(services)`, `boardRect()`, `toBoard(clientX, clientY)`, `toClient(x, y)`, `actorRect(thingId)`, `setLift(lift)` (scene tools: forwards to `Renderer.setLift`), `renderer`.
+- `pointerdown`: primary pointer only, palms ignored. Each step is guarded so one failure never eats the tap: `audio.unlock()`, `engine.fingerDown`, `session.holdStart`, then in play `engine.tap(x, y)` and `session.playTap()`; in edit mode (no panel) a press on a thing calls `engine.grab(id)`.
+- Edit mode drag (US-11.3): the board rect is read once at pointerdown; each `pointermove` calls `engine.dragTo(x0 + dx/width, y0 + dy/height)` with the newest position (exact, no smoothing), and the renderer draws it in its next frame. Past the 10 px tap slop it plays `pick` and fires `kf-thing-grab`. On `pointerup` the last position is applied, then `engine.release()`, `drop` sound, `kf-thing-drop`, and one `store.updateThing` with `geometry/transform.js` `movedThingPatch` (outline, eyes and legs). A press that never left the slop goes back and counts as a tap; `pointercancel` puts the thing back.
+
+### kf-edit-layer
+
+- Selection: the thing last tapped or dragged is `selected` and gets a dashed felt ring (`.kf-edit-ring`, decorative). Tapping empty board never clears it.
+- Badges hide while a thing is dragged (`.dragging`) and are placed again on `kf-thing-drop` from the actor's live position.
+- Bar buttons and the pencil play `select`; Done plays nothing extra (the session plays `leave`).
+
+### kf-scene-tools
+
+- State: `edit/scene-tools.js` (`tool`, `selected`, `sheet`, `drag`, `colors`). `send(event)` runs the reducer and `render()` rebuilds the rail, panel, sheet and selection outline from the state and the store. The store's `change` re-renders and sends `pieces {ids}`.
+- Foreground: the side panel, the sheet and Done have `z-index: 20`; the stage over the board is `z-index: 1`, so `kf-draw-pad`'s fixed overlay (z 5) stays inside it. While a sheet is open the stage is `inert` and the pad gets `pointer-events: none` and is cleared: a tap meant for a colour never draws.
+- Sheets: `draw` (felt colour for the next shape or line; closes on pick), `piece`, `sky`, `ground` (apply at once, stay open to try colours), `start` (templates; asks first when pieces would be cleared). Close with "Close".
+- Move: a press on a piece selects it and starts a `move` drag; the round handle on the selected piece starts a `resize` drag. Moves call `board.setLift({id, dx, dy})` or `{id, s, cx, cy}` and move the outline with a transform once per frame. Nothing is written until release; then one `updatePiece` (`moveStroke` or `scaleStroke`), and the lift stays until the store's change arrives, so the piece never jumps back.
+- Taps: Colour and Delete select on tap; Delete then confirms. Tapping empty board keeps the selection; "Let go" or another piece changes it.
+- Sounds: `tool` (tool, sheet), `select`, `pick`, `drop` (drop, To back), `colour`, `add`, `poof`, `undo`, `back` (close sheet, Let go), `save` (Done, template).
+- Undo: a local stack (50) of `{pieces, skyColor, groundColor, backdrop}`, applied with `store.updatePlace`.
 - Device pixel ratio is capped at 2. Hit targets are at least 120 CSS px across (`engine.hitMinRadius`).
 
 ### kf-recorder
@@ -103,7 +121,8 @@ Helper modules inside element folders:
 - CSP is `script-src 'self'`: no inline scripts and no inline event handler attributes. Inline styles are allowed.
 - No build step. Every file is served as is under a hashed path. Use relative imports, and add new stylesheets to `css/main.css` so they are precached.
 - Offline: everything must work from the service worker cache. Do not fetch from other origins.
-- Things fade in scene mode; badges in the edit layer are placed on store changes and resize, never per frame.
+- Things fade in scene mode; badges in the edit layer are placed on store changes, resize and drops, never per frame.
+- Editing controls always sit above the canvas. Never write the store on `pointermove`: drags move a cached sprite and persist on release.
 - `#parent-layer` has `pointer-events: none`; its children turn them back on.
 - Respect `prefers-reduced-motion`; base CSS shortens animations.
 
@@ -116,7 +135,9 @@ Helper modules inside element folders:
   - `package-c.test.js`: hold ring, adult check, edit layer, Session timers with a fake clock.
   - `package-d.test.js`: `kf-recorder` with a fake mic.
   - `package-f1.test.js`: `kf-guided-add` and `kf-thing-card` with stubs (`tests/browser/stubs/f1-stubs.js`).
-  - `package-f2.test.js`: scenes, scene tools, settings, welcome, dialogs (`tests/browser/stubs/f2-stubs.js`).
+  - `package-f2.test.js`: scenes, settings, welcome, dialogs (`tests/browser/stubs/f2-stubs.js`; its board stub records `setLift` calls in `board.lifts`).
+  - `scene-tools.test.js`: `kf-scene-tools` alone at 1180 × 820: tool bar, the picker on top of the real draw pad with the canvas paused, drawing and moving a piece with exact lifts and one write, tap-away keeps the selection, resize, To back, sky, ground, templates, undo, delete.
+  - `drag.test.js`: the real app at iPad size and dpr 2: a thing dragged in edit mode and a piece dragged in the scene tools track the pointer with zero error before release, render each frame in well under 8 ms (median), write once, and keep their cached sprites.
   - `shapes.test.js`: multi-shape drawing in guided add and Redraw. `legs.test.js`: leg placing and format migration.
 - Harness: `tests/browser/harness.js` gives `setup({fakeMedia})`, `newPage()` (boots the app and waits for `data-ready`) and `modulePage(html)` (base and CSS only). Elements written into `modulePage` HTML do not upgrade; import `define.js` and create them with `document.createElement`, then set `services` before appending.
 - `tests/unit/docs.test.js` checks that each domain has its doc and that `CLAUDE.md` links to `AGENTS.md`.
