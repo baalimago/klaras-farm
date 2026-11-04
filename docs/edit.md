@@ -70,14 +70,15 @@ pending|showing ──up, cancel, move > 10 px, second pointer, palm──▶ ca
 choose-count ──count n──▶ placing (leg k of n) ──last leg placed──▶ done
 any state ──count m──▶ placing or done (fewer than placed drops the newest legs)
 placing|done ──Clear──▶ placing (leg 1 of n)      placing ──Spread evenly──▶ done
+placing ──Spread the rest──▶ done (the placed legs stay; the missing ones fill the gaps)
 ```
 
 - State `{target: number|null, legs: [{x, y}], history: legs[][], drag: null|{index, moved, before}}`. `legPhase(s)` is `choose-count`, `placing` or `done`.
 - `LEG_CHOICES` 0 to 8 (`MAX_LEGS`), `SUGGESTED_LEGS = 2`, `UNDO_DEPTH = 30`.
 - `legFlow(legs, target)`: start from a thing (done with its legs) or a draft's picked count.
-- `chooseCount(s, n)`: works from every state. `spreadEvenly(s, outline)`: `farm/legs.js` `spreadLegs` along the bottom. `clearLegs(s)`. `undoLeg(s)` steps back one placed, moved, spread, cleared or count-dropped change.
+- `chooseCount(s, n)`: works from every state. `spreadEvenly(s, outline)`: `farm/legs.js` `spreadLegs` along the bottom. `spreadRest(s, outline)`: keeps the placed legs and adds the missing ones, each on the evenly spread spot farthest from every leg so far (with none placed it equals `spreadEvenly`; with none missing it returns `s`). Guided add's "Spread the rest and continue" uses it, so leaving the Legs step never ends with fewer legs than chosen. `clearLegs(s)`. `undoLeg(s)` steps back one placed, moved, spread, cleared or count-dropped change.
 - Pointer events, points in board coordinates already snapped inside the outline by the caller: `pressLeg(s, pt, snapped, r)` grabs a leg within `r` (`legAt`) or places the next leg while placing, else does nothing; `moveLeg(s, snapped)` drags the grabbed leg; `releaseLeg(s, snapped)` ends a drag (undoable) or, for a still press on a leg while placing, places the next leg there; `cancelPress(s)`. No event removes a leg by accident.
-- `legView(s)`: everything the panel shows (heading, note, count buttons with `pressed` and `suggested`, `canSpread`, `canUndo`, `canClear`). The component renders only from it.
+- `legView(s)`: everything the panel shows (heading, note, count buttons with `pressed` and `suggested`, `canSpread`, `missing` (legs still to place), `canUndo`, `canClear`). The component renders only from it.
 
 ### Session (`session.js`)
 
@@ -124,7 +125,7 @@ Ways in without the hold (US-7.6): the `e` key on a keyboard (not in a text fiel
 
 - `web/js/edit/hold.test.js`: ring timing, cancel reasons, wobble tolerance, palms, edges, second pointer.
 - `web/js/edit/adult-check.test.js`: shuffles, seeded determinism, edge rng values, pass, wrong key, missed tap, idle timeout, sum kind.
-- `web/js/edit/leg-flow.test.js`: every transition: count changes midway, eight close legs, grab and drag, stray presses, cancel, Spread evenly, Clear, Undo (also after a smaller count), bounded history.
+- `web/js/edit/leg-flow.test.js`: every transition: count changes midway, eight close legs, grab and drag, stray presses, cancel, Spread evenly (also from 2 placed after choosing 4), Spread the rest (keeps placed legs, fills the gaps, Undo, no-ops), Clear, Undo (full legs array after a drag, also after a smaller count), bounded history.
 - `web/js/edit/scene-tools.test.js`: every transition: tools, sheets, pausing, tap-away, deselect, drags, colours, pieces going away, templates, the lift after a drop, and undo: push, limit, pop, saved, failed edit, failed Undo, undo after a template Start.
 - `web/js/edit/session.test.js`: gate flow, Done, auto-close in edit and scene, grace, panels pause auto-close, play tap, `then` through the gate and grace.
 - `web/js/session.test.js`: `Session` with fake timers and window. Ring and soft tone, cancels, no timers left in play, chimes, engine mode, hold in edit opens guided add, find button holds, the full-scene toast uses `maxThings`.

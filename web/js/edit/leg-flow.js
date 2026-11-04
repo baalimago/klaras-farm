@@ -1,6 +1,8 @@
 // Leg flow (US-3.10, playtest 2): adding and changing a thing's legs as an explicit state machine.
 //   choose-count ──count n──▶ placing (leg k of n) ──last leg──▶ done
 // The count can change at any time, from any state; fewer than placed drops the newest legs.
+// placing ──spread the rest──▶ done keeps the legs placed so far and adds the missing ones in the gaps,
+// so leaving the step never ends with fewer legs than the parent chose.
 // Pointer input is three events (down, move, up): a press on a placed leg drags it, a press
 // anywhere else places the next leg while legs are missing, and a stray press never removes one.
 // Every change is a new state; the component renders the whole panel from `legView(state)`.
@@ -116,13 +118,40 @@ export function spreadEvenly(s, outline) {
   return commit(s, spreadLegs(outline, n));
 }
 
+/**
+ * Keeps the placed legs and adds the missing ones in the widest gaps along the bottom: each new leg
+ * takes the evenly spread spot farthest from every leg so far. With none placed it is Spread evenly.
+ */
+export function spreadRest(s, outline) {
+  const n = s.target ?? 0;
+  const missing = n - s.legs.length;
+  if (missing <= 0 || !Array.isArray(outline) || outline.length < 3) return s;
+  const spots = spreadLegs(outline, n);
+  if (!s.legs.length) return commit(s, spots);
+  const legs = copy(s.legs);
+  for (let k = 0; k < missing; k++) {
+    let best = 0;
+    let bestD = -1;
+    for (let i = 0; i < spots.length; i++) {
+      let d = Infinity;
+      for (const l of legs) d = Math.min(d, Math.hypot(l.x - spots[i].x, (l.y - spots[i].y) * 0.75));
+      if (d > bestD) {
+        best = i;
+        bestD = d;
+      }
+    }
+    legs.push(spots.splice(best, 1)[0]);
+  }
+  return commit(s, legs);
+}
+
 /** Takes every leg off; the count stays, so placing starts again at leg 1. */
 export function clearLegs(s) {
   if (!s.legs.length) return s;
   return commit(s, []);
 }
 
-/** Steps back one change (a placed, moved, spread or cleared leg, or legs dropped by a count). */
+/** Steps back one change (a placed, moved, spread (all or the rest) or cleared leg, or legs dropped by a count). */
 export function undoLeg(s) {
   if (!s.history.length) return s;
   const legs = s.history[s.history.length - 1];
@@ -158,6 +187,7 @@ export function legView(s) {
       suggested: s.target === null && c === SUGGESTED_LEGS,
     })),
     canSpread: n > 0,
+    missing: Math.max(0, n - placed),
     canUndo: s.history.length > 0,
     canClear: placed > 0,
   };

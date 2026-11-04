@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  STEPS, stampEye, upsertClip, stripClip, latestDraft, canAdvance, freeSpot, cleanNames, newDraft, refitEyes,
+  STEPS, stampEye, upsertClip, stripClip, latestDraft, canAdvance, freeSpot, cleanNames, cleanCues, newDraft, refitEyes,
   MOTIONS, THING_SIZE, THING_SIZES, sizeScale, nearestSize, sizeBox, resizeThing, sizedFill,
 } from "./steps.js";
 import { readdirSync } from "node:fs";
@@ -145,4 +145,15 @@ test("sizedFill: Big fills the preview, smaller sizes show smaller", () => {
   near(sizedFill(rect(0, 0, THING_SIZE.w, 0.01), 0.6), 0.6 / 1.3);
   near(sizedFill(rect(0, 0, THING_SIZE.w * 3, 0.01), 0.6), 0.6, 1e-9);
   near(sizedFill(rect(0, 0, 0.001, 0.001), 0.6), 0.18);
+});
+
+test("cleanCues keeps every question line (1 to 6), trimmed, and drops only the untouched default", () => {
+  assert.deepEqual(cleanCues({ en: { lines: [" One ", "", "three", "four", "", "six"] } }), { en: { lines: ["One", "", "three", "four", "", "six"] } });
+  assert.deepEqual(cleanCues({ en: { lines: [""] } }), { en: { lines: [""] } }, "one example question is one question");
+  assert.deepEqual(cleanCues({ en: { lines: ["", "", "", ""] } }), { en: { lines: ["", "", "", ""] } }, "four examples");
+  assert.deepEqual(cleanCues({ en: { lines: ["", " ", ""] } }), {}, "three empty lines: the default");
+  assert.deepEqual(cleanCues({ de: { article: "das", lines: ["", "", ""] } }), { de: { article: "das" } });
+  assert.equal(cleanCues({ en: { lines: Array(9).fill("x") } }).en.lines.length, 6, "at most six");
+  assert.deepEqual(cleanCues({ en: { lines: [null, "b", undefined] } }), { en: { lines: ["", "b", ""] } });
+  assert.deepEqual(cleanCues(), {});
 });
