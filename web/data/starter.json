@@ -2113,6 +2113,7 @@
    "names": {
     "en": "Pig",
     "sv": "Gris",
+    "fi": "Possu",
     "de": "Schwein",
     "fr": "Cochon",
     "es": "Cerdo"
@@ -2371,6 +2372,7 @@
    "names": {
     "en": "Cow",
     "sv": "Ko",
+    "fi": "Lehmä",
     "de": "Kuh",
     "fr": "Vache",
     "es": "Vaca"
@@ -2757,6 +2759,7 @@
    "names": {
     "en": "Chicken",
     "sv": "Höna",
+    "fi": "Kana",
     "de": "Huhn",
     "fr": "Poule",
     "es": "Gallina"
@@ -2979,6 +2982,7 @@
    "names": {
     "en": "Sheep",
     "sv": "Får",
+    "fi": "Lammas",
     "de": "Schaf",
     "fr": "Mouton",
     "es": "Oveja"
@@ -3209,6 +3213,7 @@
    "names": {
     "en": "Horse",
     "sv": "Häst",
+    "fi": "Hevonen",
     "de": "Pferd",
     "fr": "Cheval",
     "es": "Caballo"
@@ -3539,6 +3544,7 @@
    "names": {
     "en": "Duck",
     "sv": "Anka",
+    "fi": "Ankka",
     "de": "Ente",
     "fr": "Canard",
     "es": "Pato"
@@ -3761,6 +3767,7 @@
    "names": {
     "en": "Dog",
     "sv": "Hund",
+    "fi": "Koira",
     "de": "Hund",
     "fr": "Chien",
     "es": "Perro"
@@ -4003,6 +4010,7 @@
    "names": {
     "en": "Fish",
     "sv": "Fisk",
+    "fi": "Kala",
     "de": "Fisch",
     "fr": "Poisson",
     "es": "Pez"
@@ -4192,6 +4200,7 @@
    "names": {
     "en": "Octopus",
     "sv": "Bläckfisk",
+    "fi": "Mustekala",
     "de": "Krake",
     "fr": "Pieuvre",
     "es": "Pulpo"
@@ -4541,6 +4550,7 @@
    "names": {
     "en": "Crab",
     "sv": "Krabba",
+    "fi": "Rapu",
     "de": "Krabbe",
     "fr": "Crabe",
     "es": "Cangrejo"
@@ -4959,6 +4969,7 @@
    "names": {
     "en": "Teapot",
     "sv": "Tekanna",
+    "fi": "Teekannu",
     "de": "Teekanne",
     "fr": "Théière",
     "es": "Tetera"
@@ -5228,6 +5239,7 @@
    "names": {
     "en": "Cat",
     "sv": "Katt",
+    "fi": "Kissa",
     "de": "Katze",
     "fr": "Chat",
     "es": "Gato"
@@ -5522,6 +5534,7 @@
    "names": {
     "en": "Chair",
     "sv": "Stol",
+    "fi": "Tuoli",
     "de": "Stuhl",
     "fr": "Chaise",
     "es": "Silla"
@@ -5692,6 +5705,7 @@
    "names": {
     "en": "Spoon",
     "sv": "Sked",
+    "fi": "Lusikka",
     "de": "Löffel",
     "fr": "Cuillère",
     "es": "Cuchara"
@@ -5913,6 +5927,7 @@
    "names": {
     "en": "Mouse",
     "sv": "Mus",
+    "fi": "Hiiri",
     "de": "Maus",
     "fr": "Souris",
     "es": "Ratón"
@@ -6115,6 +6130,7 @@
    "names": {
     "en": "Spider",
     "sv": "Spindel",
+    "fi": "Hämähäkki",
     "de": "Spinne",
     "fr": "Araignée",
     "es": "Araña"

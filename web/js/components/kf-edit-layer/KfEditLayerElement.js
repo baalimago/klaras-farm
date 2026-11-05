@@ -1,5 +1,8 @@
 // <kf-edit-layer>: edit mode on the scene (US-11.3, US-3.5, US-3.6, US-2.5, US-7.6).
-// The bar (Scenes, Change scene, + Add, Settings, Done) and still, 44 pt+ badges per thing:
+// The bar (Scenes, Change scene, + Add, Settings, Done) and still, 44 pt+ badges per thing.
+// "+ Add" (and "Add an animal" on an empty scene) opens the animal library (panel `library`, QA
+// round 3) and shows how many things the scene has against its limit ("5/8"); a full scene keeps
+// it on, with the reason under the bar, and the library says the same with the way out. Badges:
 // pencil → the thing card; cross → confirm (naming the recordings) → delete → Undo toast.
 // Badges are placed once from services.board.actorRect(id) and re-placed on store changes and resize,
 // never per frame. Hidden while a panel is open over edit mode, and while a thing is dragged.
@@ -73,7 +76,7 @@ export class KfEditLayerElement extends HTMLElement {
     empty.className = "kf-edit-empty";
     const emptyText = document.createElement("p");
     emptyText.textContent = "Nothing lives here yet.";
-    const emptyAdd = this._button("Add a thing", "primary", () => this._add());
+    const emptyAdd = this._button("Add an animal", "primary", () => this._add());
     emptyAdd.dataset.action = "add-first";
     empty.append(emptyText, emptyAdd);
 
@@ -92,7 +95,10 @@ export class KfEditLayerElement extends HTMLElement {
     change.dataset.action = "scene";
     const add = this._button("+ Add", "", () => this._add());
     add.dataset.action = "add";
-    add.setAttribute("aria-label", "Add a thing");
+    const count = document.createElement("span");
+    count.className = "kf-add-count";
+    count.dataset.testid = "add-count";
+    add.append(count);
     const settings = this._button("Settings", "", () => session()?.openPanel("settings"));
     settings.dataset.action = "settings";
     const dot = document.createElement("span");
@@ -108,7 +114,7 @@ export class KfEditLayerElement extends HTMLElement {
     bar.append(scenes, change, add, settings, done);
 
     this.append(badges, empty, reason, bar);
-    Object.assign(this, { _badges: badges, _empty: empty, _reason: reason, _bar: bar, _add_: add, _dot: dot });
+    Object.assign(this, { _badges: badges, _empty: empty, _reason: reason, _bar: bar, _add_: add, _count: count, _dot: dot });
   }
 
   _button(label, kind, onClick) {
@@ -137,10 +143,15 @@ export class KfEditLayerElement extends HTMLElement {
     const place = s.store?.currentPlace;
     const things = this._things;
     const full = place ? !s.store.canAddThing(place.id) : true;
-    this._add_.disabled = full;
+    const cap = s.store?.maxThings ?? 8;
+    // "+ Add" stays on when the scene is full: the library it opens says why and what to do.
+    this._add_.disabled = !place;
+    this._add_.classList.toggle("full", full);
+    this._count.textContent = place ? ` ${things.length}/${cap}` : "";
+    this._add_.setAttribute("aria-label", place ? `Add an animal (${things.length} of ${cap} in this scene)` : "Add an animal");
     if (full) this._add_.setAttribute("aria-describedby", "kf-edit-reason");
     else this._add_.removeAttribute("aria-describedby");
-    this._reason.textContent = `This scene holds ${s.store?.maxThings ?? 8} things at most. Delete one, or allow more in Settings.`;
+    this._reason.textContent = `This scene holds ${cap} things. Delete one, or allow more in Settings.`;
     this._reason.hidden = !full || panelOpen;
     this._empty.hidden = panelOpen || !place || things.length > 0;
     this._dot.hidden = !s.updateReady;
@@ -220,11 +231,11 @@ export class KfEditLayerElement extends HTMLElement {
     return name ? String(name) : "this thing";
   }
 
+  /** Opens the animal library: draw a new one, or copy one from any scene or the examples. */
   _add() {
     const s = this.services ?? {};
-    const place = s.store?.currentPlace;
-    if (!place || !s.store.canAddThing(place.id)) return;
-    s.session?.openPanel("guided", {});
+    if (!s.store?.currentPlace) return;
+    s.session?.openPanel("library", {});
   }
 
   /** US-3.6: confirm naming the recordings, delete, then a few seconds of Undo. */

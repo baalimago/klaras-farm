@@ -81,6 +81,7 @@ export class FarmStore extends EventTarget {
   updatePiece(args) { return this._run(I.updatePiece, args); }
   removePiece(args) { return this._run(I.removePiece, args); }
   addThing(args) { return this._run(I.addThing, args); }
+  copyThing(args) { return this._run(I.copyThing, args); }
   updateThing(args) { return this._run(I.updateThing, args); }
   deleteThing(args) { return this._run(I.deleteThing, args); }
   restoreThing(args) { return this._run(I.restoreThing, args); }

@@ -1,0 +1,83 @@
+/* <kf-library>: the animal library sheet. */
+kf-library { position: absolute; inset: 0; display: block; }
+.kf-library-scrim { position: absolute; inset: 0; background: rgb(74 51 38 / 0.25); }
+/* The heading and Close stay in view while the tiles scroll: the way out is always visible. */
+.kf-library-head {
+  position: sticky;
+  top: -20px;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -20px -20px 0;
+  padding: 20px 20px 8px;
+  background: var(--paper);
+}
+.kf-library-head h2 { margin: 0 0 4px; }
+.kf-sheet .kf-library-count { margin: 0; color: var(--ink-soft); font-weight: 700; }
+.kf-sheet .kf-library-full {
+  margin: 8px 0 4px;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--cream);
+  outline: 3px dashed var(--orange);
+  outline-offset: -6px;
+  font-weight: 700;
+}
+.kf-library-grid {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 14px;
+}
+.kf-library-tile {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 6px 6px 10px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--cream);
+  color: var(--ink);
+  font: 700 1rem/1.2 var(--font);
+  text-align: center;
+  box-shadow: 0 4px 0 rgb(74 51 38 / 0.18);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.kf-library-tile:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 2px 0 rgb(74 51 38 / 0.18); }
+.kf-library-tile:disabled { opacity: 0.45; cursor: default; }
+.kf-library-thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  height: auto;
+  border-radius: var(--radius-sm);
+  outline: 2px dashed rgb(74 51 38 / 0.25);
+  outline-offset: -5px;
+}
+.kf-library-name { padding: 0 4px; overflow-wrap: anywhere; }
+.kf-library-rec {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgb(255 250 240 / 0.92);
+  font-size: 0.85rem;
+}
+.kf-library-draw {
+  align-content: center;
+  place-items: center;
+  min-height: 100%;
+  aspect-ratio: auto;
+  background: var(--paper);
+  outline: 3px dashed #e6d7bf;
+  outline-offset: -8px;
+}
+.kf-library-plus { font-size: 2.6rem; line-height: 1; }

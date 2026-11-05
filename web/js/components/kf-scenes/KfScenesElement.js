@@ -1,11 +1,14 @@
 // <kf-scenes>: the scenes shelf (flow 4; US-2.1, 2.3, 2.4).
 // Felt thumbnails, tap to switch, "…" for rename and delete, "+ New scene" (name, backdrop,
-// sky and ground colours) → store.createPlace → session.sceneTools().
+// sky and ground colours) → store.createPlace → session.sceneTools(). A new scene is seeded with a
+// few random animals from the repertoire (QA round 3): the library's examples are loaded when the
+// form opens and handed to createPlace, which picks and places them in the same change.
 // Props: services, params (unused). Dispatches kf-close when finished.
 import { h, newId, plural, swatches, reportFailure } from "../kf-dialog/dom.js";
 import { SKY_COLORS, GROUND_COLORS } from "../../farm/palette.js";
 import { BACKDROPS } from "../../farm/snapshot.js";
 import { paintThumbnail } from "./thumbnail.js";
+import { loadExamples } from "../kf-library/examples.js";
 
 const BACKDROP_LABEL = { meadow: "Meadow", sea: "Sea", room: "Room", blank: "Blank" };
 /** Colours each backdrop starts with; the parent can change both. */
@@ -188,6 +191,8 @@ export class KfScenesElement extends HTMLElement {
     this._menuFor = null;
     this._view = "new";
     this._draft = { name: "", backdrop: "meadow", ...BACKDROP_COLORS.meadow };
+    // Ready long before "Start drawing": seeding never waits on a fetch inside the tap.
+    loadExamples(this.services).then((list) => (this._examples = list));
     this.render();
   }
 
@@ -237,7 +242,7 @@ export class KfScenesElement extends HTMLElement {
 
     const form = h("form", { class: "kf-scene-new-form" }, [
       h("div", { class: "kf-field" }, [h("label", { htmlFor: inputId, text: "Scene name" }), input]),
-      h("p", { class: "kf-note", id: noteId, text: "The name is for you; Klara never sees text." }),
+      h("p", { class: "kf-note", id: noteId, text: "The name is for you; Klara never sees text. A few animals move in to start with." }),
       h("div", { class: "kf-scene-new-grid" }, [
         h("div", {}, [h("h3", { text: "Backdrop" }), backdrops, h("h3", { text: "Sky" }), skyHolder, h("h3", { text: "Ground" }), groundHolder]),
         h("div", { class: "kf-scene-preview-wrap" }, [preview]),
@@ -254,19 +259,37 @@ export class KfScenesElement extends HTMLElement {
     return form;
   }
 
-  async create() {
+  /**
+   * Creates the scene (with its seeded animals) inside the tap: the store shows it at once, so the
+   * shelf closes and the scene tools open without waiting for the disk. A write that fails later
+   * has been rolled back by the store; the parent gets a toast.
+   */
+  create() {
     const d = this._draft;
     if (this._creating) return;
     this._creating = true;
+    const before = this.store.snapshot.places;
+    let committed;
     try {
-      await this.store.createPlace({ name: d.name, backdrop: d.backdrop, skyColor: d.skyColor, groundColor: d.groundColor });
+      const seed = { examples: this._examples ?? [] };
+      committed = this.store.createPlace({ name: d.name, backdrop: d.backdrop, skyColor: d.skyColor, groundColor: d.groundColor, seed });
     } catch (e) {
-      this._creating = false;
-      reportFailure(this.services, e);
+      committed = Promise.reject(e);
+    }
+    const open = () => {
+      // Close the shelf first so the scene tools are not covered by it.
+      this.close();
+      this.services.session?.sceneTools?.();
+    };
+    if (this.store.snapshot.places !== before) {
+      open();
+      committed.catch((e) => reportFailure(this.services, e));
       return;
     }
-    // Close the shelf first so the scene tools are not covered by it.
-    this.close();
-    this.services.session?.sceneTools?.();
+    // Not shown yet: refused, or queued behind an import.
+    committed.then(open, (e) => {
+      this._creating = false;
+      reportFailure(this.services, e);
+    });
   }
 }

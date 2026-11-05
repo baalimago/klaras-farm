@@ -27,6 +27,8 @@ Run on the base iPad (11th generation, A16) with iPadOS 18 or later before a rel
 | Colour sheet over the canvas | `components/kf-scene-tools/` | Shape tool → colour button: every swatch takes the tap first time, no stroke appears behind the sheet. |
 | Things spread in edit mode | `play/spread.js`, `play/world.js`, `components/kf-edit-layer/` | Let the animals bunch up in play, hold to edit: they glide apart smoothly (no hitch), every pencil and cross can be tapped, nothing hides under the edit bar; after Done and a reload they are still apart. |
 | Editing sounds | `dsp/chimes.js`, `components/kf-dialog/feedback.js` | With the volume at half, each edit (tool, select, pick up, drop, colour, add, delete, undo, Next/Back in Add a thing) gives one soft, short sound, quieter than a child's tap; mashing a button gives one sound, not a pile-up. |
+| Animal library | `components/kf-library/`, `farm/library.js`, `components/kf-edit-layer/` | In edit mode tap "+ Add 7/8": the library opens at once, the pictures appear without a stutter and scroll smoothly; tap Fox: it drops into the scene with one soft sound and the bar reads 8/8. Tap "+ Add" again: the sheet says the scene is full and nothing can be tapped but Close. Copy an animal with recordings to another scene, delete the original: the copy still says its name after a cold launch the next day. |
+| New scene animals | `components/kf-scenes/`, `farm/intents.js` | Scenes → New scene → Start drawing, Done: 3 or 4 animals stand apart on the ground and walk; deleting one offers Undo. Works in Airplane Mode (the examples come from the offline cache). |
 
 ## Log
 

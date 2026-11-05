@@ -5,6 +5,7 @@ import { BACKDROPS, DEFAULT_MAX_THINGS, MAX_THINGS_LIMIT, MAX_QUESTIONS, THING_C
 import { isColorKey, SIMPLE_COLORS } from "./palette.js";
 import { cleanLegs, isLeg, MAX_LEGS } from "./legs.js";
 import { questionCount } from "./scripts.js";
+import { boxesIn, copyOf, libraryEntries, pickSeeds, placeCopy, seedCount } from "./library.js";
 
 export class FarmError extends Error {
   /** @param {string} code  e.g. 'place-full', 'not-found', 'invalid', 'storage' */
@@ -39,7 +40,16 @@ function checkStroke(points, min) {
 
 // ---------- places ----------
 
-export function createPlace(s, { name, backdrop = "meadow", skyColor = "sky", groundColor = "grass", pieces = [] }, env) {
+/**
+ * Creates a place and makes it current. With `seed`, the new scene starts with a few random things
+ * from the repertoire (QA round 3: "a scene is never empty"): SEED_MIN to SEED_MAX of the library's
+ * entries (the family's own things and `seed.examples`), picked with env.rng, copied with their
+ * recordings and stood apart on the ground, leaving room for one more under the family's cap. All
+ * of it is one change, and each seeded thing is an ordinary thing (delete and Undo as usual).
+ * @param {{name?: string, backdrop?: string, skyColor?: string, groundColor?: string, pieces?: any[],
+ *   seed?: {examples?: import('../types.js').Thing[], count?: number}}} args
+ */
+export function createPlace(s, { name, backdrop = "meadow", skyColor = "sky", groundColor = "grass", pieces = [], seed }, env) {
   if (!BACKDROPS.includes(backdrop)) throw new FarmError("invalid", `backdrop ${backdrop}`);
   checkColor(skyColor);
   checkColor(groundColor);
@@ -56,11 +66,38 @@ export function createPlace(s, { name, backdrop = "meadow", skyColor = "sky", gr
     updatedAt: now,
   };
   const settings = { ...s.settings, currentPlaceId: place.id, updatedAt: now };
+  const seeded = seed ? seedThings(s, place, seed, env) : { things: [], clips: [] };
+  place.thingOrder = seeded.things.map((t) => t.id);
   return {
-    snapshot: { ...s, places: [...s.places, place], settings },
-    writes: [put("places", place), put("settings", settings)],
-    change: change("place-created", [place.id]),
+    snapshot: { ...s, places: [...s.places, place], things: [...s.things, ...seeded.things], clips: [...s.clips, ...seeded.clips], settings },
+    writes: [put("places", place), ...seeded.things.map((t) => put("things", t)), ...seeded.clips.map((c) => put("clips", c)), put("settings", settings)],
+    change: { ...change("place-created", [place.id]), things: seeded.things.map((t) => t.id) },
   };
+}
+
+/** The copies that seed a new place: random library entries, each on a free spot of the ground. */
+function seedThings(s, place, { examples = [], count }, env) {
+  const { own, examples: pre } = libraryEntries(s, examples.filter(isCopyable));
+  const pool = [...own, ...pre];
+  const cap = maxThings(s);
+  const n = Number.isInteger(count) ? Math.max(0, Math.min(count, cap - 1, pool.length)) : seedCount(cap, pool.length, env.rng);
+  const boxes = [];
+  const things = [];
+  const clips = [];
+  for (const entry of pickSeeds(pool, n, env.rng)) {
+    const at = placeCopy(entry.thing.outline, boxes, place);
+    const copy = copyOf(entry.thing, entry.clips, { placeId: place.id, ...at }, env);
+    things.push(copy.thing);
+    clips.push(...copy.clips);
+    boxes.push(...boxesIn({ things: [copy.thing] }, place.id));
+  }
+  return { things, clips };
+}
+
+/** An example good enough to copy: an outline, a palette colour, valid legs. */
+function isCopyable(thing) {
+  if (!Array.isArray(thing?.outline) || thing.outline.length < 3 || !isColorKey(thing.color)) return false;
+  return thing.legs === undefined || (Array.isArray(thing.legs) && thing.legs.length <= MAX_LEGS && thing.legs.every(isLeg));
 }
 
 export function renamePlace(s, { placeId, name }, env) {
@@ -177,6 +214,34 @@ export function addThing(s, args, env) {
   return {
     snapshot: { ...s, things: [...s.things, thing], clips: [...s.clips, ...clips], places: replace(s.places, newPlace) },
     writes: [put("things", thing), put("places", newPlace), ...clips.map((c) => put("clips", c))],
+    change: change("thing-added", [thing.id]),
+  };
+}
+
+/**
+ * Adds an independent copy of a thing to a place, on a free spot of its ground (the animal
+ * library). The source is a thing of this farm (`thingId`: its recordings are copied too, as new
+ * clips over the same blobs, so deleting the original never breaks the copy) or a pre-made example
+ * (`thing`, from web/data/library.json; it has no recordings). Names, questions, colour, eyes, legs
+ * and motion are kept; ids and dates are new. Refuses with `place-full` like addThing.
+ * @param {{placeId: string, thingId?: string, thing?: import('../types.js').Thing}} args
+ */
+export function copyThing(s, { placeId, thingId, thing: example }, env) {
+  const place = findPlace(s, placeId);
+  const source = thingId ? findThing(s, thingId) : example;
+  if (!source) throw new FarmError("invalid", "nothing to copy");
+  checkColor(source.color);
+  checkStroke(source.outline, 3);
+  checkLegs(source.legs);
+  if (!canAddThing(s, place.id)) throw new FarmError("place-full", `a place holds at most ${maxThings(s)} things`);
+  const clips = thingId ? s.clips.filter((c) => c.thingId === thingId) : [];
+  const at = placeCopy(source.outline, boxesIn(s, place.id), place);
+  const copy = copyOf(source, clips, { placeId: place.id, ...at }, env);
+  const thing = { ...copy.thing, names: copy.thing.names ?? {}, cues: copy.thing.cues ?? {}, eyes: copy.thing.eyes.slice(0, 2), legs: cleanLegs(copy.thing.legs) };
+  const newPlace = { ...place, thingOrder: [...place.thingOrder, thing.id], updatedAt: env.now() };
+  return {
+    snapshot: { ...s, things: [...s.things, thing], clips: [...s.clips, ...copy.clips], places: replace(s.places, newPlace) },
+    writes: [put("things", thing), put("places", newPlace), ...copy.clips.map((c) => put("clips", c))],
     change: change("thing-added", [thing.id]),
   };
 }

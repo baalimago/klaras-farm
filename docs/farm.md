@@ -15,6 +15,7 @@ The farm domain is the family's data: places (scenes), the things in them, their
 - `web/js/farm/legs.js`: leg (hip) geometry: `MAX_LEGS`, `LEG_COUNTS`, `spreadLegs`, `footY`, `legLength`, `legacyLegCount`, `cleanLegs`.
 - `web/js/farm/palette.js`: the Sunny felt palette (`SUNNY` key to hex), swatch lists, `isColorKey`, `hex`, `INK`.
 - `web/js/farm/scripts.js`: cue lines (1 to 6 per thing and language, free text over script examples) and colour game text from `web/data/scripts/<lang>.json`, with language fallback.
+- `web/js/farm/library.js`: the animal library (QA round 3): `thingKey`, `libraryEntries`, `placeCopy`, `boxesIn`, `copyOf`, `pickSeeds`, `seedCount`, `SEED_MIN`/`SEED_MAX`, `GROUND_AT`.
 - `web/js/farm/import.js`: pure checks for an export zip's contents (`checkImport`, `ImportError`, zip naming helpers).
 
 ## Data model
@@ -46,8 +47,9 @@ Invariants checked by `validateSnapshot` (never throws, returns `{ok}` or `{ok:f
 - `canonicalJson(value)`, `canonicalSnapshot(s)`: sorted keys and id-sorted entity arrays, so equal data gives equal strings.
 
 `farm/intents.js`. Every intent takes `(snapshot, args, env)`, never mutates its input, and returns `{snapshot, writes, change}`. `writes` are `Write` records (`put`/`delete` on `places|things|clips|settings|blobs`). `change` is `{kind, ids}` (for colour game clips `ids` holds only the clip id). Invalid input throws `FarmError` with `code` `invalid`, `not-found` or `place-full`.
-- Places: `createPlace` (also makes it current), `renamePlace`, `updatePlace` (patch `skyColor`, `groundColor`, `backdrop`, `findIt`, `pieces`), `deletePlace` (cascades things and clips, leaves blobs for the orphan sweep, moves `currentPlaceId`), `setCurrentPlace`.
+- Places: `createPlace` (also makes it current; with `seed: {examples, count?}` the new place starts with `SEED_MIN` to `SEED_MAX` (3 to 4, by `env.rng`) random library entries, the family's own things and the valid `examples`, copied with their recordings onto free spots of the ground, never more than `maxThings - 1` so there is room for one more; all in the one `place-created` change, whose `things` lists the seeded ids), `renamePlace`, `updatePlace` (patch `skyColor`, `groundColor`, `backdrop`, `findIt`, `pieces`), `deletePlace` (cascades things and clips, leaves blobs for the orphan sweep, moves `currentPlaceId`), `setCurrentPlace`.
 - Pieces: `addPiece`, `updatePiece`, `removePiece`.
+- Library: `copyThing {placeId, thingId | thing}` adds an independent copy of a thing of this farm (`thingId`; its clips are copied as new clip records over the same `blobSha256`, so no blob is written) or of a pre-made example (`thing` from `web/data/library.json`, no clips) on a free spot of the place's ground (`placeCopy`). Names, cues, colour, eyes, legs and motion are kept; ids and dates are new. `place-full` like `addThing`; `invalid` for a bad colour, outline or legs. Change `thing-added`.
 - Things: `maxThings(s)` (the family's cap, default 8 when unset), `canAddThing`, `addThing` (cap `settings.maxThings`, `place-full` beyond it; legs default to none, motion defaults to `walk`, attaches given clips), `updateThing` (patchable: `names, outline, color, eyes, legs, motion, cues`; clips are kept), `deleteThing` (`change.removed` holds `{thing, clips, index}` for Undo), `restoreThing` (checks only the hard limit `MAX_THINGS_LIMIT`: undoing a delete in a scene above a lowered cap restores a count it already had).
 - Clips: `saveClip` (thing clips or colour game clips with `thingId` null; replaces the clip with the same key in the same batch, optionally puts its blob first; takes 1 to 6; a colour question drops any `color`), `deleteClip`.
 - Questions: `setQuestionLine {thingId, language, index, text}` (empty text means the example), `addQuestion {thingId, language, text?}` (up to 6), `removeQuestion {thingId, language, index, examples?}` (at least 1 stays; deletes that line's prompt clip and moves later takes up one, in ascending order so no two clips share a key mid-batch; with `examples`, each empty line after `index` keeps its example as text so it still says what was recorded; the change carries `removed {thingId, language, lines, clips}`), `restoreQuestions(removed)` (its undo: the lines and that language's prompt clips as they were). A thing without `lines` starts from its 3 examples.
@@ -66,6 +68,13 @@ Invariants checked by `validateSnapshot` (never throws, returns `{ok}` or `{ok:f
 - `saveDraft`, `discardDraft`, `listDrafts`, `setMeta`, `getBlob`, `putBlob`, getters `settings`, `currentPlace`, and `thingsIn`, `clipsFor`, `gameClips`, `canAddThing`, getter `maxThings`.
 
 `farm/legs.js`: hips are board points inside the outline. A leg hangs straight down; its foot is `legLength(outline)` (0.35 of the thing's height, clamped to 8..34 px of a 600 px board) below the first edge under the hip (`edgeBelow`, `footY`). `spreadLegs(outline, n)` places n hips across the middle of the bottom, `HIP_INSET` above the edge. `legacyLegCount(motion)`: walk 2, scuttle 6, others 0, `params["legs.count"]` wins.
+
+`farm/library.js` (pure):
+- `thingKey(thing)`: the thing's names, colour, motion preset, cues, and outline, eyes and legs relative to the outline's box corner. Position and id do not count, so a copy has its original's key until either is changed.
+- `libraryEntries(s, examples)` returns `{own, examples}` of `{key, thing, clips, example}`: own things in place then drawing order, one per key (the one with most clips); an own thing with the key of an example and no clips (an untouched starter thing or example copy) is listed only as the example; examples one per key.
+- `placeCopy(outline, others, place)` returns `{dx, dy}` (3 decimals): candidates in rows whose body ends at y 0.92, 0.85, 0.78, 0.71 (only rows at least 0.05 below the backdrop's `GROUND_AT`) and 9 columns inside a 0.04 edge; the one with the largest gap to every box in `others` wins, ties to the lowest row and the middle. Deterministic.
+- `copyOf(thing, clips, {placeId, dx, dy}, env)`: a deep copy with fresh ids and dates, moved; only clips whose `thingId` is the thing's.
+- `pickSeeds(pool, n, rng)` (partial Fisher-Yates, input untouched), `seedCount(cap, poolSize, rng)`.
 
 `farm/palette.js`: `SUNNY`, `THING_COLORS`, `SKY_COLORS`, `GROUND_COLORS`, `SIMPLE_COLORS` (the 11 colour words the colour game uses; a one-way door, colour word clips store them; `play/colors.js` folds felt keys into them), `isColorKey(key)`, `hex(key)` (unknown keys fall back to grey).
 
@@ -93,6 +102,7 @@ Invariants checked by `validateSnapshot` (never throws, returns `{ok}` or `{ok:f
   6. Never regenerate `tests/fixtures/exports/v1/basic.zip` or `v3/basic.zip` (written once by the format 3 build, with an edited cue line and a take 3 prompt). They must keep importing to their `basic.expected.json`; update an expected file only if the migration intentionally adds fields (format 4 added `settings.maxThings: 8`).
   7. Regenerate the starter with `node tools/make-starter.mjs` (`--check` exits 1 when out of date; `web/js/io/starter.test.js` checks it).
 - Palette keys and clip key fields are one-way doors: never rename or remove them.
+- Blobs are content addressed: copies made by `copyThing` or seeding share their original's blobs through their own clip records. The orphan sweep keeps a blob while any clip uses it, so deleting the original never breaks a copy.
 - Deleting a thing or place leaves blobs; the orphan sweep removes blobs older than 24 h, which is what lets Undo restore clips.
 - `addThing` and `updateThing` keep at most 2 eyes and 8 legs, rounded to 3 decimals.
 - Lowering `settings.maxThings` below a scene's count keeps every thing; `canAddThing` (and Undo of a delete) refuses until the scene is under the cap again.
@@ -105,6 +115,7 @@ Invariants checked by `validateSnapshot` (never throws, returns `{ok}` or `{ok:f
 - `tests/unit/farm-store.test.js`: hydrate, one synchronous change per intent before the commit, invalid input, failed writes (rollback, dropped later intents), pending blobs, call order, `replaceAll` (and intents during it), every intent wrapper surviving a reload.
 - `tests/unit/export-fixture.test.js`: the frozen v1 and v3 exports still import (to format 4).
 - `tests/contracts/repository.contract.js`: also colour game clips (null `thingId`) and renumbered takes in one batch.
+- `web/js/farm/library.test.js` (keys, entries and folding, placement, copies, seeds), `web/js/farm/copy-intents.test.js` (`copyThing` and seeded `createPlace`: ids, clip copies, limits, placement, rng), `tests/unit/library-store.test.js` (through `FarmStore` and `MemoryRepo`: shows at once, persists, a copy's blob survives deleting the original and the sweep).
 - `tests/unit/find-it.test.js`: `findIt` default on, off per place.
 - `tests/browser/legs.test.js`: legs through guided add and reload; format 2 records get preset legs.
 - Shared builders: `tests/builders.js` (`fixedEnv`, `aSnapshot`, `aPlace`, `aThing`, `aClip`, `aBlob`, `square`).
