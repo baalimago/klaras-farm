@@ -210,6 +210,7 @@ test("eyes: the stamping screen always shows the way out and what the grown-up m
     el._go(2);
   });
   const view = page.locator('[data-testid="eye-stamping"]');
+  await page.getByRole("button", { name: "Let Klara stamp" }).click();
   await view.waitFor();
   const done = view.getByRole("button", { name: /^Done/ });
   const cancel = view.getByRole("button", { name: /^Cancel/ });

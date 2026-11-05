@@ -68,12 +68,8 @@ test("a parent adds a thing with 4 legs through guided add; the legs survive a r
   await page.getByRole("button", { name: "Next" }).click();
   await page.locator('.kf-swatch[data-color="blue"]').click();
   await page.getByRole("button", { name: "Next" }).click();
-  // Eyes: hand straight over to the grown-up.
-  const strip = await page.locator('[data-action="eyes-done"]').boundingBox();
-  await page.mouse.move(strip.x + strip.width / 2, strip.y + strip.height / 2);
-  await page.mouse.down();
-  await page.waitForTimeout(1200);
-  await page.mouse.up();
+  // Eyes: none (the panel's Next goes on).
+  await page.getByRole("heading", { name: "Eyes" }).waitFor();
   await page.getByRole("button", { name: "Next" }).click();
 
   // Legs: 4, placed one by one along the bottom of the shape.

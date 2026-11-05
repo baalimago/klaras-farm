@@ -1,13 +1,15 @@
-// Joining an open stroke onto shapes already drawn (Draw step and Redraw; playtest 2). Pure.
+// Joining a stroke onto shapes already drawn (Draw step and Redraw; playtests 2 and 3). Pure.
 //
-// A stroke whose two ends are far apart is normally refused as "open". But parents draw an ear or a
-// head by starting inside the body, going out and coming back in: the body closes the loop. So an open
-// stroke whose start and end both lie inside (or within JOIN_TOL of) a drawn shape is accepted here and
-// turned into a closed polygon: the stroke plus the straight segment back to its start. When both ends
-// sit in different shapes, that polygon (or, for a nearly straight stroke, a band around the stroke)
-// bridges them, so union.js glues them into one outline.
+// A stroke whose two ends are far apart is normally refused as "open". But parents draw an ear, a horn
+// or a head over the body, and the body closes the loop. So an open stroke that touches a drawn shape
+// (any part of it inside, within JOIN_TOL of an edge, or crossing one) is accepted here and turned into
+// a closed polygon: the stroke plus the straight segment back to its start. Playtest 3: it must not
+// matter where it starts or ends ("you need to start inside and end inside" was not discoverable).
+// When it touches two shapes, that polygon (or, for a nearly straight stroke, a band around the
+// stroke) bridges them, so union.js glues them into one outline. `touches` also tells the drawing
+// whether a closed shape touches the others (a shape drawn apart is refused, see drawing.js).
 
-import { pointInPolygon, nearestOnPolygon, polygonArea, pathLength } from "./stroke.js";
+import { pointInPolygon, nearestOnPolygon, polygonArea, pathLength, bbox } from "./stroke.js";
 
 /** @typedef {import('../types.js').Point} Point */
 
@@ -35,19 +37,68 @@ export function shapeAt(pt, shapes, tol = JOIN_TOL) {
   return best;
 }
 
+/** Orientation of c against the line a→b: 1, -1, or 0 when collinear. */
+function orient(a, b, c) {
+  const v = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+  return v > 1e-15 ? 1 : v < -1e-15 ? -1 : 0;
+}
+
+/** True when segments ab and cd cross (touching at a point counts; collinear overlaps are caught by the distance test). */
+function segmentsCross(a, b, c, d) {
+  const o1 = orient(a, b, c), o2 = orient(a, b, d), o3 = orient(c, d, a), o4 = orient(c, d, b);
+  return o1 !== o2 && o3 !== o4;
+}
+
+/** The segments of a polyline, closed back to the start when `closed`. */
+function segments(points, closed) {
+  const out = [];
+  for (let i = 0; i + 1 < points.length; i++) out.push([points[i], points[i + 1]]);
+  if (closed && points.length > 2) out.push([points[points.length - 1], points[0]]);
+  return out;
+}
+
+/** Two boxes grown by tol overlap (a cheap reject before the exact tests). */
+function boxesNear(a, b, tol) {
+  return a.x - tol <= b.x + b.w && b.x - tol <= a.x + a.w && a.y - tol <= b.y + b.h && b.y - tol <= a.y + a.h;
+}
+
 /**
- * Closes an open stroke on the shapes its ends lie in.
+ * Whether a stroke (or a closed shape) touches `shape`: a point of it is inside the shape or within
+ * `tol` of its edge, one of its segments crosses an edge, or, when `closed`, it holds the shape.
+ * @param {Point[]} points
+ * @param {Point[]} shape  a closed polygon
+ * @param {{tol?: number, closed?: boolean}} [opts]
+ */
+export function touches(points, shape, { tol = JOIN_TOL, closed = false } = {}) {
+  if (!Array.isArray(points) || !points.length || !Array.isArray(shape) || shape.length < 3) return false;
+  if (!boxesNear(bbox(points), bbox(shape), tol)) return false;
+  for (const p of points) if (pointInPolygon(p, shape) || nearestOnPolygon(p, shape).d <= tol) return true;
+  if (closed && points.length >= 3 && pointInPolygon(shape[0], points)) return true;
+  const edges = segments(shape, true);
+  for (const [a, b] of segments(points, closed)) for (const [c, d] of edges) if (segmentsCross(a, b, c, d)) return true;
+  return false;
+}
+
+/** Indexes of the shapes `points` touches (see touches). */
+export function touchedShapes(points, shapes, opts) {
+  const out = [];
+  (shapes ?? []).forEach((s, i) => { if (touches(points, s, opts)) out.push(i); });
+  return out;
+}
+
+/**
+ * Closes an open stroke that touches the shapes drawn so far.
  * @param {Point[]} points  the open stroke (board units)
- * @param {Point[][]} shapes  the shapes drawn so far
+ * @param {Point[][]} shapes  the shapes drawn so far (null entries are skipped)
  * @returns {null | {points: Point[], from: number, to: number}}  a closed polygon to add as a shape,
- *   and the shapes the stroke starts and ends in; null when an end is outside every shape.
+ *   and the shapes the stroke starts and ends in (-1 for an end outside every shape); null when the
+ *   stroke touches no shape.
  */
 export function joinOpenStroke(points, shapes, { tol = JOIN_TOL } = {}) {
   if (!Array.isArray(points) || points.length < 2 || !shapes?.length) return null;
   const from = shapeAt(points[0], shapes, tol);
-  if (from < 0) return null;
   const to = shapeAt(points[points.length - 1], shapes, tol);
-  if (to < 0) return null;
+  if ((from < 0 || to < 0) && !touchedShapes(points, shapes, { tol }).length) return null;
   const L = pathLength(points, true);
   const closed = points.map(([x, y]) => [x, y]);
   // A line (a neck from body to head, or a there-and-back stroke) has no area to fill: give it width.

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  STEPS, stampEye, upsertClip, stripClip, latestDraft, canAdvance, freeSpot, cleanNames, cleanCues, newDraft, refitEyes,
+  STEPS, normalizeDraft, validOutline, hasName, stepDone, furthestStep, stampEye, upsertClip, stripClip, latestDraft, canAdvance, freeSpot, cleanNames, cleanCues, newDraft, refitEyes,
   MOTIONS, THING_SIZE, THING_SIZES, sizeScale, nearestSize, sizeBox, resizeThing, sizedFill,
 } from "./steps.js";
 import { readdirSync } from "node:fs";
@@ -156,4 +156,50 @@ test("cleanCues keeps every question line (1 to 6), trimmed, and drops only the 
   assert.equal(cleanCues({ en: { lines: Array(9).fill("x") } }).en.lines.length, 6, "at most six");
   assert.deepEqual(cleanCues({ en: { lines: [null, "b", undefined] } }), { en: { lines: ["", "b", ""] } });
   assert.deepEqual(cleanCues(), {});
+});
+
+const SQUARE = [[0.4, 0.4], [0.6, 0.4], [0.6, 0.6], [0.4, 0.6]];
+const ready = () => ({ outline: SQUARE, color: "red", eyes: [], legs: [], legTarget: null, motion: { kind: "preset", preset: "walk", params: {} }, names: { en: "Cow" } });
+
+test("playtest 3: a resumed draft never opens on Eyes without a body to put them on", () => {
+  const at = [0.5, 0.6];
+  const eyes = STEPS.indexOf("eyes");
+  for (const outline of [null, undefined, [], [[0.1, 0.1], [0.2, 0.2]], [[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]], [[0.1, 0.1], [NaN, 0.2], [0.3, 0.1]], "nonsense"]) {
+    const d = normalizeDraft({ id: "d", placeId: "p", step: eyes, thing: { ...ready(), outline } }, at);
+    assert.equal(STEPS[d.step], "draw", `outline ${JSON.stringify(outline)} sends it back to Body`);
+    assert.equal(d.thing.outline, null, "the broken outline is dropped");
+  }
+  assert.equal(STEPS[normalizeDraft({ step: eyes, thing: ready() }, at).step], "eyes", "a good draft resumes where it was");
+});
+
+test("normalizeDraft clamps the step to the first step whose work is missing", () => {
+  const at = [0.5, 0.6];
+  const last = STEPS.length - 1;
+  assert.equal(STEPS[normalizeDraft({ step: last, thing: { ...ready(), color: null } }, at).step], "felt");
+  assert.equal(STEPS[normalizeDraft({ step: last, thing: { ...ready(), legTarget: 3 } }, at).step], "legs", "legs still missing");
+  assert.equal(STEPS[normalizeDraft({ step: last, thing: { ...ready(), motion: null } }, at).step], "moves");
+  assert.equal(STEPS[normalizeDraft({ step: last, thing: { ...ready(), names: { en: "  " } } }, at).step], "name", "no name: back to Name");
+  assert.equal(normalizeDraft({ step: last, thing: ready() }, at).step, last);
+  assert.equal(normalizeDraft({ step: 99, thing: ready() }, at).step, last);
+  assert.equal(normalizeDraft({ step: "x", thing: ready() }, at).step, 0);
+  const old = normalizeDraft({ step: 2, thing: { outline: SQUARE, color: "red", eyes: "bad", legs: null, names: null } }, at);
+  assert.deepEqual([old.thing.eyes, old.thing.legs, old.thing.names, old.at, old.clips], [[], [], {}, at, []], "an older draft gets every field");
+});
+
+test("validOutline, hasName, stepDone and furthestStep", () => {
+  assert.equal(validOutline(SQUARE), true);
+  assert.equal(validOutline([[0, 0], [1, 0], [1, 1]]), true);
+  assert.equal(validOutline([[0, 0], [0.5, 0.5], [1, 1]]), false, "no area");
+  assert.equal(validOutline([[0, 0], [1, 0], [1, Infinity]]), false);
+  assert.equal(validOutline([[0, 0], [1, 0], null]), false);
+  assert.equal(canAdvance("draw", { outline: [[0, 0], [0.5, 0.5], [1, 1]] }), false, "a sliver is no body");
+  assert.equal(hasName({ names: { en: " ", sv: "ko" } }), true);
+  assert.equal(hasName({ names: { en: " " } }), false);
+  assert.equal(hasName({}), false);
+  assert.equal(hasName(null), false);
+  assert.equal(stepDone("name", { names: {} }), false);
+  assert.equal(stepDone("name", { names: { en: "Cow" } }), true);
+  assert.equal(stepDone("eyes", {}), true);
+  assert.equal(furthestStep({}), 0);
+  assert.equal(furthestStep(ready()), STEPS.length - 1);
 });

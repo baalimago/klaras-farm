@@ -1,5 +1,6 @@
 // Size and walking style in the parent UI (meeting 2), each element mounted alone with fake services:
-// the thing card's Moves row (its Size row is gone since QA round 3), and guided add's Size (Felt step) and Moves step.
+// the thing card's Moves row (its Size row is gone since QA round 3), and guided add's Felt step
+// (no size picker since QA round 3) and Moves step.
 // Set KF_SHOTS to a folder to save iPad-sized screenshots for a look.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -64,36 +65,32 @@ test("thing card: no Size row (animals are resized with the edit-mode scale tool
   assert.deepEqual(page.errors, []);
 });
 
-test("guided add: Size on the Felt step rescales at once and survives another shape; Moves offers four styles", async () => {
+test("guided add: the Felt step has no size picker (playtest 3), a drawing always gets the default size; Moves offers four styles", async () => {
   const page = await panelPage("kf-guided-add", false);
   await page.evaluate(() => {
     const el = window.__el;
-    el.draft.thing.outline = [[0.4, 0.5], [0.64, 0.5], [0.64, 0.66], [0.4, 0.66]]; // Medium: fills the width
+    el.draft.thing.outline = [[0.4, 0.5], [0.64, 0.5], [0.64, 0.66], [0.4, 0.66]];
     el._go(1);
   });
   await page.getByRole("heading", { name: "Pick its felt" }).waitFor();
-  assert.equal(await page.locator('.kf-ga-size[data-size="medium"]').getAttribute("aria-pressed"), "true");
+  assert.equal(await page.locator('.kf-ga-size, [aria-label="Size"]').count(), 0, "no Small / Medium / Big");
+  await page.getByText("The whole animal is made of this felt.").waitFor();
   await page.locator('.kf-swatch[data-color="pink"]').click();
-  await page.locator('.kf-ga-size[data-size="small"]').click();
-  assert.equal(await page.locator('.kf-ga-size[data-size="small"]').getAttribute("aria-pressed"), "true", "shows at once");
-  assert.ok(Math.abs(box(await page.evaluate(() => window.__el.thing.outline)).w - 0.24 * 0.7) < 1e-9);
-  await page.waitForFunction(async () => {
-    const d = (await window.__t.store.listDrafts())[0];
-    const xs = d?.thing.outline.map((p) => p[0]) ?? [];
-    return xs.length > 0 && Math.max(...xs) - Math.min(...xs) < 0.2;
-  });
-  await shot(page, "add-felt-small");
-  await page.locator('.kf-ga-size[data-size="big"]').click();
-  assert.ok(Math.abs(box(await page.evaluate(() => window.__el.thing.outline)).w - 0.24 * 1.3) < 1e-9);
-  await shot(page, "add-felt-big");
+  assert.equal(await page.locator('.kf-swatch[data-color="pink"]').getAttribute("aria-pressed"), "true", "shows at once");
+  assert.equal(await page.evaluate(() => window.__el.thing.color), "pink");
+  await page.waitForFunction(async () => (await window.__t.store.listDrafts())[0]?.thing.color === "pink");
+  await shot(page, "add-felt");
 
-  // another shape glued on refits the drawing but keeps the picked size
-  await page.evaluate(() => {
-    const el = window.__el;
-    el._drawing = { merged: [[0.1, 0.1], [0.3, 0.1], [0.3, 0.2], [0.1, 0.2]] };
-    el._applyDrawing();
-  });
-  assert.ok(Math.abs(box(await page.evaluate(() => window.__el.thing.outline)).w - 0.24 * 1.3) < 1e-9);
+  // a drawing (even a small or a huge one) is fitted to the default thing size
+  for (const merged of [[[0.1, 0.1], [0.12, 0.1], [0.12, 0.11], [0.1, 0.11]], [[0, 0], [1, 0], [1, 0.9], [0, 0.9]]]) {
+    await page.evaluate((merged) => {
+      const el = window.__el;
+      el._drawing = { merged };
+      el._applyDrawing();
+    }, merged);
+    const b = box(await page.evaluate(() => window.__el.thing.outline));
+    assert.ok(Math.abs(b.w - 0.24) < 1e-9 || Math.abs(b.h - 0.32) < 1e-9, JSON.stringify(b));
+  }
 
   await page.evaluate(() => window.__el._go(4));
   await page.getByRole("heading", { name: "How does it move?" }).waitFor();

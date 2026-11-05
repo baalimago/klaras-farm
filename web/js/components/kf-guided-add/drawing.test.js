@@ -66,8 +66,9 @@ test("a shape can be moved, resized, redrawn and deleted; undo reverts each", ()
   d.undo();
   assert.deepEqual(d.shapes[1], rect(0.45, 0.2, 0.1, 0.1));
 
-  assert.equal(d.replace(1, rect(0.1, 0.1, 0.1, 0.1)), true);
-  assert.deepEqual(d.shapes[1], rect(0.1, 0.1, 0.1, 0.1));
+  assert.equal(d.replace(1, rect(0.1, 0.1, 0.1, 0.1)), false, "drawn apart from the body");
+  assert.equal(d.replace(1, rect(0.15, 0.25, 0.1, 0.1)), true);
+  assert.deepEqual(d.shapes[1], rect(0.15, 0.25, 0.1, 0.1));
   assert.equal(d.replace(1, [[0, 0]]), false);
   assert.equal(d.replace(9, rect(0, 0, 1, 1)), false);
   assert.equal(d.remove(0), true);
@@ -102,7 +103,9 @@ test("an open stroke whose ends are in the body joins it as a new shape", () => 
   assert.equal(d.addOpen(ear), true);
   assert.equal(d.count, 2);
   assert.ok(pointInPolygon([0.5, 0.33], d.merged));
-  assert.equal(d.addOpen([[0.5, 0.5], [0.9, 0.1]]), false, "an end outside every shape");
+  assert.equal(d.addOpen([[0.85, 0.2], [0.9, 0.1]]), false, "touches no shape");
+  assert.equal(d.addOpen([[0.5, 0.5], [0.9, 0.1]]), true, "starts in the body and goes out: joins (playtest 3)");
+  d.undo();
   // redrawing shape 1 with an open stroke: its ends must be in another shape
   assert.equal(d.addOpen(ear, { replace: 1 }), true);
   assert.equal(d.count, 2);
@@ -121,4 +124,29 @@ test("transformPoints scales about the shape's centre, then moves it; clampScale
   assert.ok(near(clampScale(r, 100), 1.2 / 0.2));
   assert.ok(near(clampScale(r, 0.01), 0.04 / 0.2));
   assert.equal(clampScale(r, NaN), 1);
+});
+
+test("place says why a stroke is refused: full, invalid, open, apart", () => {
+  const d = new ShapeDrawing();
+  assert.deepEqual(d.place([[0.1, 0.1], [0.2, 0.2]], { closed: false }), { ok: false, reason: "open" }, "nothing to close it on");
+  assert.deepEqual(d.place([[0, 0], [1, 1]]), { ok: false, reason: "invalid" });
+  assert.deepEqual(d.place(rect(0.3, 0.4, 0.4, 0.3)), { ok: true }, "the first shape always fits");
+  assert.deepEqual(d.place(rect(0.8, 0.1, 0.1, 0.1)), { ok: false, reason: "apart" });
+  assert.equal(d.count, 1, "a refused shape is not added");
+  assert.deepEqual(d.place(rect(0.65, 0.3, 0.2, 0.2)), { ok: true }, "an overlapping head joins");
+  assert.deepEqual(d.place(rect(0.1, 0.1, 0.1, 0.1), { replace: 7 }), { ok: false, reason: "invalid" });
+  assert.deepEqual(d.place(rect(0.1, 0.1, 0.1, 0.1), { replace: 0 }), { ok: false, reason: "apart" }, "a redraw must touch the rest");
+  // redrawing the only shape: nothing else to touch, so anything goes
+  const one = new ShapeDrawing([rect(0.3, 0.4, 0.4, 0.3)]);
+  assert.deepEqual(one.place(rect(0.1, 0.1, 0.1, 0.1), { replace: 0 }), { ok: true });
+  assert.deepEqual(one.place([[0.1, 0.1], [0.3, 0.3]], { closed: false, replace: 0 }), { ok: false, reason: "open" });
+  const full = new ShapeDrawing(Array.from({ length: MAX_SHAPES }, () => rect(0.3, 0.4, 0.4, 0.3)));
+  assert.deepEqual(full.place(rect(0.3, 0.4, 0.1, 0.1)), { ok: false, reason: "full" });
+  assert.deepEqual(full.place(rect(0.3, 0.4, 0.1, 0.1), { replace: 2 }), { ok: true }, "a full drawing can still redraw a shape");
+});
+
+test("a shape drawn over the body joins it; the merged outline is one piece", () => {
+  const d = new ShapeDrawing([rect(0.3, 0.4, 0.4, 0.3)]);
+  assert.equal(d.add(rect(0.6, 0.3, 0.2, 0.2)), true);
+  assert.ok(pointInPolygon([0.75, 0.35], d.merged) && pointInPolygon([0.4, 0.6], d.merged));
 });
