@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { spokenName, nameVoice, soundVoice, lineVoice, questionVoice } from "./voice.js";
+import { spokenName, nameVoice, soundVoice, lineVoice, questionVoice, colorQuestionVoice } from "./voice.js";
+import { planColorAsk } from "./ask.js";
 import { aSnapshot, aPlace, aThing, aClip } from "../../../tests/builders.js";
 
 const farm = (...clips) => {
@@ -48,4 +49,25 @@ test("questionVoice reads the takes recorded in that language only", () => {
   assert.equal(questionVoice(s, "cow", "en", 2), "recording");
   assert.equal(questionVoice(s, "cow", "en", 1), "skipped");
   assert.equal(questionVoice(s, "cow", "sv", 2), "voice");
+});
+
+test("colorQuestionVoice: a recorded question plays only with the colour's word, so it says for how many colours", () => {
+  const colors = (words) => ({ needed: ["yellow", "pink"], words });
+  assert.deepEqual(colorQuestionVoice([1], 1, colors(["yellow", "pink"])), { source: "recording", recorded: 2, total: 2, missing: [] });
+  assert.deepEqual(colorQuestionVoice([1], 1, colors(["yellow"])), { source: "partial", recorded: 1, total: 2, missing: ["pink"] });
+  assert.equal(colorQuestionVoice([1], 1, colors([])).source, "voice");
+  assert.equal(colorQuestionVoice([1], 1, colors([]), false).source, "none");
+  assert.equal(colorQuestionVoice([1], 2, colors(["yellow"])).source, "skipped");
+  assert.equal(colorQuestionVoice([], 1, colors(["yellow"])).source, "voice");
+  assert.equal(colorQuestionVoice([1], 1, { needed: [], words: [] }).source, "recording", "no colours in the scene yet");
+});
+
+test("colorQuestionVoice agrees with planColorAsk for every colour of the scene", () => {
+  const q = [{ id: "q", language: "en", kind: "color-question", take: 1 }];
+  const words = [{ id: "w", language: "en", kind: "color-word", color: "yellow" }];
+  const v = colorQuestionVoice([1], 1, { needed: ["yellow", "pink"], words: ["yellow"] });
+  for (const color of ["yellow", "pink"]) {
+    const plan = planColorAsk({ questions: q, words: words.filter((w) => w.color === color), lang: "en", line: { text: "Tap", lang: "en" }, canSpeak: true, rng: () => 0 });
+    assert.equal(plan.recorded, !v.missing.includes(color), color);
+  }
 });

@@ -114,7 +114,8 @@ test("add a thing end to end: draw, felt, eyes, legs, moves, name, one question,
 
   // Felt
   assert.equal(await step(page), "felt");
-  assert.equal(await next.isDisabled(), true);
+  assert.equal(await page.locator('.kf-swatch[aria-pressed="true"]').getAttribute("data-color"), "tan", "the felt the drawing showed");
+  assert.equal(await next.isDisabled(), false);
   await page.locator('.kf-swatch[data-color="pink"]').click();
   assert.equal(await page.locator('.kf-swatch[data-color="pink"]').getAttribute("aria-pressed"), "true");
   await page.getByRole("button", { name: "Next" }).click();

@@ -5,7 +5,9 @@
 // Every recording slot says what Klara hears for it now (play/voice.js, the rule play uses): "Your
 // recording" with ▶, or the iPad voice with an invitation to record. A new take replaces the old one.
 // An empty name field is highlighted ("Give it a name"); Enter in any text field commits it and
-// closes the keyboard. Changes save immediately; there is no Save button. Props: `services`, `params = {thingId}`.
+// closes the keyboard. Changes save immediately; there is no Save button. After a change, "Undo
+// changes" puts the thing back as it was when the card opened (revert.js; recordings stay), with a
+// toast that can take that back too. Props: `services`, `params = {thingId}`.
 import { h, ensureElement, languageName } from "../kf-guided-add/dom.js";
 import { loadGeometry, snapPoint } from "../kf-guided-add/geometry.js";
 import { ThingPreview, viewFor, FULL_VIEW } from "../kf-guided-add/preview.js";
@@ -24,6 +26,8 @@ import { pressGuard } from "../kf-dialog/press-guard.js";
 import { commitOnEnter } from "./enter.js";
 import { nameVoice, soundVoice } from "../../play/voice.js";
 import { lineVoiceText } from "./clip-slot.js";
+import { changedFields, revertPatch } from "./revert.js";
+import { reportFailure } from "../kf-dialog/dom.js";
 
 const KIND_LABEL = { name: "name", prompt: "question", sound: "sound" };
 
@@ -38,6 +42,10 @@ export class ThingCardElement extends HTMLElement {
     this._addingLang = false;
     this._failed = new Set();
     this._dirty = false;
+    /** The thing as it was when the card opened, for Undo changes. */
+    this._original = null;
+    /** Scroll the recorder that is opening into view on the next render. */
+    this._reveal = false;
   }
 
   connectedCallback() {
@@ -79,6 +87,7 @@ export class ThingCardElement extends HTMLElement {
     // A field that was being typed in has let go: now the words column can catch up too.
     this.addEventListener("focusout", () => queueMicrotask(() => { if (this._dirty) this._guard.request(); }));
     if (!this.thing) return this._close();
+    this._original = structuredClone(this.thing);
     this._render();
   }
 
@@ -112,6 +121,7 @@ export class ThingCardElement extends HTMLElement {
     const thing = this.thing;
     const title = this.querySelector("#kf-tc-title");
     if (title) title.textContent = this.titleText(thing);
+    this.querySelector(".kf-tc-revert")?.replaceChildren(...[this._revertBtn(thing)].filter(Boolean));
     const look = this.querySelector(".kf-tc-look");
     if (!look) return;
     look.replaceWith(this._look(thing));
@@ -144,7 +154,9 @@ export class ThingCardElement extends HTMLElement {
         "div",
         { class: "kf-row kf-tc-head" },
         h("h2", { id: "kf-tc-title", text: this.titleText(thing) }),
-        h("button", { class: "kf-btn icon", type: "button", "aria-label": "Close", text: "✕", onclick: () => this._close() }),
+        h("div", { class: "kf-row kf-tc-head-end" },
+          h("span", { class: "kf-tc-revert" }, this._revertBtn(thing)),
+          h("button", { class: "kf-btn icon", type: "button", "aria-label": "Close", text: "✕", onclick: () => this._close() })),
       ),
       this._tabs(),
       this._addingLang ? this._addLangRow() : null,
@@ -165,6 +177,17 @@ export class ThingCardElement extends HTMLElement {
     this._sheet = sheet;
     sheet.scrollTop = scroll;
     this._drawPreview();
+    if (this._reveal) {
+      // A recorder opening low on a scrolled card would show half cut off (QA round 3).
+      this._reveal = false;
+      sheet.querySelector(".kf-tc-recorder")?.scrollIntoView({ block: "nearest" });
+    }
+  }
+
+  /** "Undo changes", in the head beside ✕ where it is seen at once; only once the thing has changed. */
+  _revertBtn(thing) {
+    if (!changedFields(this._original, thing).length) return null;
+    return h("button", { class: "kf-btn", type: "button", text: "Undo changes", "data-action": "revert", onclick: () => this._revert() });
   }
 
   _tabs() {
@@ -274,7 +297,7 @@ export class ThingCardElement extends HTMLElement {
       clipRef: { thingId: this.thingId, language: this.lang, kind, take },
       failed: !!clip && this._failed.has(clip.id),
       voice,
-      onOpen: () => { this._recording = { language: this.lang, kind, take }; this._render(); },
+      onOpen: () => { this._recording = { language: this.lang, kind, take }; this._reveal = true; this._render(); },
       onCancel: () => { this._recording = null; this._render(); },
       onRecorded: (detail) => this._saveRecording(detail, { kind, take }),
     });
@@ -433,7 +456,7 @@ export class ThingCardElement extends HTMLElement {
     const pad = document.createElement("kf-draw-pad");
     pad.setAttribute("mode", "outline");
     pad.mode = "outline";
-    pad.color = thing.color;
+    pad.color = "dark"; // the pencil line is always ink, as in guided add: a white felt line would not show
     pad.services = this.services;
     stage.append(pad);
     const note = h("p", { class: "kf-note" });
@@ -534,6 +557,23 @@ export class ThingCardElement extends HTMLElement {
   /** Board point → client point in the open eye stamping or leg placing view (tests). */
   toClient(x, y) {
     return (this._overlay?.stamper ?? this._overlay?.placer?.preview)?.toClient(x, y);
+  }
+
+  /**
+   * Undo changes: the thing goes back to how it was when the card opened, at once (the store shows
+   * it inside the tap); the toast's Undo puts the changes back. Recordings are left as they are.
+   */
+  _revert() {
+    const now = this.thing;
+    const patch = revertPatch(this._original, now);
+    if (!now || !patch) return;
+    const redo = Object.fromEntries(Object.keys(patch).map((k) => [k, structuredClone(now[k])]));
+    const { store, shell } = this.services;
+    this._update(patch);
+    const name = this.displayName(this._original);
+    shell?.toast?.(`The ${name} is back as it was`, {
+      undo: () => store.updateThing({ thingId: this.thingId, patch: redo }).catch((e) => reportFailure(this.services, e)),
+    });
   }
 
   async _delete() {

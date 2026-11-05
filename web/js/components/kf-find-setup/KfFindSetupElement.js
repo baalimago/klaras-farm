@@ -13,7 +13,7 @@
 // Props: services ({store, audio, scripts, recorder, session, env}), params {game}. Dispatches kf-close.
 import { h, ensureElement, languageName } from "../kf-guided-add/dom.js";
 import { clipSlot, lineVoiceText } from "../kf-thing-card/clip-slot.js";
-import { lineVoice } from "../../play/voice.js";
+import { colorQuestionVoice } from "../../play/voice.js";
 import { questionsSection } from "../kf-thing-card/questions.js";
 import { stripClip } from "../kf-guided-add/steps.js";
 import { pressGuard } from "../kf-dialog/press-guard.js";
@@ -166,7 +166,7 @@ export class KfFindSetupElement extends HTMLElement {
         !takes.length && this.canSpeak
           ? h("p", { class: "kf-invite", "data-testid": "color-invite", text: "The iPad voice asks this for now. Record your own: Klara knows your voice best." })
           : null,
-        Array.from({ length: slots }, (_, i) => this._slot({ kind: "color-question", take: i + 1 }, said, `colour question ${i + 1}`, lineVoiceText(lineVoice(takes, i + 1, this.canSpeak)))),
+        Array.from({ length: slots }, (_, i) => this._slot({ kind: "color-question", take: i + 1 }, said, `colour question ${i + 1}`, this._askVoice(takes, i + 1, words))),
         h("button", { class: "kf-btn", type: "button", "data-action": "add-ask", text: "+ Another way to ask", disabled: slots >= 6, onclick: () => this.dispatch({ type: "add-ask", shown: slots }) })),
       h("section", { class: "kf-fs-colors" },
         h("h3", { text: "2. The colours" }),
@@ -182,9 +182,10 @@ export class KfFindSetupElement extends HTMLElement {
         h("div", { class: "kf-swatches kf-fs-swatches", role: "group", "aria-label": "Colours" },
           SIMPLE_COLORS.map((c) => {
             const done = words.some((w) => w.color === c);
+            const todo = missing.colors.includes(c);
             return h("button", {
-              class: `kf-swatch kf-fs-swatch${missing.colors.includes(c) ? " is-missing" : ""}${done ? " is-done" : ""}`, type: "button",
-              "data-group": c, "aria-pressed": String(c === picked), "aria-label": `${this._colorName(c)}${done ? ", recorded" : ""}`,
+              class: `kf-swatch kf-fs-swatch${todo ? " is-missing" : ""}${done ? " is-done" : ""}`, type: "button",
+              "data-group": c, "aria-pressed": String(c === picked), "aria-label": `${this._colorName(c)}${done ? ", recorded" : todo ? ", word still to record" : ""}`,
               style: { background: groupHex(c) }, text: done ? "✓" : "",
               onclick: () => this.dispatch({ type: "pick", color: c }),
             });
@@ -199,11 +200,32 @@ export class KfFindSetupElement extends HTMLElement {
     ];
   }
 
+  /**
+   * What a colour question slot plays (play/voice.js colorQuestionVoice, the rule play/ask.js uses):
+   * a recorded question is heard only with that colour's recorded word, so the slot says for how many
+   * of the scene's colours, and names the ones that still get the iPad voice.
+   */
+  _askVoice(takes, take, words) {
+    const v = colorQuestionVoice(takes, take, { needed: this._neededColors(), words: words.map((w) => w.color) }, this.canSpeak);
+    const own = takes.includes(take);
+    if (v.source === "partial") {
+      const rest = v.missing.map((c) => this._colorName(c)).join(", ");
+      return { source: v.source, text: `Plays with each colour's word: ${v.recorded} of ${v.total} recorded (${rest}: ${this.canSpeak ? "iPad voice for now" : "not asked yet"})` };
+    }
+    if (own && v.source === "voice") return { source: v.source, text: "iPad voice until a colour word is recorded" };
+    if (own && v.source === "none") return { source: v.source, text: "Not heard until a colour word is recorded" };
+    return lineVoiceText(v.source);
+  }
+
+  /** The colour groups of the scene's things. */
+  _neededColors() {
+    return [...new Set(this._things().map((t) => colorGroup(t.color)).filter(Boolean))];
+  }
+
   /** The scene's colours (and the question) still missing a recording in `lang`. */
   _missing(lang) {
-    const needed = [...new Set(this._things().map((t) => colorGroup(t.color)).filter(Boolean))];
     return colorMissing({
-      needed,
+      needed: this._neededColors(),
       words: this.store.gameClips({ kind: "color-word" }),
       questions: this.store.gameClips({ kind: "color-question" }),
       lang,

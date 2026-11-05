@@ -103,3 +103,57 @@ test("guided add: the Felt step has no size picker (playtest 3), a drawing alway
   await shot(page, "add-moves");
   assert.deepEqual(page.errors, []);
 });
+
+test("thing card Redraw draws its pencil line in ink, never in the felt (a white cow's lines must show)", async () => {
+  const page = await panelPage("kf-thing-card", true);
+  await page.evaluate(() => window.__t.store.updateThing({ thingId: window.__t.thingId, patch: { color: "white" } }));
+  await page.locator('[data-action="redraw"]').click();
+  assert.equal(await page.evaluate(() => document.querySelector(".kf-tc-overlay kf-draw-pad").color), "dark");
+  assert.deepEqual(page.errors, []);
+});
+
+test("thing card: Undo changes shows after an edit and puts the thing back as it was when the card opened; recordings stay", async () => {
+  const page = await panelPage("kf-thing-card", true);
+  const undo = page.locator('[data-action="revert"]');
+  assert.equal(await undo.count(), 0, "nothing changed yet");
+  await page.evaluate(() => window.__t.store.saveClip({ clip: { thingId: window.__t.thingId, language: "en", kind: "sound", take: 1, blobSha256: "a".repeat(64), mime: "audio/mp4", durationMs: 400, trimStartMs: 0, trimEndMs: 400, gainDb: 0 }, blob: { sha256: "a".repeat(64), mime: "audio/mp4", size: 1, createdAt: "2026-11-05T00:00:00.000Z", bytes: new Uint8Array([1]).buffer } }));
+  assert.equal(await undo.count(), 0, "a recording is not a change to put back");
+  await page.locator('.kf-swatch[data-color="red"]').click();
+  await page.locator('.kf-tc-motion[data-motion="hop"]').click();
+  await page.locator('input[name="name"]').fill("Piggy");
+  await page.locator('input[name="name"]').press("Enter");
+  await undo.waitFor();
+  const b = await undo.boundingBox();
+  assert.ok(b.height >= 44 && b.y < 150, `in the head beside ✕, seen without scrolling: ${JSON.stringify(b)}`);
+  await shot(page, "card-undo-changes");
+  await undo.click();
+  await page.waitForFunction(() => window.__t.store.snapshot.things[0].color === "pink");
+  const t = await page.evaluate(() => window.__t.store.snapshot.things[0]);
+  assert.deepEqual([t.color, t.motion.preset, t.names.en], ["pink", "walk", "Pig"]);
+  assert.equal(await page.evaluate(() => window.__t.store.clipsFor(window.__t.thingId).length), 1, "the recording stays");
+  await undo.waitFor({ state: "detached" });
+  assert.equal(await page.locator(".kf-swatch[aria-pressed=true]").getAttribute("data-color"), "pink", "the card shows it at once");
+  const toast = await page.evaluate(() => window.__f1.toasts.at(-1));
+  assert.match(toast.message, /Pig is back as it was/);
+  assert.equal(await page.evaluate(() => typeof window.__f1.toasts.at(-1).undo), "function", "the toast can take it back");
+  assert.deepEqual(page.errors, []);
+});
+
+test("thing card: an opened recorder scrolls into view", async () => {
+  const page = await panelPage("kf-thing-card", true);
+  await page.setViewportSize({ width: 1180, height: 820 });
+  await page.evaluate(async () => {
+    for (let i = 0; i < 3; i++) await window.__t.store.addQuestion({ thingId: window.__t.thingId, language: "en", text: `Where is the pig ${i}?` });
+  });
+  await page.locator('.kf-tc-clip[data-kind="sound"]').evaluate((slot) => slot.scrollIntoView({ block: "end" }));
+  await page.locator('.kf-tc-clip[data-kind="sound"] [data-action="record"]').click();
+  await page.locator(".kf-tc-clip[data-kind=sound] .kf-tc-recorder").waitFor();
+  const inView = await page.evaluate(() => {
+    const r = document.querySelector(".kf-tc-clip[data-kind=sound] .kf-tc-recorder").getBoundingClientRect();
+    const s = document.querySelector(".kf-tc").getBoundingClientRect();
+    return r.top >= s.top - 1 && r.bottom <= Math.min(s.bottom, innerHeight) + 1;
+  });
+  assert.ok(inView, "the whole recorder shows");
+  await shot(page, "card-record-sound");
+  assert.deepEqual(page.errors, []);
+});

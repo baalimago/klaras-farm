@@ -250,6 +250,11 @@ test("colour game setup: record the question, tap an animal to record its colour
   await page.locator('kf-recorder [data-stub="take"]').click();
   await page.waitForFunction(() => window.__t.store.gameClips({ kind: "color-question" }).length === 1);
   await status.filter({ hasText: "Still to record: yellow, pink." }).waitFor();
+  // The recorded question plays only with a recorded colour word (play/ask.js planColorAsk): the slot
+  // never says "Your recording" while Klara still hears the iPad voice.
+  const q1 = page.locator('.kf-tc-clip[data-kind="color-question"][data-take="1"] .kf-tc-voice');
+  assert.equal(await q1.getAttribute("data-voice"), "voice");
+  assert.equal(await q1.textContent(), "iPad voice until a colour word is recorded");
 
   // Tap the hen: its colour (yellow) opens; record the word.
   await page.locator(`.kf-fs-pick-thing[data-thing="${await page.evaluate(() => window.__t.hen)}"]`).click();
@@ -259,6 +264,8 @@ test("colour game setup: record the question, tap an animal to record its colour
   await page.locator('kf-recorder [data-stub="take"]').click();
   await page.waitForFunction(() => window.__t.store.gameClips({ kind: "color-word", color: "yellow" }).length === 1);
   await status.filter({ hasText: "Still to record: pink." }).waitFor();
+  assert.equal(await q1.getAttribute("data-voice"), "partial");
+  assert.equal(await q1.textContent(), "Plays with each colour's word: 1 of 2 recorded (pink: iPad voice for now)");
   assert.equal(await page.locator('.kf-fs-swatch[data-group="yellow"]').getAttribute("aria-label"), "yellow, recorded");
   assert.equal(await page.locator('[role="tab"][data-lang="en"]').textContent(), "English · 1 to record");
 
@@ -267,6 +274,7 @@ test("colour game setup: record the question, tap an animal to record its colour
   await page.locator('.kf-tc-clip[data-kind="color-word"][data-color="pink"] [data-action="record"]').click();
   await page.locator('kf-recorder [data-stub="take"]').click();
   await status.filter({ hasText: "Everything for this scene is recorded in English ✓" }).waitFor();
+  assert.equal(await q1.textContent(), "Your recording");
   const words = await page.evaluate(() => window.__t.store.gameClips({ kind: "color-word" }).map((c) => [c.color, c.language, c.thingId]));
   assert.deepEqual(words.sort(), [["pink", "en", null], ["yellow", "en", null]]);
   await page.screenshot({ path: join(ROOT, "tests/browser/.shots/colour-setup.png"), fullPage: true }).catch(() => {});

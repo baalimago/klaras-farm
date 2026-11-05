@@ -3,7 +3,8 @@
 // "+ Add" (and "Add an animal" on an empty scene) opens the animal library (panel `library`, QA
 // round 3) and shows how many things the scene has against its limit ("5/8"); a full scene keeps
 // it on, with the reason under the bar, and the library says the same with the way out. Badges:
-// pencil → the thing card; cross → confirm (naming the recordings) → delete → Undo toast.
+// pencil → the thing card; cross → confirm (naming the recordings) → delete → Undo toast. The pencil
+// carries one mark for what the thing still needs: "?" without a typed name, 🎤 without a recorded one.
 // Badges are placed once from services.board.actorRect(id) and re-placed on store changes and resize,
 // never per frame. Hidden while a panel is open over edit mode, and while a thing is dragged.
 // Selection and resize are the pure machine in edit/selection.js (`this._sel`); every event goes
@@ -243,19 +244,18 @@ export class KfEditLayerElement extends HTMLElement {
       // Close to the thing's top centre, so a wide thing's pencil still reads as its own.
       const half = Math.max(BADGE / 2 + 6, Math.min(BADGE_SPREAD_MAX, r.width * 0.3));
       const y = clampY(r.top);
-      const needsVoice = s.store.clipsFor(thing.id, { kind: "name" }).length === 0;
-      const pencil = this._badge("pencil", needsVoice ? `Edit ${name} (needs your voice)` : `Edit ${name}`, "✎", clampX(cx - half), y, () => {
+      const need = this._need(thing);
+      const pencil = this._badge("pencil", need ? `Edit ${name} (${need.label})` : `Edit ${name}`, "✎", clampX(cx - half), y, () => {
         this._dispatch({ type: "pencil", id: thing.id });
         s.session?.openPanel("card", { thingId: thing.id });
       });
-      if (needsVoice) {
-        // A small mic dot: this thing has no recorded name yet, so play uses the iPad's voice.
+      if (need) {
         const dot = document.createElement("span");
-        dot.className = "kf-voice-dot";
+        dot.className = need.dot;
         dot.setAttribute("aria-hidden", "true");
-        dot.textContent = "🎤";
+        dot.textContent = need.glyph;
         pencil.append(dot);
-        pencil.classList.add("needs-voice");
+        pencil.classList.add(need.cls);
       }
       const cross = this._badge("cross", `Delete ${name}`, "✕", clampX(cx + half), y, () => this.deleteThing(thing.id));
       pencil.dataset.thingId = cross.dataset.thingId = thing.id;
@@ -331,6 +331,20 @@ export class KfEditLayerElement extends HTMLElement {
       onClick(e);
     });
     return b;
+  }
+
+  /**
+   * What the thing's pencil marks as still to do, one at a time: a name first (a card can leave a
+   * thing nameless, QA round 3), then a recorded name (without it play uses the iPad's voice).
+   */
+  _need(thing) {
+    if (!Object.values(thing.names ?? {}).some((n) => String(n ?? "").trim())) {
+      return { label: "needs a name", dot: "kf-name-dot", glyph: "?", cls: "needs-name" };
+    }
+    if (this.services.store.clipsFor(thing.id, { kind: "name" }).length === 0) {
+      return { label: "needs your voice", dot: "kf-voice-dot", glyph: "🎤", cls: "needs-voice" };
+    }
+    return null;
   }
 
   _name(thing) {

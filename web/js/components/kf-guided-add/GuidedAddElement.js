@@ -7,8 +7,13 @@
 // kept in the draft until Finish (draft-questions.js). Nothing is added without a name. Enter in a
 // text field commits it and closes the keyboard; on Name it also goes on. Finish closes at once and
 // saves after. The draft is saved after every step and every kept recording, and an open draft for
-// the place is resumed (never past a step whose work is missing, steps.js normalizeDraft).
-// Props: `services`, `params = {placeId?, at?: [x, y], holdMs?}`.
+// the place is resumed (never past a step whose work is missing, steps.js normalizeDraft), its
+// drawing shown as one shape, "Your drawing"; `params.fresh` (the library's "Draw a new animal")
+// throws the place's drafts away instead. Felt opens with the felt the drawing showed (tan) picked.
+// Keep draft and Stop adding close inside the tap; the write follows, a failure is a toast.
+// Every flow event re-renders the step, except typing a name: the Name step re-renders only its
+// prompt and recorder label (_renderName), so the field keeps the focus and the keyboard stays up.
+// Props: `services`, `params = {placeId?, at?: [x, y], holdMs?, fresh?}`.
 // Events: `kf-close` when done (bubbles), `kf-added {thingId}` after a thing was added.
 import { h, ensureElement, languageName } from "./dom.js";
 import {
@@ -26,7 +31,7 @@ import { LegPlacer } from "./legs.js";
 import { setDraftLine, addDraftQuestion, removeDraftQuestion, draftClips } from "./draft-questions.js";
 import { THING_COLORS, hex } from "../../farm/palette.js";
 import { editSound } from "../kf-dialog/feedback.js";
-import { failMessage } from "../kf-dialog/dom.js";
+import { failMessage, reportFailure } from "../kf-dialog/dom.js";
 import { questionsSection } from "../kf-thing-card/questions.js";
 import { clipSlot } from "../kf-thing-card/clip-slot.js";
 
@@ -99,11 +104,27 @@ export class GuidedAddElement extends HTMLElement {
     this.languages = langs?.length ? [...langs] : ["en"];
     this.lang = this.languages[0];
     if (!this.placeId || !store.canAddThing(this.placeId)) return this._renderFull();
-    const existing = latestDraft(await store.listDrafts(), this.placeId);
+    const drafts = await store.listDrafts();
+    if (this.params?.fresh) this._discardDrafts(drafts);
+    const existing = this.params?.fresh ? null : latestDraft(drafts, this.placeId);
     const at = this._spot();
     this.draft = existing ? normalizeDraft(structuredClone(existing), at) : newDraft(this.placeId, at);
     this.resumed = !!existing;
+    this._prefill();
     this._render();
+  }
+
+  /** A new drawing over kept drafts: the place's drafts go, after the screen shows (never awaited). */
+  _discardDrafts(drafts) {
+    for (const d of drafts) {
+      if (d.placeId !== this.placeId) continue;
+      this._saving = this._saving.then(() => this.services.store.discardDraft(d.id)).catch((e) => reportFailure(this.services, e));
+    }
+  }
+
+  /** Felt opens with the felt the drawing was shown in, so its Next is on and nothing changes colour. */
+  _prefill() {
+    if (this.step === "felt" && !this.thing.color) this.thing.color = DRAW_FELT;
   }
 
   _spot() {
@@ -123,6 +144,7 @@ export class GuidedAddElement extends HTMLElement {
     this._legs = null;
     this._editor?.detach();
     this._editor = null;
+    this._nameView = null;
     this.replaceChildren();
     const step = this.step;
     const index = this.draft.step;
@@ -203,7 +225,11 @@ export class GuidedAddElement extends HTMLElement {
 
   _step_draw(panel) {
     // Several shapes, glued into one outline (drawing.js); each stays editable (shape-editor.js).
-    this._drawing ??= ShapeDrawing.fromOutline(this.thing.outline);
+    if (!this._drawing) {
+      this._drawing = ShapeDrawing.fromOutline(this.thing.outline);
+      // A kept drawing comes back glued into one shape: name it as the parent's drawing, not "1 shape".
+      this._restored = this._drawing.count > 0;
+    }
     const drawing = this._drawing;
     const pad = document.createElement("kf-draw-pad");
     pad.setAttribute("mode", "outline");
@@ -220,7 +246,7 @@ export class GuidedAddElement extends HTMLElement {
       note.textContent = editor.noteText() ?? (!n
         ? "Draw a big shape with a finger or a pencil. Small gaps close by themselves."
         : "Add a head, ears or horns: draw them over the body and they join it. Tap a shape to change it.");
-      status.textContent = !n ? "" : drawing.full ? `${n} shapes: that's the most.` : n === 1 ? "1 shape" : `${n} shapes`;
+      status.textContent = !n ? "" : drawing.full ? `${n} shapes: that's the most.` : n === 1 ? (this._restored ? "Your drawing" : "1 shape") : `${n} shapes`;
       status.hidden = !n;
       next.disabled = !canAdvance("draw", this.thing);
     };
@@ -229,7 +255,10 @@ export class GuidedAddElement extends HTMLElement {
       pad,
       color: this.thing.color ?? DRAW_FELT,
       paint: (outline) => this._paintDrawing(outline),
-      onChange: () => this._applyDrawing(),
+      onChange: () => {
+        if (drawing.count !== 1) this._restored = false;
+        this._applyDrawing();
+      },
       onRender: sync,
     });
     this._editor = editor;
@@ -398,22 +427,20 @@ export class GuidedAddElement extends HTMLElement {
 
   _step_name(panel) {
     const lang = this.lang;
-    const label = () => `Record its name. Say just the word, slowly and clearly: “${(this.thing.names[lang] ?? "").trim() || "…"}”`;
-    const rec = this._recorder({ kind: "name", take: 1, label: label() });
-    const prompt = h("p", { class: "kf-warning kf-ga-name-needed", role: "alert", text: "Give it a name first. Type it above, in any language.", hidden: this.flow.prompt !== "name" });
+    const rec = this._recorder({ kind: "name", take: 1, label: "" });
+    const prompt = h("p", { class: "kf-warning kf-ga-name-needed", role: "alert", text: "Give it a name first. Type it above, in any language." });
+    this._nameView = { rec, prompt };
     const input = h("input", {
       type: "text", name: "name", value: this.thing.names[lang] ?? "", autocomplete: "off", autocapitalize: "words", enterkeyhint: "next", spellcheck: "false",
       oninput: (e) => {
         this.thing.names[lang] = e.target.value;
-        rec.label = label();
-        if (hasName(this.thing)) {
-          // the prompt goes as soon as there is a name; no rebuild, so the keyboard stays up
-          this.flow = flowReducer(this.flow, { type: "named" });
-          prompt.hidden = this.flow.prompt !== "name";
-        }
+        // the prompt goes as soon as there is a name; a narrow render, so the keyboard stays up
+        if (hasName(this.thing)) this.flow = flowReducer(this.flow, { type: "named" });
+        this._renderName();
       },
       onchange: () => this._save(),
     });
+    this._renderName();
     // Enter (hardware keyboard, or the iPad's next / go key) commits the name, closes the keyboard and
     // goes on; with no name it closes the keyboard and asks for one (playtest 3).
     const commit = (e) => {
@@ -434,6 +461,15 @@ export class GuidedAddElement extends HTMLElement {
       rec,
       h("div", { class: "kf-row end" }, this._nextBtn()),
     );
+  }
+
+  /** The Name step's parts that follow the typing: the name prompt (from the flow) and what to record. */
+  _renderName() {
+    const { rec, prompt } = this._nameView ?? {};
+    if (!rec) return;
+    const word = (this.thing.names[this.lang] ?? "").trim();
+    rec.label = word ? `Record its name. Say just the word, slowly and clearly: “${word}”` : "Type its name above first, then record yourself saying it.";
+    prompt.hidden = this.flow.prompt !== "name";
   }
 
   _step_ask(panel) {
@@ -582,23 +618,19 @@ export class GuidedAddElement extends HTMLElement {
     );
   }
 
-  async _keepDraft() {
-    try {
-      await this._save();
-      this._close();
-    } catch (e) {
-      this._error(e);
-    }
+  /**
+   * Keep draft and Stop adding close inside the tap (AGENTS.md rule 5: an iPad IndexedDB promise can
+   * hang, and the parent must never be stuck); the save or the removal runs after, and a failure is
+   * a toast, since the sheet is gone.
+   */
+  _keepDraft() {
+    this._close();
+    this._save().catch((e) => reportFailure(this.services, e));
   }
 
-  async _discard() {
-    try {
-      await this._saving;
-      if (this.draft.id) await this.services.store.discardDraft(this.draft.id);
-      this._close();
-    } catch (e) {
-      this._error(e);
-    }
+  _discard() {
+    this._close();
+    this._dropDraft().catch((e) => reportFailure(this.services, e));
   }
 
   _close() {
@@ -612,6 +644,7 @@ export class GuidedAddElement extends HTMLElement {
     const forward = index > this.draft.step;
     if (index !== this.draft.step) editSound(this.services, forward ? "next" : "back");
     this.draft.step = index;
+    this._prefill();
     this._recording = null;
     this.flow = flowReducer(this.flow, { type: "step" });
     if (prompt) this.flow = flowReducer(this.flow, { type: prompt });

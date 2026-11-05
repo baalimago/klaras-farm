@@ -26,6 +26,8 @@ test("✕ asks from anywhere; Keep going returns to the panel; a step change clo
     assert.deepEqual(flowReducer(s, { type: "step" }), initialFlow());
   }
   assert.equal(run([{ type: "stay" }]).overlay, NONE);
+  const stamping = { overlay: STAMP, prompt: null };
+  assert.equal(flowReducer(stamping, { type: "stay" }), stamping, "a stray Keep going never ends Klara's stamping");
   assert.equal(run([{ type: "close" }, { type: "stamp", canStamp: true }]).overlay, LEAVE, "no stamping behind the dialog");
 });
 
@@ -63,6 +65,7 @@ test("Finish without a name goes to the Name step and asks", () => {
 test("emptyDraft: nothing drawn, named or recorded", () => {
   assert.equal(emptyDraft({ thing: { outline: null, names: {} }, clips: [] }), true);
   assert.equal(emptyDraft(null), true);
+  assert.equal(emptyDraft({ thing: { outline: [], names: {} }, clips: [] }), true, "an empty outline is no drawing");
   assert.equal(emptyDraft({ thing: { outline: [[0, 0], [1, 0], [1, 1]] }, clips: [] }), false);
   assert.equal(emptyDraft({ thing: { names: { en: "Cow" } }, clips: [] }), false);
   assert.equal(emptyDraft({ thing: {}, clips: [{ kind: "sound" }] }), false);
