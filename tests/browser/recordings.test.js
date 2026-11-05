@@ -189,10 +189,12 @@ test("colour game setup: “Tap on an animal that is…” invites your own unti
   await shot(page, "colour-setup-invite");
   await q.locator('[data-action="record"]').click();
   await finishTake(page);
-  await voiceOf(q).filter({ hasText: "Your recording" }).waitFor();
+  // The recorded question plays only with the colour's recorded word (play/ask.js planColorAsk).
+  await voiceOf(q).filter({ hasText: "iPad voice until a colour word is recorded" }).waitFor();
   assert.equal(await invite.count(), 0);
   await word.locator('[data-action="record"]').click();
   await finishTake(page);
   await voiceOf(word).filter({ hasText: "Your recording" }).waitFor();
+  assert.equal(await voiceOf(q).textContent(), "Your recording", "the scene's one colour has its word");
   assert.deepEqual(page.errors, []);
 });

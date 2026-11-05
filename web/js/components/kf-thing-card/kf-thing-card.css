@@ -24,7 +24,7 @@ kf-thing-card {
 /* What Klara hears for a slot: your recording (green) or the iPad voice for now (sun). */
 .kf-tc-voice { border-radius: 999px; padding: 6px 12px; font-weight: 700; font-size: 0.9rem; background: var(--cream); color: var(--ink-soft); box-shadow: inset 0 0 0 2px var(--stitch); }
 .kf-tc-voice[data-voice="recording"] { background: #e3f6e3; color: #22703a; box-shadow: none; }
-.kf-tc-voice[data-voice="voice"], .kf-tc-voice[data-voice="other-language"] { background: #fff3c4; color: var(--ink); box-shadow: none; }
+.kf-tc-voice[data-voice="voice"], .kf-tc-voice[data-voice="other-language"], .kf-tc-voice[data-voice="partial"] { background: #fff3c4; color: var(--ink); box-shadow: none; }
 /* An invitation to record your own (questions with no recording in this language). */
 .kf-invite { margin: 6px 0; padding: 10px 14px; border-radius: var(--radius-sm); background: #fff3c4; border: 2px dashed var(--sun); font-weight: 600; }
 /* A missing name stands out until it is typed. */
@@ -33,6 +33,8 @@ kf-thing-card {
 .kf-tc-shape { margin-top: 14px; }
 .kf-tc-foot { margin-top: 20px; padding-top: 12px; border-top: 2px dashed #eadcc6; }
 .kf-tc-spacer { flex: 1; }
+.kf-tc-head-end { flex-wrap: nowrap; gap: 10px; margin: 0; }
+.kf-tc-revert:empty { display: none; }
 .kf-tc-overlay { position: fixed; inset: 0; z-index: 20; background: var(--wall); }
 .kf-sheet.kf-tc-overlay-bar { inset: auto var(--gutter) max(16px, env(safe-area-inset-bottom)) auto; width: min(360px, 60%); z-index: 1; }
 /* questions.js: the remove ✕ lines up with the Record button beside it. */

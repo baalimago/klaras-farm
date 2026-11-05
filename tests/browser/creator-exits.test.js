@@ -22,12 +22,12 @@ const WALK = { kind: "preset", preset: "walk", params: {} };
  * A modulePage with the stubs and a store with one place. `draft` is saved first (so mounting resumes
  * it); `thing` fills the new draft and `step` is where it opens.
  */
-async function creator({ draft = null, thing = null, step = 0 } = {}) {
+async function creator({ draft = null, thing = null, step = 0, params = {} } = {}) {
   const page = await h.modulePage('<div id="parent-layer" class="parent-layer"></div>');
   await page.setViewportSize({ width: 1180, height: 820 });
   await page.addScriptTag({ path: STUBS, type: "module" });
   await page.waitForFunction(() => window.__f1);
-  await page.evaluate(async ({ draft, thing, step }) => {
+  await page.evaluate(async ({ draft, thing, step, params }) => {
     const { FarmStore } = await import("./js/farm-store.js");
     const { MemoryRepo } = await import("./js/io/memory-repo.js");
     let n = 0;
@@ -45,7 +45,7 @@ async function creator({ draft = null, thing = null, step = 0 } = {}) {
     await import("./js/components/kf-guided-add/define.js");
     const el = document.createElement("kf-guided-add");
     el.services = window.__t.services;
-    el.params = { holdMs: 150 };
+    el.params = { holdMs: 150, ...params };
     window.__closed = 0;
     el.addEventListener("kf-close", () => { window.__closed++; el.remove(); });
     document.getElementById("parent-layer").append(el);
@@ -53,7 +53,7 @@ async function creator({ draft = null, thing = null, step = 0 } = {}) {
     if (thing) Object.assign(el.draft.thing, thing);
     if (step) el._go(step);
     window.__el = el;
-  }, { draft, thing, step });
+  }, { draft, thing, step, params });
   return page;
 }
 
@@ -151,6 +151,20 @@ test("✕ with nothing drawn, named or recorded closes at once and leaves no dra
   assert.equal(await drafts(page), 0);
 });
 
+test("a kept draft resumes as 'Your drawing'; with params.fresh (the library's Draw a new animal) it is thrown away and a new one starts", async () => {
+  const kept = { id: null, step: 0, at: [0.5, 0.62], thing: { names: {}, cues: {}, eyes: [], legs: [], outline: SQUARE, color: null, motion: null }, clips: [] };
+  const page = await creator({ draft: kept });
+  assert.equal(await step(page), "draw");
+  assert.equal(await page.locator(".kf-ga-shapes").textContent(), "Your drawing", "not '1 shape': the parent drew a body, a head and horns");
+  await page.evaluate(() => document.querySelector("kf-draw-pad").emitStroke([[0.1, 0.1], [0.3, 0.1], [0.3, 0.3], [0.1, 0.3]]));
+  assert.equal(await page.locator(".kf-ga-shapes").textContent(), "2 shapes", "a new shape counts from there");
+
+  const fresh = await creator({ draft: kept, params: { fresh: true } });
+  assert.equal(await fresh.evaluate(() => window.__el.thing.outline), null, "a new animal");
+  await fresh.waitForFunction(() => window.__t.store.listDrafts().then((d) => d.length === 0));
+  assert.deepEqual(fresh.errors, []);
+});
+
 test("eyes dead end: a draft saved on Eyes without a body opens on Body, not on Eyes", async () => {
   const page = await creator({ draft: { id: null, step: 2, at: [0.5, 0.62], thing: { names: {}, cues: {}, eyes: [], legs: [], outline: null, color: "red", motion: null }, clips: [] } });
   assert.equal(await step(page), "draw");
@@ -193,7 +207,7 @@ test("eyes: the step opens on its panel; the parent taps the body to put eyes on
   await page.getByRole("button", { name: "Let Klara stamp" }).click();
   const view = page.locator('[data-testid="eye-stamping"]');
   await view.waitFor();
-  assert.match(await view.locator(".kf-eyes-label").textContent(), /Cancel to go back/);
+  assert.match(await view.locator(".kf-eyes-label").textContent(), /hold Done or Cancel for 1 second/, "both need the hold");
   const cancel = await view.getByRole("button", { name: /^Cancel/ }).boundingBox();
   await page.mouse.move(cancel.x + cancel.width / 2, cancel.y + cancel.height / 2);
   await page.mouse.down();
@@ -271,4 +285,61 @@ test("a name is required: Next on Name asks for one, typing clears the ask, Fini
   await page.waitForFunction(() => window.__closed === 1);
   assert.deepEqual(await page.evaluate(() => window.__t.store.snapshot.things[0].names), { en: "Kossa" });
   assert.deepEqual(page.errors, []);
+});
+
+test("copy: Felt opens with the tan the drawing showed (Next on); before a name is typed the recorder says to type it first", async () => {
+  const page = await creator({ thing: { outline: SQUARE } });
+  await page.getByRole("button", { name: "Next" }).click();
+  assert.equal(await step(page), "felt");
+  assert.equal(await page.locator('.kf-swatch[aria-pressed="true"]').getAttribute("data-color"), "tan");
+  assert.equal(await page.getByRole("button", { name: "Next" }).isDisabled(), false);
+
+  const named = await creator({ thing: { ...READY, names: {} }, step: 5 });
+  const label = () => named.evaluate(() => document.querySelector('kf-recorder[data-kind="name"]').label);
+  assert.equal(await label(), "Type its name above first, then record yourself saying it.");
+  assert.ok(!(await label()).includes("…"));
+  await named.locator('input[name="name"]').fill("Cow");
+  assert.equal(await label(), "Record its name. Say just the word, slowly and clearly: “Cow”");
+  assert.deepEqual(named.errors, []);
+});
+
+test("the leave dialog closes inside the tap even when the iPad's storage hangs; a failed save or discard shows a toast", async () => {
+  // AGENTS.md rule 5: never await before closing UI after a tap. A save that never resolves must not
+  // keep the creator open.
+  for (const action of ["Keep draft", "Stop adding"]) {
+    const page = await creator({ thing: READY, step: 3 });
+    await page.waitForFunction(() => window.__t.store.listDrafts().then((d) => d.length === 1));
+    await page.evaluate(() => {
+      const s = window.__t.store;
+      s.saveDraft = () => new Promise(() => {});
+      s.discardDraft = () => new Promise(() => {});
+    });
+    await page.getByRole("button", { name: "Close" }).click();
+    await page.getByRole("button", { name: action }).click();
+    assert.equal(await closed(page), 1, `${action} closed in the same tap`);
+  }
+  // An empty draft's ‹ Back on Body closes at once too, even with a save still hanging.
+  const empty = await creator();
+  await empty.evaluate(() => {
+    window.__t.store.discardDraft = () => new Promise(() => {});
+    window.__el._saving = new Promise(() => {});
+    window.__el.draft.id = "d-1";
+  });
+  await empty.getByRole("button", { name: "‹ Back" }).click();
+  assert.equal(await closed(empty), 1);
+
+  // A refused write is not silent: a toast says so.
+  for (const action of ["Keep draft", "Stop adding"]) {
+    const page = await creator({ thing: READY, step: 3 });
+    await page.waitForFunction(() => window.__t.store.listDrafts().then((d) => d.length === 1));
+    await page.evaluate(() => {
+      const s = window.__t.store;
+      s.saveDraft = () => Promise.reject(Object.assign(new Error("full"), { code: "quota" }));
+      s.discardDraft = () => Promise.reject(new Error("disk"));
+    });
+    await page.getByRole("button", { name: "Close" }).click();
+    await page.getByRole("button", { name: action }).click();
+    assert.equal(await closed(page), 1);
+    await page.waitForFunction(() => window.__f1.toasts.length > 0);
+  }
 });

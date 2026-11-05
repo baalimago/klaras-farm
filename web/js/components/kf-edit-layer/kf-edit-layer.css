@@ -118,13 +118,15 @@ kf-edit-layer.dragging .kf-edit-badges { display: none; }
 kf-edit-layer.resizing .kf-badge,
 kf-edit-layer.resizing .kf-edit-ring { visibility: hidden; }
 .kf-badge.cross { background: var(--red); color: #fff; }
-/* "Needs your voice": a small red mic dot on the pencil of things without a recorded name. */
-.kf-voice-dot {
+/* "Needs your voice": a small red mic dot on the pencil of things without a recorded name.
+   "Needs a name": the same dot with a "?" on things without a typed name. */
+.kf-voice-dot, .kf-name-dot {
   position: absolute; right: -6px; top: -6px;
   width: 22px; height: 22px; border-radius: 50%;
   background: var(--red); color: #fff; font-size: 12px; line-height: 22px; text-align: center;
   box-shadow: 0 0 0 2px #fff; pointer-events: none;
 }
+.kf-name-dot { font-size: 15px; font-weight: 800; }
 /* "+ Add 5/8": how full the scene is, against Settings → Things per scene. */
 .kf-add-count { margin-left: 4px; font-size: 0.85rem; font-weight: 700; color: var(--ink-soft); }
 .kf-edit-bar .kf-btn.full .kf-add-count { color: var(--ink); text-decoration: underline wavy var(--orange); }

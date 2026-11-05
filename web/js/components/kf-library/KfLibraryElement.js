@@ -5,13 +5,20 @@
 // its name. Tapping one adds an independent copy to the current scene at once (store.copyThing:
 // the snapshot changes inside the tap), drops it in with the `add` sound and closes the sheet; the
 // write is only watched for a failure toast. A full scene says so with the way out, and its tiles
-// are off. Renders from the store and its own loaded `examples` on every change; keeps no copy of
-// farm data. Props: services, params (unused). Dispatches kf-close.
+// are off. An unfinished drawing for this scene (a draft kept from guided add) shows first as
+// "Finish your draft" with its picture, which resumes it; "Draw a new animal" then asks before
+// throwing the draft away (guided add `params.fresh`). Renders from the store and its own loaded
+// `examples` and `drafts` on every change; keeps no copy of farm data. Props: services, params
+// (unused). Dispatches kf-close.
 import { h, newId, plural, reportFailure } from "../kf-dialog/dom.js";
 import { editSound } from "../kf-dialog/feedback.js";
 import { libraryEntries } from "../../farm/library.js";
 import { loadExamples } from "./examples.js";
 import { paintThingThumb, THUMB_W, THUMB_H } from "./thumbnail.js";
+import { latestDraft, validOutline } from "../kf-guided-add/steps.js";
+
+/** A draft's thing as a picture: tan until a felt is picked, as guided add shows it. */
+const draftPicture = (draft) => (validOutline(draft.thing?.outline) ? { ...draft.thing, color: draft.thing.color ?? "tan" } : null);
 
 export class KfLibraryElement extends HTMLElement {
   constructor() {
@@ -20,6 +27,10 @@ export class KfLibraryElement extends HTMLElement {
     this.params = {};
     /** @type {import('../../types.js').Thing[] | null} null while loading */
     this.examples = null;
+    /** Saved guided-add drafts, every scene; null while loading. @type {object[] | null} */
+    this.drafts = null;
+    /** Pictures of drafts, one object per draft, so the thumbnail cache paints each once. */
+    this._pictures = new WeakMap();
     this._onChange = () => this.render();
     this._onPointer = () => this.services?.session?.activity?.();
   }
@@ -32,6 +43,13 @@ export class KfLibraryElement extends HTMLElement {
       this.examples = list;
       if (this.isConnected) this.render();
     });
+    Promise.resolve()
+      .then(() => this.store.listDrafts?.() ?? [])
+      .catch(() => [])
+      .then((list) => {
+        this.drafts = list;
+        if (this.isConnected) this.render();
+      });
   }
 
   disconnectedCallback() {
@@ -51,7 +69,8 @@ export class KfLibraryElement extends HTMLElement {
     const cap = store.maxThings ?? 8;
     const full = !place || !store.canAddThing(place.id);
     const { own, examples } = libraryEntries(store.snapshot, this.examples ?? []);
-    return { place, count, cap, full, own, examples, loading: this.examples === null };
+    const draft = place ? latestDraft(this.drafts ?? [], place.id) : null;
+    return { place, count, cap, full, own, examples, draft, loading: this.examples === null };
   }
 
   render() {
@@ -71,7 +90,7 @@ export class KfLibraryElement extends HTMLElement {
       v.full
         ? h("p", { class: "kf-library-full", role: "status", "data-testid": "library-full", text: `This scene holds ${v.cap} things. Delete one, or allow more in Settings.` })
         : h("p", { class: "kf-note", text: "Tap one to put a copy in this scene. Its recordings come too." }),
-      h("ul", { class: "kf-library-grid", "aria-label": "New" }, [this.drawTile(v.full)]),
+      h("ul", { class: "kf-library-grid", "aria-label": "New" }, [v.draft ? this.draftTile(v.draft, v.full) : null, this.drawTile(v.full, !!v.draft)]),
       ...(v.own.length ? [h("h3", { text: "Your animals" }), this.grid("Your animals", v.own, v.full)] : []),
       h("h3", { text: "Examples" }),
       v.loading ? h("p", { class: "kf-note", text: "Getting the examples…" }) : this.grid("Examples", v.examples, v.full),
@@ -81,9 +100,26 @@ export class KfLibraryElement extends HTMLElement {
     this.dataset.full = String(v.full);
   }
 
-  drawTile(full) {
+  /** "Finish your draft": the kept drawing with its picture; it resumes in guided add. */
+  draftTile(draft, full) {
+    if (!this._pictures.has(draft)) this._pictures.set(draft, draftPicture(draft));
+    const picture = this._pictures.get(draft);
+    let art = h("span", { class: "kf-library-plus", "aria-hidden": "true", text: "✎" });
+    if (picture) {
+      art = h("canvas", { class: "kf-library-thumb", width: THUMB_W, height: THUMB_H, "aria-hidden": "true" });
+      paintThingThumb(art, picture);
+    }
     return h("li", {}, [
-      h("button", { type: "button", class: "kf-library-tile kf-library-draw", "data-action": "draw-new", disabled: full, onclick: () => this.drawNew() }, [
+      h("button", { type: "button", class: "kf-library-tile kf-library-draft", "data-action": "finish-draft", disabled: full, onclick: () => this.finishDraft() }, [
+        art,
+        h("span", { class: "kf-library-name", text: "Finish your draft" }),
+      ]),
+    ]);
+  }
+
+  drawTile(full, hasDraft = false) {
+    return h("li", {}, [
+      h("button", { type: "button", class: "kf-library-tile kf-library-draw", "data-action": "draw-new", disabled: full, onclick: () => this.drawNew(hasDraft) }, [
         h("span", { class: "kf-library-plus", "aria-hidden": "true", text: "+" }),
         h("span", { class: "kf-library-name", text: "Draw a new animal" }),
       ]),
@@ -120,12 +156,29 @@ export class KfLibraryElement extends HTMLElement {
     return name ? String(name) : "No name yet";
   }
 
-  drawNew() {
+  /** Resumes the kept draft (guided add opens the latest draft of the scene). */
+  finishDraft() {
     const { store, session } = this.services;
     const place = store.currentPlace;
     if (!place || !store.canAddThing(place.id)) return this.render();
     editSound(this.services, "select");
     session?.openPanel("guided", {});
+  }
+
+  /** A new drawing; with a draft kept, only after the parent agrees to throw it away. */
+  async drawNew(hasDraft = false) {
+    const { store, session, shell } = this.services;
+    const place = store.currentPlace;
+    if (!place || !store.canAddThing(place.id)) return this.render();
+    editSound(this.services, "select");
+    if (!hasDraft) return session?.openPanel("guided", {});
+    const ok = await shell?.confirm?.({
+      title: "Start a new animal?",
+      body: "Your unfinished drawing will be thrown away. To keep it, tap Finish your draft instead.",
+      confirmLabel: "Start new",
+      danger: true,
+    });
+    if (ok) session?.openPanel("guided", { fresh: true });
   }
 
   /**

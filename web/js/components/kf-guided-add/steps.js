@@ -16,16 +16,11 @@ export const MOTIONS = Object.freeze([
 ]);
 
 /**
- * Sizes (meeting 2: "some smaller, some bigger"). The size is baked into the outline, eyes and legs, so
- * it needs no field in the Thing. scale 1 fills THING_SIZE one way. Playtest 3 took the Small / Medium /
- * Big picker out of guided add (a new thing is drawn at THING_SIZE; resizing is the edit-mode scale
- * tool); THING_SIZES, nearestSize, sizeBox, resizeThing and sizedFill stay for the thing card.
+ * Size has no field in the Thing: it is baked into the outline, eyes and legs (meeting 2). A new
+ * thing is drawn at THING_SIZE; resizing is the edit-mode scale tool (playtest 3). The thing card
+ * reads the size back (sizeScale) so a redraw keeps it (sizeBox) and its preview shows it (sizedFill).
  */
-export const THING_SIZES = Object.freeze([
-  { id: "small", label: "Small", scale: 0.7 },
-  { id: "medium", label: "Medium", scale: 1 },
-  { id: "big", label: "Big", scale: 1.3 },
-]);
+const PREVIEW_FULL = 1.3; // the size scale that fills the card's preview; smaller things show smaller
 
 function outlineBox(outline) {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -38,20 +33,12 @@ function outlineBox(outline) {
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
-/** How big an outline is next to THING_SIZE: 1 is Medium (it fills the box one way). */
+/** How big an outline is next to THING_SIZE: 1 fills the box one way. */
 export function sizeScale(outline) {
   if (!Array.isArray(outline) || outline.length < 3) return 1;
   const b = outlineBox(outline);
-  // rounded so a refit at the same size is exact (Medium stays 1, not 1.0000000000000002)
+  // rounded so a refit at the same size is exact (1 stays 1, not 1.0000000000000002)
   return Math.round(Math.max(b.w / THING_SIZE.w, b.h / THING_SIZE.h) * 1e6) / 1e6 || 1;
-}
-
-/** The picked size an outline is closest to (on a ratio scale), for the pressed button. */
-export function nearestSize(outline) {
-  const k = Math.log(sizeScale(outline));
-  let best = THING_SIZES[1];
-  for (const sz of THING_SIZES) if (Math.abs(Math.log(sz.scale) - k) < Math.abs(Math.log(best.scale) - k)) best = sz;
-  return best.id;
 }
 
 /** The box fitOutline should fill for a size scale. */
@@ -59,33 +46,9 @@ export function sizeBox(scale = 1) {
   return { w: THING_SIZE.w * scale, h: THING_SIZE.h * scale };
 }
 
-/**
- * The thing's outline, eyes and legs at another size: scaled about the bottom centre (its feet stay
- * where they stand) and moved back onto the board if it grew past an edge.
- * @param {{outline: [number, number][], eyes?: {x: number, y: number}[], legs?: {x: number, y: number}[]}} thing
- * @param {number} scale  target size scale (THING_SIZES[i].scale)
- */
-export function resizeThing(thing, scale) {
-  const b = outlineBox(thing.outline);
-  const k = scale / sizeScale(thing.outline);
-  const ax = b.x + b.w / 2, ay = b.y + b.h;
-  const w = b.w * k, h = b.h * k;
-  const nx = Math.min(Math.max(ax - w / 2, 0), Math.max(0, 1 - w));
-  const ny = Math.min(Math.max(ay - h, 0), Math.max(0, 1 - h));
-  const mx = (x) => nx + (x - b.x) * k;
-  const my = (y) => ny + (y - b.y) * k;
-  const point = (p) => ({ ...p, x: mx(p.x), y: my(p.y) });
-  return {
-    outline: thing.outline.map(([x, y]) => [mx(x), my(y)]),
-    eyes: (thing.eyes ?? []).map(point),
-    legs: (thing.legs ?? []).map(point),
-  };
-}
-
-/** Preview fill that shows the picked size: Big fills `fill`, smaller sizes fill less. */
+/** Preview fill that shows the thing's size: PREVIEW_FULL and up fill `fill`, smaller sizes fill less. */
 export function sizedFill(outline, fill) {
-  const biggest = THING_SIZES[THING_SIZES.length - 1].scale;
-  return fill * Math.max(0.3, Math.min(1, sizeScale(outline) / biggest));
+  return fill * Math.max(0.3, Math.min(1, sizeScale(outline) / PREVIEW_FULL));
 }
 
 export function newDraft(placeId, at) {

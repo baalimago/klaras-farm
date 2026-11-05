@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   STEPS, normalizeDraft, validOutline, hasName, stepDone, furthestStep, stampEye, upsertClip, stripClip, latestDraft, canAdvance, freeSpot, cleanNames, cleanCues, newDraft, refitEyes,
-  MOTIONS, THING_SIZE, THING_SIZES, sizeScale, nearestSize, sizeBox, resizeThing, sizedFill,
+  MOTIONS, THING_SIZE, sizeScale, sizeBox, sizedFill,
 } from "./steps.js";
 import { readdirSync } from "node:fs";
 
@@ -101,46 +101,16 @@ test("MOTIONS: Walks, Hops, Scuttles and Floats, each a shipped preset with an i
   }
 });
 
-test("sizes: Small, Medium, Big; sizeScale and nearestSize read the size back from the outline", () => {
-  assert.deepEqual(THING_SIZES.map((s) => s.label), ["Small", "Medium", "Big"]);
-  const medium = rect(0.4, 0.4, THING_SIZE.w, THING_SIZE.h / 2); // fills the box one way
-  near(sizeScale(medium), 1);
-  assert.equal(nearestSize(medium), "medium");
-  assert.equal(nearestSize(rect(0.4, 0.4, THING_SIZE.w * 0.72, 0.01)), "small");
-  assert.equal(nearestSize(rect(0.1, 0.1, 0.01, THING_SIZE.h * 1.25)), "big");
+test("sizeScale reads the size back from the outline; sizeBox is the box a size fills", () => {
+  near(sizeScale(rect(0.4, 0.4, THING_SIZE.w, THING_SIZE.h / 2)), 1); // fills the box one way
+  near(sizeScale(rect(0.1, 0.1, 0.01, THING_SIZE.h * 1.25)), 1.25);
   assert.equal(sizeScale(null), 1);
-  assert.equal(sizeScale([[0, 0], [0, 0], [0, 0]]), 1, "a degenerate outline counts as medium");
+  assert.equal(sizeScale([[0, 0], [0, 0], [0, 0]]), 1, "a degenerate outline counts as the default size");
   assert.deepEqual(sizeBox(), { w: THING_SIZE.w, h: THING_SIZE.h });
   near(sizeBox(1.3).h, THING_SIZE.h * 1.3);
 });
 
-test("resizeThing scales outline, eyes and legs about the feet and keeps the thing on the board", () => {
-  const outline = rect(0.4, 0.5, THING_SIZE.w, THING_SIZE.h / 2);
-  const thing = { outline, eyes: [{ x: 0.5, y: 0.55 }], legs: [{ x: 0.45, y: 0.65 }, { x: 0.6, y: 0.65 }] };
-  const big = resizeThing(thing, 1.3);
-  near(sizeScale(big.outline), 1.3);
-  assert.equal(nearestSize(big.outline), "big");
-  // the bottom centre stays put
-  const bottom = (o) => Math.max(...o.map((p) => p[1]));
-  const midX = (o) => (Math.min(...o.map((p) => p[0])) + Math.max(...o.map((p) => p[0]))) / 2;
-  near(bottom(big.outline), bottom(outline));
-  near(midX(big.outline), midX(outline));
-  // eyes and legs keep their place relative to the outline
-  const rel = (o, p) => [(p.x - o[0][0]) / (o[1][0] - o[0][0]), (p.y - o[0][1]) / (o[2][1] - o[0][1])];
-  assert.deepEqual(rel(big.outline, big.eyes[0]).map((v) => +v.toFixed(9)), rel(outline, thing.eyes[0]).map((v) => +v.toFixed(9)));
-  assert.equal(big.legs.length, 2);
-  near(big.legs[1].x - big.legs[0].x, (0.6 - 0.45) * 1.3);
-  const small = resizeThing(big, 0.7);
-  near(sizeScale(small.outline), 0.7);
-  assert.equal(thing.outline, outline, "pure: the input is not changed");
-  // at an edge: grows back onto the board
-  const corner = resizeThing({ outline: rect(0.85, 0.02, THING_SIZE.w, THING_SIZE.h / 2) }, 1.3);
-  for (const [x, y] of corner.outline) assert.ok(x >= 0 && x <= 1 + 1e-9 && y >= 0 && y <= 1 + 1e-9, `${x},${y}`);
-  assert.deepEqual(corner.eyes, []);
-  assert.deepEqual(corner.legs, []);
-});
-
-test("sizedFill: Big fills the preview, smaller sizes show smaller", () => {
+test("sizedFill: 1.3 × the default size fills the preview, smaller sizes show smaller", () => {
   near(sizedFill(rect(0, 0, THING_SIZE.w * 1.3, 0.01), 0.6), 0.6);
   near(sizedFill(rect(0, 0, THING_SIZE.w, 0.01), 0.6), 0.6 / 1.3);
   near(sizedFill(rect(0, 0, THING_SIZE.w * 3, 0.01), 0.6), 0.6, 1e-9);

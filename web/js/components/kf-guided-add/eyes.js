@@ -9,7 +9,7 @@ import { ThingPreview, viewFor } from "./preview.js";
 import { stampEye } from "./steps.js";
 import { snapPoint } from "./geometry.js";
 
-const LABEL = "Grown-up: hold Done for 1 second when the eyes are on, or Cancel to go back";
+const LABEL = "Grown-up: hold Done or Cancel for 1 second. Done keeps the eyes, Cancel goes back.";
 const HINT = "Keep holding for 1 second";
 const HINT_MS = 2500;
 

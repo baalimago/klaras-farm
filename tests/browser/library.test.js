@@ -15,10 +15,10 @@ const EXAMPLES = JSON.parse(readFileSync(join(ROOT, "web/data/library.json"), "u
 const shot = async (page, name) => process.env.KF_SHOTS && page.screenshot({ path: join(process.env.KF_SHOTS, `library-${name}.png`) });
 
 /** Mounts <kf-library> over a farm with `things` plain things (and one with recordings) in the current scene. */
-async function mount({ things = 2, maxThings = 8, examples = EXAMPLES } = {}) {
+async function mount({ things = 2, maxThings = 8, examples = EXAMPLES, draft = null } = {}) {
   const page = await h.modulePage('<div id="parent-layer" class="parent-layer"></div>');
   await page.evaluate(
-    async ({ things, maxThings, examples }) => {
+    async ({ things, maxThings, examples, draft }) => {
       const { FarmStore } = await import("./js/farm-store.js");
       const { MemoryRepo } = await import("./js/io/memory-repo.js");
       await import("./js/components/kf-library/define.js");
@@ -40,6 +40,7 @@ async function mount({ things = 2, maxThings = 8, examples = EXAMPLES } = {}) {
       await store.saveClip({ clip: { thingId: cow, language: "en", kind: "name", take: 1, blobSha256: blob.sha256, mime: "audio/mp4", durationMs: 400, trimStartMs: 0, trimEndMs: 400, gainDb: 0 }, blob });
       await store.saveClip({ clip: { thingId: cow, language: "en", kind: "sound", take: 1, blobSha256: blob.sha256, mime: "audio/mp4", durationMs: 400, trimStartMs: 0, trimEndMs: 400, gainDb: 0 } });
       await store.setCurrentPlace({ placeId: farm });
+      if (draft) await store.saveDraft({ id: null, placeId: farm, step: 2, at: [0.5, 0.62], clips: [], ...draft });
       const log = [];
       const session = Object.assign(new EventTarget(), {
         state: { mode: "edit", panel: { name: "library", params: {} } },
@@ -49,7 +50,10 @@ async function mount({ things = 2, maxThings = 8, examples = EXAMPLES } = {}) {
       const engine = { dropIn: (id) => log.push(["dropIn", id]) };
       const audio = { unlock: () => {}, chime: (k) => log.push(["chime", k]) };
       const toasts = [];
-      const shell = { toast: (m) => toasts.push(m) };
+      const shell = {
+        toast: (m) => toasts.push(m),
+        confirm: async (o) => { log.push(["confirm", o.title]); return window.confirmAnswer ?? true; },
+      };
       window.t = { store, log, toasts, farm, sea, cow };
       const el = document.createElement("kf-library");
       el.services = { store, session, engine, audio, shell, examples };
@@ -59,7 +63,7 @@ async function mount({ things = 2, maxThings = 8, examples = EXAMPLES } = {}) {
       });
       document.getElementById("parent-layer").append(el);
     },
-    { things, maxThings, examples },
+    { things, maxThings, examples, draft },
   );
   await page.locator("kf-library .kf-library-tile").first().waitFor();
   return page;
@@ -150,6 +154,36 @@ test("library: Draw a new animal opens guided add; Close closes the sheet", asyn
   assert.deepEqual(await page.evaluate(() => window.t.log), [["chime", "select"], ["openPanel", "guided", {}]]);
   await page.getByRole("button", { name: "Close" }).click();
   await page.locator("kf-library").waitFor({ state: "detached" });
+});
+
+test("library: an unfinished draft shows as 'Finish your draft' with its picture; Draw a new animal asks before throwing it away", async () => {
+  const outline = [[0.4, 0.5], [0.6, 0.5], [0.6, 0.7], [0.4, 0.7]];
+  const page = await mount({ draft: { thing: { names: {}, cues: {}, eyes: [], legs: [], legTarget: null, outline, color: null, motion: null } } });
+  const finish = page.locator('kf-library [data-action="finish-draft"]');
+  await finish.waitFor();
+  const tiles = page.locator('kf-library [aria-label="New"] .kf-library-tile');
+  assert.deepEqual(await tiles.evaluateAll((els) => els.map((e) => e.dataset.action)), ["finish-draft", "draw-new"]);
+  assert.equal((await finish.innerText()).trim(), "Finish your draft");
+  assert.equal(await finish.locator("canvas").count(), 1, "with its picture");
+  await page.waitForFunction(() => {
+    const c = document.querySelector('kf-library [data-action="finish-draft"] canvas');
+    const d = c.getContext("2d").getImageData(c.width / 2, c.height / 2, 1, 1).data;
+    return d[3] > 0;
+  });
+  await shot(page, "draft");
+  await finish.click();
+  assert.deepEqual((await page.evaluate(() => window.t.log)).at(-1), ["openPanel", "guided", {}], "resumes the draft");
+
+  // Draw a new animal: asks first; No keeps the draft and opens nothing.
+  await page.evaluate(() => { window.t.log.length = 0; window.confirmAnswer = false; });
+  await page.locator('kf-library [data-action="draw-new"]').click();
+  await page.waitForFunction(() => window.t.log.some((l) => l[0] === "confirm"));
+  assert.deepEqual(await page.evaluate(() => window.t.log.filter((l) => l[0] !== "chime")), [["confirm", "Start a new animal?"]]);
+  await page.evaluate(() => { window.t.log.length = 0; window.confirmAnswer = true; });
+  await page.locator('kf-library [data-action="draw-new"]').click();
+  await page.waitForFunction(() => window.t.log.some((l) => l[0] === "openPanel"));
+  assert.deepEqual((await page.evaluate(() => window.t.log)).at(-1), ["openPanel", "guided", { fresh: true }]);
+  assert.deepEqual(page.errors, []);
 });
 
 test("library: pictures are painted once and reused across renders", async () => {
