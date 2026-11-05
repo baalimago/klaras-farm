@@ -22,6 +22,7 @@ Elements (one folder per tag):
 
 - `kf-board`: the child's 4:3 letterboxed felt canvas, the `Renderer`, pointer handling.
 - `kf-find-buttons`: the child's two 96 px icon buttons. A tap starts a find game (animal, colour) on the finger's lift; a hold of `FIND_HOLD_MS` (1 s, flag `findHoldMs`) shows the hold ring and, after the adult check, opens that game's setup panel. The tap/hold machine is pure (`press.js`: `idle → down → held`); the hold itself runs through `session.holdStart(e, el, {then: {name: 'find-setup', params: {game}}, holdMs, edges: false})`.
+  - Recording tip (playtest round 3): when the engine's `ask` event says `recorded: false` (nothing is recorded for that question, so the iPad's voice asks), a small felt note appears beside that game's button: 🎤 "Hold 1 s to record your own question" (the seconds come from `FIND_HOLD_MS` or the `findHoldMs` flag). The policy is the pure machine `hint.js` (`initialHint`, `nextHint`: `ask`, `expire`, `hide`; `hintText(holdMs)`): it shows for `HINT_SHOW_MS` (6 s, fading in and out in CSS), at most once per game per `HINT_COOLDOWN_MS` (3 min), never for a recorded question (a recorded ask of the same game hides it), not while Settings "Show recording tips" (`services.prefs.recordingTips`) is off, and it hides when play ends or the buttons hide. The note has `pointer-events: none`, so it never takes a child's touch.
 - `kf-find-setup`: the grown-ups' find game setup, panel `find-setup` with `params.game`. Every slot says what plays (`play/voice.js`): "Your recording", "iPad voice for now" or "Not asked until recorded", and an unrecorded slot's button reads "Record your own". With nothing recorded in a language, the questions (and the colour question) show an invitation: "The iPad voice reads these for now. Record your own: Klara knows your voice best." Enter in a question field commits it.
   - "Find game" (`animal`): per thing in the scene, its questions (the shared questions section below) with a recording per line.
   - "Colour game" (`color`): the colour question per language (takes 1 to 6, "+ Another way to ask"), then tap a thing (its colour) or a swatch of the scene's colours to record that colour word. Swatches show ✓ when recorded and an orange ring when missing; a status line and the language tabs ("English · 2 to record") say what is still missing.
@@ -36,8 +37,9 @@ Elements (one folder per tag):
 - `kf-draw-pad`: overlay that captures one stroke at a time (`outline`, `shape`, `yarn`); a touch too short to be a stroke is reported as `kf-tap`.
 - `kf-scenes`: the scenes shelf with felt thumbnails, switch, rename, delete, new scene.
 - `kf-scene-tools`: draw and arrange the scene: Shape, Line, Move (with resize handle, To back, Let go), Colour, Sky, Ground, Delete, Start (template: Blank, Meadow, Sea, Room), Undo, Done. UI state is the pure machine `edit/scene-tools.js`.
-- `kf-settings`: languages, sleep timer, things per scene (1 to 12, `maxThings`), gate kind, music, export and import, storage, delete all data, update, version.
-- `kf-welcome`: one-time first-run card for the parent.
+- `kf-settings`: languages, sleep timer, things per scene (1 to 12, `maxThings`), gate kind, music, "Show recording tips", export and import, storage, "Show the tour again" (Help), delete all data, update, version.
+- `kf-welcome`: one-time first-run card for the parent. Dismissing it starts the onboarding tour.
+- `kf-tour`: the onboarding tour for the grown-up, four short cards in the decided order: an example creature ("This is a felt animal. Tap it to hear it."), how to edit (hold the scene, the adult check, an animal's ✎ pencil), Scenes (switch, make a new one), how to record sounds ("What does the fox say?"). Pure step machine `tour.js` (`initialTour`, `nextTour`: `start`, `next`, `back`, `skip`; `tourStep`, `tourCard(step, {mode, holdMs})`, `cardPlacement(rect, viewportHeight)`). Each card has Next (Done on the last), Back (from card 2) and Skip tour (cards 1 to 3); Escape skips. A felt ring points at the real control when it is on screen: an animal on the board (the one nearest the middle, kept while it wanders), and in edit mode the first ✎ pencil and the Scenes button; in play, cards 2 and 3 say how to get there instead. The card goes to the top or bottom so it never covers the ring. Not modal: no scrim, only the card takes touches, so the parent can tap the animal or hold the scene while it is up. It hides (keeping its card) while the adult check, a panel or the scene tools are open. Mounted only by the Shell, right after the welcome card and from Settings, so the child never meets it alone. The ring is re-placed on resize, store and session changes, 500 ms after them, and once a second while up; nothing runs per frame.
 - `kf-dialog`: shared confirm dialog and toast with Undo; removes itself.
 
 Helper modules inside element folders:
@@ -50,7 +52,7 @@ Helper modules inside element folders:
 - `kf-thing-card/clip-slot.js`: `clipSlot()`, one recording slot (`.kf-tc-clip[data-kind][data-take][data-color][data-voice]`, Play, Record, Cancel), shared by the thing card, the find setup and guided add. With `voice` (the thing card and the find setup pass it) it shows what Klara hears now as a chip (`.kf-tc-voice[data-voice]`: `recording` green, `voice` and `other-language` sun-yellow, `skipped`, `none`); ▶ plays the slot's own clip, or `voice.clip` (another language's name), and a slot with no clip of its own makes Record the primary button. `lineVoiceText(source)` is the chip copy for a question line.
 - `kf-thing-card/enter.js`: `commitOnEnter(e)`, a keydown handler: Enter (not while an input method composes) blurs the field, which fires `change` (the save) and closes the tablet keyboard. Every card and question field has it, with `enterkeyhint="done"`.
 - `kf-thing-card/questions.js`: `questionsSection()`, a thing's questions in one language: article, one input per line (the value is the parent's text, the placeholder the example), remove (at least 1) and "+ Add a question" (up to 6), each line with its prompt recording. It calls `slot(take, line, voice)` with `play/voice.js` `lineVoice` for that line, and shows the "Record your own" invitation (`data-testid="question-invite"`) while nothing is recorded in that language and the device can speak (`canSpeak`). It calls `setQuestionLine`, `addQuestion` and `removeQuestion` (passing the examples) on the store; a removal offers Undo through `shell.toast` (`restoreQuestions`). With `busy` (a recorder is open) the remove buttons are off, because a removal renumbers the recordings.
-- `kf-find-buttons/press.js`, `kf-find-setup/setup.js`: pure state machines (above).
+- `kf-find-buttons/press.js`, `kf-find-buttons/hint.js`, `kf-find-setup/setup.js`, `kf-tour/tour.js`: pure state machines (above).
 
 ## Public API / contracts
 
@@ -67,14 +69,14 @@ Helper modules inside element folders:
 ### Shell
 
 - `session.state = {mode: 'play'|'gate'|'edit'|'scene', panel: null | {name, params}}`.
-- Slots: `mode` (gate shows `kf-adult-check`; edit shows `kf-edit-layer`; scene shows `kf-scene-tools`), `panel` (`card`, `guided`, `scenes`, `settings`), and `welcome`.
+- Slots: `mode` (gate shows `kf-adult-check`; edit shows `kf-edit-layer`; scene shows `kf-scene-tools`), `panel` (`card`, `guided`, `scenes`, `settings`), `welcome` and `tour`.
 - On every session `change`, `render()` removes elements no longer wanted and imports `components/<tag>/define.js` on first use. A render token drops results of an older render that finished late.
 - `confirm(opts)` resolves true or false; `toast(message, {undo})` resolves true when undone. Both use a fresh `kf-dialog`.
-- `welcome()` mounts the first-run card. `updateReady()` sets `services.updateReady` and fires `update-ready` on the session.
+- `welcome()` mounts the first-run card; its `kf-close` starts the tour. `tour()` (Settings, "Show the tour again") mounts a fresh tour from its first card; the tour's `kf-close` removes it. `updateReady()` sets `services.updateReady` and fires `update-ready` on the session.
 
 ### Boot (`main.js`)
 
-- `services = {store, session, engine, audio, music, recorder, scripts, presets, share, storage, flags, env, appVersion, warnings, board, shell}`. Exposed as `window.__kf` for debugging and browser tests.
+- `services = {store, session, engine, audio, music, recorder, scripts, presets, share, storage, prefs, flags, env, appVersion, warnings, board, shell}`. `prefs` is `io/prefs.js` (device preferences outside the farm). Exposed as `window.__kf` for debugging and browser tests.
 - `env = {now, rng, newId, deviceId}` is the only source of time, randomness and ids for the store.
 - If IndexedDB fails, the app falls back to `MemoryRepo` and adds warning `no-storage`. A `VersionError` shows "Update needed".
 - A fresh install loads starter content. Otherwise it drops the pre-import backup and sweeps orphan blobs older than 24 h.
@@ -170,6 +172,7 @@ Helper modules inside element folders:
 ## Rules and gotchas
 
 - The child view has no text and no failure states. Child buttons are icon only and at least 88 px (`kf-find-buttons` uses 96 px). Parent targets are at least 44 px (`--tap`).
+- One exception to "no text in the child view": the recording tip beside a find button. It is for the grown-up playing along, it is never failure language, it never catches a touch (`pointer-events: none`), it fades by itself after 6 s, it shows at most once per game every 3 minutes and never for a question with a recording, and Settings "Show recording tips" turns it off for good. Nothing else in the child view may show words.
 - iOS audio: call `audio.unlock()` synchronously inside the gesture (`kf-find-buttons` unlocks on `pointerdown`). Speech must start from an activation event: `pointerdown` of a touch is not one, so `kf-find-buttons` starts the game on `pointerup`, and `main.js` primes speech on the first `pointerup`. Starting the question on `pointerdown` was why the iPad stayed silent and played only the animal sound.
 - Never `await` before closing UI after a gesture. `kf-welcome` dispatches `kf-close` without waiting for `requestPersist()`, which can hang on iPad.
 - Settings builds the export when it opens, so the share sheet opens inside the tap.
@@ -183,7 +186,7 @@ Helper modules inside element folders:
 
 ## Tests
 
-- Unit (Node, `npm test`): pure helpers next to their element: `kf-dialog/press-guard.test.js`, `kf-guided-add/drawing.test.js`, `draft-questions.test.js`, `shape-edit.test.js`, `shape.test.js`, `steps.test.js`, `kf-scene-tools/pieces.test.js`, `kf-find-buttons/press.test.js`, `kf-find-setup/setup.test.js`.
+- Unit (Node, `npm test`): pure helpers next to their element: `kf-dialog/press-guard.test.js`, `kf-guided-add/drawing.test.js`, `draft-questions.test.js`, `shape-edit.test.js`, `shape.test.js`, `steps.test.js`, `kf-scene-tools/pieces.test.js`, `kf-find-buttons/press.test.js`, `kf-find-buttons/hint.test.js` (when the tip shows, cooldown, never once recorded, tips off), `kf-find-setup/setup.test.js`, `kf-tour/tour.test.js` (order, Next, Back, Skip, restart, targets and copy per mode, placement).
 - Browser (`npm run test:browser`, Playwright Chromium against the real Python app):
   - `app.test.js`: the whole app booted and driven like a parent and a child.
   - `package-a.test.js`: `kf-board` and `kf-draw-pad`.
@@ -201,6 +204,7 @@ Helper modules inside element folders:
   - `shapes.test.js`: multi-shape drawing in guided add and Redraw. `legs.test.js`: leg placing and format migration.
   - `playtest2.test.js`: the playtest 2 bugs, each element mounted alone: changing the leg count while placing, eight close legs, drag, Undo, Clear, Spread evenly, stray taps; the eye screen's way out and hint; thing card and settings edits visible in the same task with a slow disk; an overlay surviving a focus change.
   - `shapes.test.js`: multi-shape drawing in guided add and Redraw; the body guidance and step bar; selecting, moving, resizing, deleting and redrawing a shape, Undo and Start over; an open stroke inside the body joins it; Redraw opens with the body as an editable shape. `legs.test.js`: leg placing and format migration.
+  - `onboarding.test.js` (emulated iPad, 1180x820, touch; screenshots in `tests/browser/.shots/`): the recording tip alone (beside its button, lets touches through, cooldown, fades, colour side, tips off, leaving play), the tour alone (four cards, Next, Back, Skip, Escape, ring around the animal not covered by the card, hidden for the adult check, pencil and Scenes in edit mode), and real-app journeys (welcome then the tour to the end and nothing on reload; Skip tour; Settings "Show the tour again" pointing at a real pencil and Scenes, stepping aside for the Scenes panel; a colour question in the iPad's voice shows the tip, and Settings turns it off). The welcome helpers of `app`, `drag`, `edit-spread`, `find-games` and `legs` tap Skip tour after the welcome card.
   - `find-games.test.js` (emulated iPad, 1180x820, touch; screenshots in `tests/browser/.shots/`): the buttons alone (tap starts, hold opens setup), each setup panel alone, and two journeys (the question is spoken before the sound; long-press, adult check, record the colour question and word with the fake mic, then a colour round plays both).
 - Harness: `tests/browser/harness.js` gives `setup({fakeMedia})`, `newPage()` (boots the app and waits for `data-ready`) and `modulePage(html)` (base and CSS only). Elements written into `modulePage` HTML do not upgrade; import `define.js` and create them with `document.createElement`, then set `services` before appending.
 - `tests/unit/docs.test.js` checks that each domain has its doc and that `CLAUDE.md` links to `AGENTS.md`.

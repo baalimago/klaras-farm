@@ -11,6 +11,7 @@ import { Recorder } from "./io/mic.js";
 import { WakeLock } from "./io/wake.js";
 import * as share from "./io/share.js";
 import * as storage from "./io/storage.js";
+import { Prefs } from "./io/prefs.js";
 import { loadStarter } from "./io/starter.js";
 import { PlayEngine } from "./play-engine.js";
 import { PRESET_IDS } from "./motion/pose.js";
@@ -60,7 +61,8 @@ async function boot() {
     shouldPlay: () => session.state.mode === "play" && document.visibilityState === "visible" && !engine.world.asleep,
   });
 
-  const services = { store, session, engine, audio, music, recorder, scripts, presets, share, storage, flags, env, appVersion: APP_VERSION, warnings };
+  const prefs = new Prefs(); // device preferences outside the farm: "Show recording tips"
+  const services = { store, session, engine, audio, music, recorder, scripts, presets, share, storage, prefs, flags, env, appVersion: APP_VERSION, warnings };
   const board = document.getElementById("board");
   board.connect(services);
   services.board = board;

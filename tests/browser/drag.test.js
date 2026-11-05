@@ -27,6 +27,9 @@ async function ipadPage() {
   await page.locator("kf-welcome").waitFor();
   await page.getByRole("button", { name: "Start playing" }).click();
   await page.locator("kf-welcome").waitFor({ state: "detached" });
+  // The onboarding tour follows the welcome card; these tests are about other things.
+  await page.getByRole("button", { name: "Skip tour" }).click();
+  await page.locator("kf-tour").waitFor({ state: "detached" });
   // Time every frame the Renderer draws (the work done per display refresh).
   await page.evaluate(() => {
     const r = window.__kf.board.renderer;

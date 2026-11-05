@@ -2,6 +2,8 @@
 // Panels are custom elements that receive `services` and `params`, and dispatch `kf-close` when done.
 //   session.state = { mode: 'play'|'gate'|'edit'|'scene', panel: null|{name, params} }
 // Panel names → tags. Every panel lives in components/<tag>/ and is loaded on first use.
+// Besides the session's mode and panel, two parent overlays have their own slots: the first-run
+// welcome card, and the onboarding tour that follows it (also restarted from Settings, tour()).
 const PANELS = {
   gate: "kf-adult-check",
   edit: "kf-edit-layer",
@@ -11,6 +13,7 @@ const PANELS = {
   scene: "kf-scene-tools",
   settings: "kf-settings",
   welcome: "kf-welcome",
+  tour: "kf-tour",
   "find-setup": "kf-find-setup",
 };
 
@@ -51,6 +54,7 @@ export class Shell {
     if (mode === "edit" || mode === "scene") wanted.set("mode", { name: mode === "scene" ? "scene" : "edit", params: undefined });
     if (panel) wanted.set("panel", { name: panel.name, params: panel.params });
     if (this._welcome) wanted.set("welcome", { name: "welcome", params: undefined });
+    if (this._tour) wanted.set("tour", { name: "tour", params: this._tour });
     return wanted;
   }
 
@@ -63,13 +67,18 @@ export class Shell {
     el.services = this.services;
     el.params = params ?? {};
     el.addEventListener("kf-close", () => {
-      if (name === "welcome") { this._welcome = false; this.render(); }
+      // The tour follows the welcome card at once: the parent is here and reading.
+      if (name === "welcome") { this._welcome = false; this._tour = {}; this.render(); }
+      else if (name === "tour") { if (this.mounted.get("tour") === el) { this._tour = null; this.render(); } }
       else if (this.mounted.get("panel") === el) this.services.session.closePanel();
     });
     return el;
   }
 
   welcome() { this._welcome = true; this.render(); }
+
+  /** Starts the onboarding tour from its first card (Settings, "Show the tour again"). */
+  tour() { this._tour = {}; this.render(); }
 
   /** Shown in Settings and as a quiet badge on the edit bar; never interrupts play. */
   updateReady() {

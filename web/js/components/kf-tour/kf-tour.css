@@ -1,0 +1,34 @@
+/* <kf-tour>: the onboarding tour. Not modal: the layer lets touches through; only the card catches them. */
+.parent-layer > kf-tour { position: absolute; inset: 0; display: block; pointer-events: none; z-index: 12; }
+.kf-tour-card {
+  pointer-events: auto;
+  left: 50%;
+  right: auto;
+  width: min(500px, calc(100% - 32px));
+  transform: translateX(-50%);
+  padding: 16px 20px;
+  outline: 2px dashed var(--stitch);
+  outline-offset: -8px;
+}
+.kf-tour-card[data-place="top"] { top: max(16px, env(safe-area-inset-top)); bottom: auto; }
+/* Above the edit bar and the round game buttons. */
+.kf-tour-card[data-place="bottom"] { top: auto; bottom: calc(max(16px, env(safe-area-inset-bottom)) + 96px); }
+.kf-tour-card h2 { font-size: 1.3rem; margin-bottom: 6px; }
+.kf-tour-count { margin: 0 0 2px; font-size: 0.85rem; }
+.kf-tour-body { font-size: 1.05rem; }
+.kf-tour-actions { margin-top: 6px; }
+.kf-tour-gap { flex: 1; }
+/* A felt ring around what the card is about; it never catches a touch. */
+.kf-tour-ring {
+  position: absolute;
+  pointer-events: none;
+  border-radius: 24px;
+  border: 4px dashed var(--sun);
+  box-shadow: 0 0 0 6px rgb(255 201 60 / 0.35);
+  transition: left 0.6s ease-out, top 0.6s ease-out, width 0.6s ease-out, height 0.6s ease-out;
+  animation: kf-tour-pulse 1.2s ease-in-out 3;
+}
+@keyframes kf-tour-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}

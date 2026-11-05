@@ -12,7 +12,7 @@ Play is the live board a toddler touches. Things wander, blink, jump and speak w
 - `web/js/play/mash.js`: mash policy for taps (restart after 300 ms, nothing queues).
 - `web/js/play/sleep.js`: the sleep timer.
 - `web/js/play/find.js`: the Find games state machine (animal and colour rounds).
-- `web/js/play/ask.js`: what a find question plays, in order (pure plans: `planAnimalAsk`, `planColorAsk`, `colorAskLanguage`, `recordedColorLangs`).
+- `web/js/play/ask.js`: what a find question plays, in order (pure plans: `planAnimalAsk`, `planColorAsk`, `colorAskLanguage`, `recordedColorLangs`). A plan is `{ask, clue, recorded}`.
 - `web/js/play/voice.js`: what the child hears for each recording slot, the one rule shared by play and the parent panels (QA round 3): `spokenName(thing, lang)`, `nameVoice(s, thing, lang, canSpeak)` (`recording`, `other-language`, `voice` or `none`), `soundVoice(s, thingId)`, `lineVoice(recordedTakes, take, canSpeak)` and `questionVoice(...)` (`recording`, `skipped`, `voice` or `none`). The thing card and the find setup show its answer on every slot, so what the card says is what plays.
 - `web/js/play/colors.js`: folds felt palette keys into simple colour words, and the hex for each colour button.
 - `web/js/play-engine.js`: `PlayEngine`, the state owner. Wires the pure parts to the store, audio and renderer.
@@ -48,7 +48,7 @@ Events (all `CustomEvent`):
 
 - `reaction` `{thingId, x, y, celebrate?}`: a tap reaction started. The renderer bursts confetti.
 - `wake` `{}`: something started moving without a frame being requested (tap, drop, mode change, store change, finger lifted, prompt ended). The renderer calls `wake()`.
-- `ask` `{kind, thingId, color, repeat}`: a find question started.
+- `ask` `{kind, thingId, color, repeat, recorded}`: a find question started. `recorded` is false when nothing is recorded for that question (no prompt for the animal in any language; for the colour game, no question plus this colour's word in the language played), so the device voice or a fallback asks. `<kf-find-buttons>` then shows the grown-up its recording tip.
 - `answer` `{thingId, outcome}`: a tap during a round, `correct` or `wrong`.
 - `find` `{round, available}`: a round started or ended, or the buttons should show or hide. `<kf-find-buttons>` listens.
 - `spread` `{moves: [{thingId, dx, dy}]}`: edit mode spread things apart; a microtask after the spread (never inside a store change). `<kf-board>` saves each move with `movedThingPatch`, like a drop.
