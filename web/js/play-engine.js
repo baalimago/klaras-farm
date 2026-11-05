@@ -5,7 +5,9 @@
 //
 // Events:
 //   'reaction' {thingId, x, y}   a tap reaction started (confetti), board coordinates
-//   'ask'      {kind, thingId, color, repeat}  a find game asked ('animal': thingId; 'color': color)
+//   'ask'      {kind, thingId, color, repeat, recorded}  a find game asked ('animal': thingId;
+//                                'color': color). recorded: false when nothing is recorded for the
+//                                question, so the device voice asks (the find buttons show a tip)
 //   'answer'   {thingId, outcome} a find game: 'correct' or 'wrong'
 //   'find'     {round, available} the find game state changed (a round started or ended, or the
 //                                buttons should show or hide): <kf-find-buttons> listens
@@ -426,7 +428,7 @@ export class PlayEngine extends EventTarget {
     const round = this._roundToken;
     const current = () => askToken === this._askToken && round === this._roundToken;
     this._prompting = true;
-    this.dispatchEvent(new CustomEvent("ask", { detail: { kind: f.kind, thingId: f.target, color: f.color, repeat } }));
+    this.dispatchEvent(new CustomEvent("ask", { detail: { kind: f.kind, thingId: f.target, color: f.color, repeat, recorded: plan.recorded } }));
     const run = (i) => {
       const step = plan.ask[i];
       if (step.kind === "clip" || step.kind === "clips") this._lastAskClipId = (step.clip ?? step.clips[0]).id;

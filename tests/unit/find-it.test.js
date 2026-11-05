@@ -111,6 +111,7 @@ test("animal round: the recorded question, then the thing's own sound as a clue;
   await roundOn("pig");
   assert.deepEqual(engine.findRound, { kind: "animal", thingId: "pig", color: null });
   assert.equal(asks().at(-1).kind, "animal");
+  assert.equal(asks().at(-1).recorded, true, "the parent's own question: no recording tip");
   assert.equal(audio.last("playClip"), "en:prompt:1");
   assert.equal(engine._input.fingerDown || engine._prompting, true);
   const n = audio.calls.length;
@@ -120,9 +121,10 @@ test("animal round: the recorded question, then the thing's own sound as a clue;
 });
 
 test("animal round without recordings: the scripted cue in the device's voice", async () => {
-  const { audio, roundOn } = await setup();
+  const { audio, roundOn, asks } = await setup();
   await roundOn("cow");
   assert.match(audio.last("speak"), /^en:(Where is|Can you find|Show me) the cow[?!]$/);
+  assert.equal(asks().at(-1).recorded, false, "the ask event says nothing is recorded (the recording tip shows)");
 });
 
 test("right tap: yay chime and confetti, then the name and the sound; the round ends", async () => {

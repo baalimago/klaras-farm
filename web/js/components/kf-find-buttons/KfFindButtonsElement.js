@@ -8,10 +8,16 @@
 // Icon-only (the child can't read), felt-styled, 96 px. They sit above the board, so a press on a
 // button never reaches the board. Hidden outside play, while the things sleep, in a scene without
 // things, and when the parent turns "Show find games" off.
-// Needs `services` ({engine, session, audio, flags?}) set before it is connected.
+// Recording tip (hint.js): when a question plays in the iPad's voice because nothing is recorded for
+// it, a note for the grown-up appears beside that game's button ("🎤 Hold 1 s to record your own
+// question"). The one exception to "no text in the child view": it is small, lets every touch
+// through, fades by itself, shows at most once per game every few minutes, never for a recorded
+// question, and Settings "Show recording tips" (services.prefs.recordingTips) turns it off.
+// Needs `services` ({engine, session, audio, flags?, prefs?}) set before it is connected.
 
 import { groupHex } from "../../play/colors.js";
 import { initialPress, nextPress } from "./press.js";
+import { initialHint, nextHint, hintText, HINT_SHOW_MS } from "./hint.js";
 
 const KINDS = [
   { kind: "animal", label: "Find the animal", icon: "🔍" },
@@ -26,13 +32,24 @@ export class KfFindButtonsElement extends HTMLElement {
     this.services = null;
     this._buttons = new Map();
     this._press = initialPress();
+    this._hint = initialHint();
+    this._hintEl = null;
+    this._hintTimer = 0;
+    /** Milliseconds, monotonic; replaced in tests. */
+    this.now = () => performance.now();
     this._sync = () => {
       // Leaving play (the hold opened the adult check and the setup) ends any press: its pointerup
       // may never reach the button, and a press left "held" would make the next tap start nothing.
       if (this._mode() !== "play" && this._press.phase !== "idle") this._press = initialPress();
+      if (this._mode() !== "play") this._hint = nextHint(this._hint, { type: "hide" });
       this._render();
     };
     this._onArmed = () => this._step({ type: "armed" });
+    this._onAsk = (e) => {
+      const d = e.detail ?? {};
+      this._hintStep({ type: "ask", kind: d.kind, recorded: d.recorded !== false, enabled: this._tipsOn(), now: this.now() });
+    };
+    this._onPrefs = () => { if (!this._tipsOn()) this._hintStep({ type: "hide" }); };
   }
 
   connectedCallback() {
@@ -40,14 +57,22 @@ export class KfFindButtonsElement extends HTMLElement {
     this.setAttribute("role", "group");
     this.setAttribute("aria-label", "Find games");
     for (const { kind, label, icon } of KINDS) this._buttons.set(kind, this._button(kind, label, icon));
+    this._hintEl = Object.assign(document.createElement("div"), { className: "kf-find-hint", hidden: true });
+    this._hintEl.setAttribute("role", "status");
+    this.append(this._hintEl);
     this.services.engine?.addEventListener("find", this._sync);
+    this.services.engine?.addEventListener("ask", this._onAsk);
+    this.services.prefs?.addEventListener?.("change", this._onPrefs);
     this.services.session?.addEventListener?.("change", this._sync);
     this.services.session?.addEventListener?.("hold-armed", this._onArmed);
     this._render();
   }
 
   disconnectedCallback() {
+    clearTimeout(this._hintTimer);
     this.services?.engine?.removeEventListener("find", this._sync);
+    this.services?.engine?.removeEventListener("ask", this._onAsk);
+    this.services?.prefs?.removeEventListener?.("change", this._onPrefs);
     this.services?.session?.removeEventListener?.("change", this._sync);
     this.services?.session?.removeEventListener?.("hold-armed", this._onArmed);
   }
@@ -99,6 +124,22 @@ export class KfFindButtonsElement extends HTMLElement {
     this._render();
   }
 
+  _tipsOn() {
+    return this.services?.prefs?.recordingTips !== false;
+  }
+
+  _hintStep(event) {
+    const before = this._hint.showing;
+    this._hint = nextHint(this._hint, event);
+    const showing = this._hint.showing;
+    if (showing && showing !== before) {
+      // The tip fades by itself (CSS), and the state drops it when its time is up.
+      clearTimeout(this._hintTimer);
+      this._hintTimer = setTimeout(() => this._hintStep({ type: "expire", now: this.now() }), Math.max(0, showing.until - this.now()));
+    }
+    this._render();
+  }
+
   _mode() {
     const s = this.services;
     return s?.session?.state?.mode ?? s?.engine?.mode ?? "play";
@@ -109,6 +150,8 @@ export class KfFindButtonsElement extends HTMLElement {
     if (!s) return;
     const mode = this._mode();
     this.hidden = !(mode === "play" && s.engine?.findAvailable);
+    if (this.hidden) this._hint = nextHint(this._hint, { type: "hide" });
+    this._renderHint();
     const round = s.engine?.findRound ?? null;
     for (const [kind, b] of this._buttons) {
       const active = round?.kind === kind;
@@ -119,6 +162,32 @@ export class KfFindButtonsElement extends HTMLElement {
     // During a colour round the colour button turns that colour: a cue that needs no words.
     if (round?.kind === "color") this.style.setProperty("--find-color", groupHex(round.color));
     else this.style.removeProperty("--find-color");
+  }
+
+  /** The tip beside its game's button. A new tip gets a new bubble, so its fade starts afresh. */
+  _renderHint() {
+    const el = this._hintEl;
+    if (!el) return;
+    const showing = this._hint.showing;
+    el.hidden = !showing;
+    if (!showing) {
+      if (el.firstChild) el.replaceChildren();
+      delete el.dataset.kind;
+      delete el.dataset.key;
+      return;
+    }
+    const key = String(showing.until);
+    if (el.dataset.key === key && el.dataset.kind === showing.kind) return;
+    el.dataset.kind = showing.kind;
+    el.dataset.key = key;
+    el.style.setProperty("--hint-ms", `${HINT_SHOW_MS}ms`);
+    const holdMs = this.services?.flags?.findHoldMs ?? FIND_HOLD_MS;
+    const bubble = document.createElement("p");
+    bubble.className = "kf-find-hint__bubble";
+    const mic = Object.assign(document.createElement("span"), { className: "kf-find-hint__mic", textContent: "🎤" });
+    mic.setAttribute("aria-hidden", "true");
+    bubble.append(mic, document.createTextNode(hintText(holdMs)));
+    el.replaceChildren(bubble);
   }
 }
 

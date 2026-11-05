@@ -90,3 +90,48 @@ kf-find-buttons {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.07); }
 }
+/* The recording tip for the grown-up (hint.js): a small felt note beside the button whose question
+   played in the iPad's voice. Never catches a touch; fades in, stays, fades out by itself. */
+.kf-find-hint {
+  position: absolute;
+  bottom: calc(env(safe-area-inset-bottom) + 14px + 22px);
+  pointer-events: none;
+  max-width: min(380px, calc(50vw - 140px));
+}
+.kf-find-hint[data-kind="animal"] { left: calc(env(safe-area-inset-left) + 14px + 96px + 14px); }
+.kf-find-hint[data-kind="color"] { right: calc(env(safe-area-inset-right) + 14px + 96px + 14px); }
+.kf-find-hint__bubble {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 9px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  color: var(--ink);
+  font: 600 16px/1.3 var(--font);
+  box-shadow: var(--shadow);
+  outline: 2px dashed var(--stitch);
+  outline-offset: -6px;
+  opacity: 0;
+  animation: kf-find-hint-life var(--hint-ms, 6000ms) ease-in-out forwards;
+}
+.kf-find-hint__mic { font-size: 22px; line-height: 1; }
+/* A small felt arrow toward the button. */
+.kf-find-hint__bubble::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  background: var(--paper);
+  transform: translateY(-50%) rotate(45deg);
+}
+.kf-find-hint[data-kind="animal"] .kf-find-hint__bubble::before { left: -6px; }
+.kf-find-hint[data-kind="color"] .kf-find-hint__bubble::before { right: -6px; }
+@keyframes kf-find-hint-life {
+  0% { opacity: 0; transform: translateY(6px); }
+  6%, 85% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: none; }
+}

@@ -72,3 +72,17 @@ test("the device voice reads a line in the language of its script, not the play 
   const color = planColorAsk({ questions: [], words: [], lang: "sv", line: { text: "Tap on an animal that is yellow!", lang: "en" }, canSpeak: true, rng: () => 0 });
   assert.equal(color.ask.find((s) => s.kind === "speak").lang, "en");
 });
+
+test("recorded tells whether the parent's own question plays (the find buttons' recording tip)", () => {
+  assert.equal(planAnimalAsk({ ...base, prompts: [clip("p1")] }).recorded, true);
+  assert.equal(planAnimalAsk({ ...base, prompts: [clip("sv1", "sv")], lang: "en" }).recorded, true, "another language's recording still plays");
+  assert.equal(planAnimalAsk({ ...base, name: clip("n", "en", "name") }).recorded, false, "a recorded name is not a question");
+  assert.equal(planAnimalAsk({ ...base, canSpeak: false }).recorded, false);
+  const line = { text: "Tap on an animal that is yellow!", lang: "en" };
+  const q = [clip("q", "en", "color-question")];
+  const w = [clip("w", "en", "color-word")];
+  assert.equal(planColorAsk({ questions: q, words: w, lang: "en", line, canSpeak: true, rng: () => 0 }).recorded, true);
+  assert.equal(planColorAsk({ questions: q, words: [], lang: "en", line, canSpeak: true, rng: () => 0 }).recorded, false, "no word for this colour");
+  assert.equal(planColorAsk({ questions: [], words: w, lang: "en", line, canSpeak: true, rng: () => 0 }).recorded, false, "no question");
+  assert.equal(planColorAsk({ questions: q, words: [clip("w-sv", "sv", "color-word")], lang: "en", line, canSpeak: true, rng: () => 0 }).recorded, false);
+});

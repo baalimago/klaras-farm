@@ -2,7 +2,8 @@
 // Languages (add/remove, which plays or a random mix), sleep timer, things per scene, adult check kind,
 // export (pre-built so the share sheet opens inside the tap), import (confirm with counts,
 // replace, Undo until next boot), storage status, privacy, Guided Access guide, delete all data,
-// "Update ready", app version. Props: services, params. Dispatches kf-close.
+// "Update ready", app version, "Show recording tips" (services.prefs) and "Show the tour again"
+// (closes Settings, then services.shell.tour()). Props: services, params. Dispatches kf-close.
 import { h, newId, plural, joinAnd, languageName, reportFailure } from "../kf-dialog/dom.js";
 import { editSound } from "../kf-dialog/feedback.js";
 
@@ -61,6 +62,7 @@ export class KfSettingsElement extends HTMLElement {
   connectedCallback() {
     this.store.addEventListener("change", this._onChange);
     this.services.session?.addEventListener?.("update-ready", this._onUpdate);
+    this.services.prefs?.addEventListener?.("change", this._onUpdate);
     this.addEventListener("pointerdown", this._onPointer);
     this.addEventListener("keydown", this._onKey);
     this.render();
@@ -71,6 +73,7 @@ export class KfSettingsElement extends HTMLElement {
   disconnectedCallback() {
     this.store?.removeEventListener("change", this._onChange);
     this.services?.session?.removeEventListener?.("update-ready", this._onUpdate);
+    this.services?.prefs?.removeEventListener?.("change", this._onUpdate);
     this.removeEventListener("pointerdown", this._onPointer);
     this.removeEventListener("keydown", this._onKey);
     clearTimeout(this._exportTimer);
@@ -247,6 +250,28 @@ export class KfSettingsElement extends HTMLElement {
     ]);
   }
 
+  /** The recording tip beside the find buttons: a device preference (io/prefs.js), on by default. */
+  tipsField() {
+    const prefs = this.services.prefs;
+    if (!prefs) return null;
+    const id = newId("tips");
+    const input = h("input", { type: "checkbox", id, "data-key": "recording-tips", checked: prefs.recordingTips !== false, onchange: (e) => { editSound(this.services, "toggle"); prefs.recordingTips = e.target.checked; } });
+    return h("div", { class: "kf-find-it" }, [
+      h("div", { class: "kf-row" }, [input, h("label", { htmlFor: id, text: "Show recording tips" })]),
+      h("p", { class: "kf-note", text: "When a game question plays in the iPad's voice, a small note beside its button says how to record your own." }),
+    ]);
+  }
+
+  /** Closes Settings and starts the onboarding tour again from its first card. */
+  showTour() {
+    this.close();
+    try {
+      this.services.shell?.tour?.();
+    } catch (e) {
+      console.warn("could not start the tour", e);
+    }
+  }
+
   playSection(s) {
     const sleepId = newId("sleep");
     const gateId = newId("gate");
@@ -264,6 +289,7 @@ export class KfSettingsElement extends HTMLElement {
       this.maxThingsField(s),
       this.findItField(),
       this.musicField(),
+      this.tipsField(),
       h("div", { class: "kf-field" }, [
         h("label", { htmlFor: gateId, text: "Adult check" }),
         h(
@@ -310,6 +336,10 @@ export class KfSettingsElement extends HTMLElement {
   helpSection() {
     return h("section", { class: "kf-settings-section", "aria-label": "Help" }, [
       h("h3", { text: "Help" }),
+      h("div", { class: "kf-row" }, [
+        h("button", { type: "button", class: "kf-btn", "data-key": "tour", text: "Show the tour again", onclick: () => this.showTour() }),
+        h("span", { class: "kf-note", text: "Four short cards: an animal, editing, scenes and recording." }),
+      ]),
       this.helpDetails("privacy", [
         h("summary", { text: "Privacy" }),
         h("p", { text: "Everything stays on this iPad. Drawings, names and recordings are never uploaded." }),

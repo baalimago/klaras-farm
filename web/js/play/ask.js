@@ -1,12 +1,15 @@
 // What a find question plays, in order (US-6.2, playtest round 3 "the question must always be
 // heard"). Pure: the engine passes clips, script lines and an rng, and runs the plan.
 //
-// A plan is { ask: Step[], clue: Step|null }.
+// A plan is { ask: Step[], clue: Step|null, recorded: boolean }.
 //   ask   alternatives, best first. The engine plays ask[0]; when a step is not heard (resolves
 //         false: the device voice never started, a clip would not decode) and the round is still
 //         current, it plays the next one. A chime always ends the list, so something is heard.
 //   clue  the animal's own sound. It plays only after a question step has finished: never
 //         instead of the question, never on top of it.
+//   recorded  true when the question is the parent's own recording; false when nothing is recorded
+//         for it, so the device voice (or a fallback) asks. <kf-find-buttons> then shows the grown-up
+//         a tip to record their own question (playtest round 3).
 // Step: {kind:'clip', clip} | {kind:'clips', clips} (one gapless sequence) | {kind:'speak', text, lang}
 //       | {kind:'chime'}.
 
@@ -25,7 +28,7 @@ function pickFresh(list, rng, lastId) {
  *   rng: () => number, lastId?: string|null}} o
  *   prompts: the thing's recorded questions in every language; lines: its cue lines in `lang`
  *   (spoken in `linesLang`, English when the language has no script); name: its recorded name
- * @returns {{ask: object[], clue: object|null}}
+ * @returns {{ask: object[], clue: object|null, recorded: boolean}}
  */
 export function planAnimalAsk({ prompts, lang, lines, linesLang, name, sound, canSpeak, rng, lastId = null }) {
   const ask = [];
@@ -35,7 +38,7 @@ export function planAnimalAsk({ prompts, lang, lines, linesLang, name, sound, ca
   if (canSpeak && lines.length) ask.push({ kind: "speak", text: pick(lines, rng), lang: linesLang });
   if (name) ask.push({ kind: "clip", clip: name });
   ask.push({ kind: "chime" });
-  return { ask, clue: sound ? { kind: "clip", clip: sound } : null };
+  return { ask, clue: sound ? { kind: "clip", clip: sound } : null, recorded: pool.length > 0 };
 }
 
 /**
@@ -55,18 +58,19 @@ export function colorAskLanguage(settings, recordedLangs, rng) {
  * @param {{questions: import('../types.js').Clip[], words: import('../types.js').Clip[], lang: string,
  *   line: {text:string, lang:string}|null, canSpeak: boolean, rng: () => number, lastId?: string|null}} o
  *   questions: colour question clips, every language; words: this colour's word clips, every language
- * @returns {{ask: object[], clue: null}}
+ * @returns {{ask: object[], clue: null, recorded: boolean}}
  */
 export function planColorAsk({ questions, words, lang, line, canSpeak, rng, lastId = null }) {
   const ask = [];
   const q = questions.filter((c) => c.language === lang);
   const word = words.find((c) => c.language === lang) ?? null;
-  if (q.length && word) ask.push({ kind: "clips", clips: [pickFresh(q, rng, lastId), word] });
+  const recorded = q.length > 0 && !!word;
+  if (recorded) ask.push({ kind: "clips", clips: [pickFresh(q, rng, lastId), word] });
   if (canSpeak && line) ask.push({ kind: "speak", text: line.text, lang: line.lang });
   const anyWord = word ?? words[0] ?? null;
   if (anyWord) ask.push({ kind: "clip", clip: anyWord });
   ask.push({ kind: "chime" });
-  return { ask, clue: null };
+  return { ask, clue: null, recorded };
 }
 
 /** Languages where a colour round can play fully recorded (a question and this colour's word). */

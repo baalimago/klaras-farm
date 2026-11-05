@@ -279,6 +279,9 @@ async function startPlaying(page) {
   await page.locator("kf-welcome").waitFor();
   await page.getByRole("button", { name: "Start playing" }).click();
   await page.locator("kf-welcome").waitFor({ state: "detached" });
+  // The onboarding tour follows the welcome card; these tests are about other things.
+  await page.getByRole("button", { name: "Skip tour" }).click();
+  await page.locator("kf-tour").waitFor({ state: "detached" });
 }
 
 /** Records what the app plays, in order: device voice lines and clip starts. */
