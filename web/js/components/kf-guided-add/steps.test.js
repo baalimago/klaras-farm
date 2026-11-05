@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  STEPS, normalizeDraft, validOutline, hasName, stepDone, furthestStep, stampEye, upsertClip, stripClip, latestDraft, canAdvance, freeSpot, cleanNames, cleanCues, newDraft, refitEyes,
+  STEPS, normalizeDraft, validOutline, hasName, stepDone, furthestStep, stampEye, upsertClip, findClip, stripClip, latestDraft, canAdvance, cleanNames, cleanCues, newDraft, refitEyes,
   MOTIONS, THING_SIZE, THING_SIZES, sizeScale, nearestSize, sizeBox, resizeThing, sizedFill,
 } from "./steps.js";
 import { readdirSync } from "node:fs";
@@ -38,6 +38,18 @@ test("upsertClip replaces the clip with the same language, kind and take", () =>
   assert.equal(upsertClip(out, { ...b, take: 2 }).length, 3);
 });
 
+test("a draft has one sound: a sound recorded in another language tab replaces it, and shows in every tab", () => {
+  const en = { language: "en", kind: "sound", take: 1, blobSha256: "moo" };
+  const name = { language: "sv", kind: "name", take: 1, blobSha256: "ko" };
+  const out = upsertClip([en, name], { language: "sv", kind: "sound", take: 1, blobSha256: "muu" });
+  assert.deepEqual(out.filter((c) => c.kind === "sound").map((c) => c.blobSha256), ["muu"]);
+  assert.equal(out.length, 2, "the name stays");
+  for (const language of ["en", "sv", "fi"]) assert.equal(findClip(out, { language, kind: "sound" })?.blobSha256, "muu", language);
+  assert.equal(findClip(out, { language: "en", kind: "name" }), null, "names stay per language");
+  const old = normalizeDraft({ step: 0, thing: {}, clips: [en, name, { ...en, language: "sv", blobSha256: "muu" }] }, [0.5, 0.6]);
+  assert.deepEqual(old.clips.map((c) => c.blobSha256).sort(), ["ko", "muu"], "an older draft with two sounds keeps the last");
+});
+
 test("stripClip drops identity fields", () => {
   assert.deepEqual(stripClip({ id: "x", thingId: null, createdAt: "t", language: "en", kind: "name", take: 1 }), { language: "en", kind: "name", take: 1 });
 });
@@ -63,11 +75,11 @@ test("canAdvance needs an outline, a colour and a motion", () => {
   assert.equal(canAdvance("name", {}), true);
 });
 
-test("freeSpot avoids existing things", () => {
-  const a = freeSpot([]);
-  assert.ok(a[0] > 0 && a[0] < 1 && a[1] > 0.4 && a[1] < 0.9);
-  const b = freeSpot([[0.5, 0.62], [0.35, 0.62], [0.65, 0.62]]);
-  assert.ok(b[0] < 0.3 || b[0] > 0.7);
+test("a draft remembers whether its spot was held; an older draft was not", () => {
+  assert.equal(newDraft("p", [0.5, 0.6]).held, false);
+  assert.equal(newDraft("p", [0.2, 0.3], true).held, true);
+  assert.equal(normalizeDraft({ step: 0, thing: {}, held: true }, [0.5, 0.6]).held, true);
+  assert.equal(normalizeDraft({ step: 0, thing: {} }, [0.5, 0.6]).held, false);
 });
 
 test("cleanNames trims and drops empty names", () => {
@@ -165,9 +177,10 @@ test("playtest 3: a resumed draft never opens on Eyes without a body to put them
   const at = [0.5, 0.6];
   const eyes = STEPS.indexOf("eyes");
   for (const outline of [null, undefined, [], [[0.1, 0.1], [0.2, 0.2]], [[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]], [[0.1, 0.1], [NaN, 0.2], [0.3, 0.1]], "nonsense"]) {
-    const d = normalizeDraft({ id: "d", placeId: "p", step: eyes, thing: { ...ready(), outline } }, at);
+    const d = normalizeDraft({ id: "d", placeId: "p", step: eyes, thing: { ...ready(), eyes: [{ x: 0.45, y: 0.45 }], legs: [{ x: 0.5, y: 0.6 }], legTarget: 2, outline } }, at);
     assert.equal(STEPS[d.step], "draw", `outline ${JSON.stringify(outline)} sends it back to Body`);
     assert.equal(d.thing.outline, null, "the broken outline is dropped");
+    assert.deepEqual([d.thing.eyes, d.thing.legs, d.thing.legTarget], [[], [], null], "with the eyes and legs that sat on it");
   }
   assert.equal(STEPS[normalizeDraft({ step: eyes, thing: ready() }, at).step], "eyes", "a good draft resumes where it was");
 });

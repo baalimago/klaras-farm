@@ -13,7 +13,7 @@
 import { h, ensureElement, languageName } from "./dom.js";
 import {
   STEPS, STEP_LABELS, THING_SIZE, MOTIONS, newDraft, normalizeDraft, upsertClip, findClip, stripClip,
-  latestDraft, canAdvance, freeSpot, cleanNames, cleanCues, refitEyes, validOutline, hasName,
+  latestDraft, canAdvance, DEFAULT_SPOT, cleanNames, cleanCues, refitEyes, validOutline, hasName,
 } from "./steps.js";
 import { initialFlow, flowReducer, backAction, nextAction, finishAction, emptyDraft, STAMP, LEAVE } from "./flow.js";
 import { loadGeometry, snapPoint } from "./geometry.js";
@@ -100,18 +100,18 @@ export class GuidedAddElement extends HTMLElement {
     this.lang = this.languages[0];
     if (!this.placeId || !store.canAddThing(this.placeId)) return this._renderFull();
     const existing = latestDraft(await store.listDrafts(), this.placeId);
-    const at = this._spot();
-    this.draft = existing ? normalizeDraft(structuredClone(existing), at) : newDraft(this.placeId, at);
+    const held = this._heldSpot();
+    this.draft = existing ? normalizeDraft(structuredClone(existing), held ?? [...DEFAULT_SPOT]) : newDraft(this.placeId, held ?? [...DEFAULT_SPOT], !!held);
     this.resumed = !!existing;
     this._render();
   }
 
-  _spot() {
+  /** The spot the parent held on the board to add a thing there (US-11.3), or null. */
+  _heldSpot() {
     const at = this.params?.at;
     if (Array.isArray(at)) return [at[0], at[1]];
     if (at && typeof at.x === "number") return [at.x, at.y];
-    const centers = this.services.store.thingsIn(this.placeId).map((t) => this.geo.centroid(t.outline));
-    return freeSpot(centers);
+    return null;
   }
 
   // ---------- rendering ----------
@@ -639,8 +639,8 @@ export class GuidedAddElement extends HTMLElement {
   /** Saves the draft; saves run one after another. Resolves after this save has committed. */
   _save() {
     const run = this._saving.then(async () => {
-      const { id, placeId, step, at, thing, clips } = this.draft;
-      const saved = await this.services.store.saveDraft(structuredClone({ id, placeId, step, at, thing, clips }));
+      const { id, placeId, step, at, held, thing, clips } = this.draft;
+      const saved = await this.services.store.saveDraft(structuredClone({ id, placeId, step, at, held, thing, clips }));
       this.draft.id = saved.id;
       this.draft.updatedAt = saved.updatedAt;
     });
@@ -691,6 +691,9 @@ export class GuidedAddElement extends HTMLElement {
         motion: t.motion ?? DEFAULT_MOTION,
         cues: cleanCues(t.cues),
         clips: this.draft.clips.map(stripClip),
+        // a held spot is the parent's choice; otherwise it lands like a library copy, beside the
+        // animals where they stand now and on the ground
+        ...(this.draft.held ? {} : { spot: "free" }),
       });
     } catch (e) {
       committed = Promise.reject(e);

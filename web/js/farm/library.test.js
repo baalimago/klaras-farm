@@ -1,8 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { thingKey, libraryEntries, placeCopy, boxesIn, copyOf, pickSeeds, seedCount, SEED_MIN, SEED_MAX, GROUND_AT } from "./library.js";
+import { thingKey, libraryEntries, copyOf, pickSeeds, seedCount, SEED_MIN, SEED_MAX } from "./library.js";
 import { aSnapshot, aPlace, aThing, aClip, fixedEnv, square } from "../../../tests/builders.js";
-import { bbox } from "../geometry/stroke.js";
 
 const moved = (thing, dx, dy) => ({
   ...thing,
@@ -64,56 +63,34 @@ test("libraryEntries hides an untouched copy of an example, but keeps one with r
   assert.deepEqual(examples.map((e) => e.thing.id), ["example-fox"]);
 });
 
+test("libraryEntries folds an untouched thing that lacks some of the example's name languages, not one without names", () => {
+  const fox = aThing({ id: "example-fox", names: { en: "Fox", sv: "Räv", fi: "Kettu" }, color: "orange" }).build().thing;
+  const s = aSnapshot().withPlace(aPlace()).build();
+  const placeId = s.places[0].id;
+  const older = { ...moved(fox, 0.1, 0), id: "older", placeId, names: { en: "Fox", sv: "Räv" } };
+  const nameless = { ...moved(fox, -0.1, 0), id: "nameless", placeId, names: {} };
+  const snap = { ...s, things: [older, nameless], places: [{ ...s.places[0], thingOrder: ["older", "nameless"] }] };
+  assert.deepEqual(libraryEntries(snap, [fox]).own.map((e) => e.thing.id), ["nameless"]);
+});
+
+test("libraryEntries lists the first of two equal copies with as many recordings", () => {
+  const pig = aThing({ names: { en: "Pig" } }).build().thing;
+  const s = aSnapshot().withPlace(aPlace()).build();
+  const placeId = s.places[0].id;
+  const things = [{ ...pig, placeId }, { ...moved(pig, 0.2, 0), id: "pig-2", placeId }];
+  const snap = {
+    ...s,
+    things,
+    places: [{ ...s.places[0], thingOrder: things.map((t) => t.id) }],
+    clips: [aClip({ thingId: pig.id }).build(), aClip({ thingId: "pig-2" }).build()],
+  };
+  assert.deepEqual(libraryEntries(snap).own.map((e) => e.thing.id), [pig.id]);
+});
+
 test("libraryEntries skips ids in thingOrder that have no thing", () => {
   const s = aSnapshot().withPlace(aPlace().withThing(aThing())).build();
   const snap = { ...s, places: [{ ...s.places[0], thingOrder: ["ghost", ...s.places[0].thingOrder] }] };
   assert.equal(libraryEntries(snap).own.length, 1);
-});
-
-const box = (outline) => {
-  const b = bbox(outline);
-  return { left: b.x, right: b.x + b.w, top: b.y, bottom: b.y + b.h };
-};
-const shift = (outline, { dx, dy }) => outline.map(([x, y]) => [x + dx, y + dy]);
-const overlaps = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-
-test("placeCopy stands a copy on the ground in the middle of an empty scene, rounded to 3 decimals", () => {
-  const outline = square(0.2, 0.3, 0.05);
-  const at = placeCopy(outline, [], { backdrop: "meadow" });
-  const b = box(shift(outline, at));
-  assert.ok(Math.abs((b.left + b.right) / 2 - 0.5) < 0.002, "centred");
-  assert.ok(Math.abs(b.bottom - 0.92) < 0.002, "on the low row");
-  assert.equal(at.dx, Math.round(at.dx * 1000) / 1000);
-  assert.equal(at.dy, Math.round(at.dy * 1000) / 1000);
-});
-
-test("placeCopy finds a free spot beside the things already there, inside the board", () => {
-  const outline = square(0.5, 0.5, 0.06);
-  const others = [];
-  for (let i = 0; i < 6; i++) {
-    const b = box(shift(outline, placeCopy(outline, others, { backdrop: "meadow" })));
-    assert.ok(b.left >= 0 && b.right <= 1 && b.bottom <= 0.921, JSON.stringify(b));
-    for (const o of others) assert.ok(!overlaps(b, o), `copy ${i} overlaps`);
-    others.push(b);
-  }
-});
-
-test("placeCopy keeps a copy below the ground line of each backdrop, and a very wide thing in the middle", () => {
-  const outline = square(0.5, 0.2, 0.04);
-  for (const [backdrop, ground] of Object.entries(GROUND_AT)) {
-    const b = box(shift(outline, placeCopy(outline, [box(square(0.5, 0.88, 0.04))], { backdrop })));
-    assert.ok(b.bottom >= ground + 0.05, `${backdrop} ${b.bottom}`);
-  }
-  const wide = [[0, 0.4], [0.98, 0.4], [0.98, 0.5], [0, 0.5]];
-  const b = box(shift(wide, placeCopy(wide, [], {})));
-  assert.ok(Math.abs((b.left + b.right) / 2 - 0.5) < 0.002);
-});
-
-test("boxesIn lists the boxes of one place's things", () => {
-  const s = aSnapshot().withPlace(aPlace().withThing(aThing({ outline: square(0.3, 0.6, 0.1) }))).withPlace(aPlace().withThing(aThing())).build();
-  const boxes = boxesIn(s, s.places[0].id);
-  assert.equal(boxes.length, 1);
-  assert.ok(Math.abs(boxes[0].left - 0.2) < 1e-9 && Math.abs(boxes[0].bottom - 0.7) < 1e-9);
 });
 
 test("copyOf makes an independent copy with fresh ids and its own clip records over the same blobs", () => {
@@ -136,6 +113,18 @@ test("copyOf makes an independent copy with fresh ids and its own clip records o
   assert.deepEqual(clips.map((c) => c.thingId), [thing.id, thing.id]);
   assert.deepEqual(clips.map((c) => c.blobSha256), built.clips.map((c) => c.blobSha256));
   assert.ok(clips.every((c, i) => c.id !== built.clips[i].id && c.kind === built.clips[i].kind && c.take === built.clips[i].take));
+  // a copied recording keeps its date, so "the newest sound plays" picks the same take in the copy
+  assert.deepEqual(clips.map((c) => c.createdAt), built.clips.map((c) => c.createdAt));
+});
+
+test("copyOf keeps which of two old sounds plays", async () => {
+  const { soundClip } = await import("./intents.js");
+  const built = aThing()
+    .withClip(aClip({ kind: "sound", language: "en", createdAt: "2026-11-01T12:00:00.000Z" }))
+    .withClip(aClip({ kind: "sound", language: "sv", createdAt: "2026-11-02T12:00:00.000Z" })).build();
+  const { thing, clips } = copyOf(built.thing, built.clips, { placeId: "p2" }, fixedEnv({ prefix: "c" }));
+  const before = soundClip({ clips: built.clips }, built.thing.id);
+  for (const list of [clips, [...clips].reverse()]) assert.equal(soundClip({ clips: list }, thing.id).blobSha256, before.blobSha256);
 });
 
 test("pickSeeds picks n distinct entries at random, deterministic for an rng", () => {

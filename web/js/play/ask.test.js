@@ -82,6 +82,7 @@ test("recorded tells whether the parent's own question plays (the find buttons' 
   assert.equal(planAnimalAsk({ ...base, prompts: [clip("sv1", "sv")], lang: "en", canSpeak: false }).recorded, true, "no voice: another language's recording asks");
   assert.equal(planAnimalAsk({ ...base, name: clip("n", "en", "name") }).recorded, false, "a recorded name is not a question");
   assert.equal(planAnimalAsk({ ...base, canSpeak: false }).recorded, false);
+  assert.equal(planAnimalAsk({ ...base, lines: [], prompts: [clip("sv1", "sv")], lang: "en" }).recorded, true, "a voice with no lines to read: the other language's recording asks");
   const line = { text: "Tap on an animal that is yellow!", lang: "en" };
   const q = [clip("q", "en", "color-question")];
   const w = [clip("w", "en", "color-word")];

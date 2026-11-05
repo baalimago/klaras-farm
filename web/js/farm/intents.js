@@ -5,7 +5,8 @@ import { BACKDROPS, DEFAULT_MAX_THINGS, MAX_THINGS_LIMIT, MAX_QUESTIONS, THING_C
 import { isColorKey, SIMPLE_COLORS } from "./palette.js";
 import { cleanLegs, isLeg, MAX_LEGS } from "./legs.js";
 import { questionCount } from "./scripts.js";
-import { boxesIn, copyOf, libraryEntries, pickSeeds, placeCopy, seedCount } from "./library.js";
+import { copyOf, libraryEntries, pickSeeds, seedCount } from "./library.js";
+import { placeThing, thingBox, thingBoxes } from "../play/placement.js";
 
 export class FarmError extends Error {
   /** @param {string} code  e.g. 'place-full', 'not-found', 'invalid', 'storage' */
@@ -85,11 +86,11 @@ function seedThings(s, place, { examples = [], count }, env) {
   const things = [];
   const clips = [];
   for (const entry of pickSeeds(pool, n, env.rng)) {
-    const at = placeCopy(entry.thing.outline, boxes, place);
+    const at = placeThing(entry.thing, boxes, place);
     const copy = copyOf(entry.thing, entry.clips, { placeId: place.id, ...at }, env);
     things.push(copy.thing);
     clips.push(...copy.clips);
-    boxes.push(...boxesIn({ things: [copy.thing] }, place.id));
+    boxes.push(thingBox(copy.thing));
   }
   return { things, clips };
 }
@@ -185,16 +186,31 @@ export function canAddThing(s, placeId) {
   return s.things.filter((t) => t.placeId === placeId).length < maxThings(s);
 }
 
+/** Where things stand in a place: `occupied` when the caller knows (live), else where they are saved. */
+function occupiedIn(s, placeId, occupied) {
+  return Array.isArray(occupied) ? occupied : thingBoxes(s, placeId);
+}
+
+/** The outline, eyes and legs moved by (dx, dy). */
+function shifted(args, { dx, dy }) {
+  const move = (p) => ({ ...p, x: p.x + dx, y: p.y + dy });
+  return { outline: args.outline.map(([x, y]) => [x + dx, y + dy]), eyes: (args.eyes ?? []).map(move), legs: args.legs === undefined ? undefined : args.legs.map(move) };
+}
+
 /**
- * @param {{placeId:string, names?:Object, outline:[number,number][], color:string, eyes?:any[], legs?:any[], motion?:any, cues?:Object, clips?:any[]}} args
+ * @param {{placeId:string, names?:Object, outline:[number,number][], color:string, eyes?:any[], legs?:any[], motion?:any, cues?:Object, clips?:any[],
+ *   spot?: 'free', occupied?: import('../play/spread.js').SpreadBox[]}} args
  *   clips: clip records without id/thingId (blobs already stored); they are attached to the new thing.
+ *   spot 'free': the thing is moved to where play/placement.js placeThing puts it (clear of
+ *   `occupied`, else of the saved things), as a library copy is; without it, it stays where drawn.
  */
-export function addThing(s, args, env) {
-  const place = findPlace(s, args.placeId);
+export function addThing(s, input, env) {
+  const place = findPlace(s, input.placeId);
   if (!canAddThing(s, place.id)) throw new FarmError("place-full", `a place holds at most ${maxThings(s)} things`);
-  checkColor(args.color);
-  checkStroke(args.outline, 3);
-  checkLegs(args.legs);
+  checkColor(input.color);
+  checkStroke(input.outline, 3);
+  checkLegs(input.legs);
+  const args = input.spot === "free" ? { ...input, ...shifted(input, placeThing(input, occupiedIn(s, place.id, input.occupied), place)) } : input;
   const now = env.now();
   const thing = {
     id: env.newId(),
@@ -209,7 +225,11 @@ export function addThing(s, args, env) {
     createdAt: now,
     updatedAt: now,
   };
-  const clips = (args.clips ?? []).map((c) => ({ ...c, id: c.id ?? env.newId(), thingId: thing.id, createdAt: c.createdAt ?? now }));
+  // A thing has one sound (saveClip): of several handed in, the last recorded is kept.
+  const given = args.clips ?? [];
+  const lastSound = given.findLastIndex((c) => c.kind === "sound");
+  const kept = given.filter((c, i) => c.kind !== "sound" || i === lastSound);
+  const clips = kept.map((c) => ({ ...c, id: c.id ?? env.newId(), thingId: thing.id, createdAt: c.createdAt ?? now }));
   const newPlace = { ...place, thingOrder: [...place.thingOrder, thing.id], updatedAt: now };
   return {
     snapshot: { ...s, things: [...s.things, thing], clips: [...s.clips, ...clips], places: replace(s.places, newPlace) },
@@ -223,10 +243,14 @@ export function addThing(s, args, env) {
  * library). The source is a thing of this farm (`thingId`: its recordings are copied too, as new
  * clips over the same blobs, so deleting the original never breaks the copy) or a pre-made example
  * (`thing`, from web/data/library.json; it has no recordings). Names, questions, colour, eyes, legs
- * and motion are kept; ids and dates are new. Refuses with `place-full` like addThing.
- * @param {{placeId: string, thingId?: string, thing?: import('../types.js').Thing}} args
+ * and motion are kept; ids and dates are new (a copied recording keeps its createdAt). Refuses with
+ * `place-full` like addThing. It lands where play/placement.js placeThing puts it, clear of
+ * `occupied` (where the place's things stand now; FarmStore fills it in from the play engine),
+ * else of the things' saved positions.
+ * @param {{placeId: string, thingId?: string, thing?: import('../types.js').Thing,
+ *   occupied?: import('../play/spread.js').SpreadBox[]}} args
  */
-export function copyThing(s, { placeId, thingId, thing: example }, env) {
+export function copyThing(s, { placeId, thingId, thing: example, occupied }, env) {
   const place = findPlace(s, placeId);
   const source = thingId ? findThing(s, thingId) : example;
   if (!source) throw new FarmError("invalid", "nothing to copy");
@@ -235,7 +259,7 @@ export function copyThing(s, { placeId, thingId, thing: example }, env) {
   checkLegs(source.legs);
   if (!canAddThing(s, place.id)) throw new FarmError("place-full", `a place holds at most ${maxThings(s)} things`);
   const clips = thingId ? s.clips.filter((c) => c.thingId === thingId) : [];
-  const at = placeCopy(source.outline, boxesIn(s, place.id), place);
+  const at = placeThing(source, occupiedIn(s, place.id, occupied), place);
   const copy = copyOf(source, clips, { placeId: place.id, ...at }, env);
   const thing = { ...copy.thing, names: copy.thing.names ?? {}, cues: copy.thing.cues ?? {}, eyes: copy.thing.eyes.slice(0, 2), legs: cleanLegs(copy.thing.legs) };
   const newPlace = { ...place, thingOrder: [...place.thingOrder, thing.id], updatedAt: env.now() };
@@ -504,15 +528,27 @@ export function tapClips(s, thingId, language) {
 /**
  * A thing's sound: one for every language (saveClip keeps one). A farm saved before QA round 3 may
  * hold one per language: the newest plays, so the last take the parent recorded is what Klara hears.
+ * A tie on createdAt goes by language, then recording (blobSha256), never by list order or id: the
+ * list comes back from IndexedDB and exports in id order, and copies get new ids, so the same farm
+ * must pick the same sound after a reload, an export and import, or a copy.
  * @returns {import('../types.js').Clip|null}
  */
 export function soundClip(s, thingId) {
   let best = null;
   for (const c of s.clips) {
     if (c.thingId !== thingId || c.kind !== "sound") continue;
-    if (!best || String(c.createdAt) >= String(best.createdAt)) best = c;
+    if (!best || playsBefore(c, best)) best = c;
   }
   return best;
+}
+
+/** True when sound clip `a` plays instead of `b`: newer, else the tie-break above. */
+function playsBefore(a, b) {
+  for (const key of ["createdAt", "language", "blobSha256"]) {
+    const x = String(a[key] ?? ""), y = String(b[key] ?? "");
+    if (x !== y) return x > y;
+  }
+  return false;
 }
 
 const round3 = (v) => Math.round(v * 1000) / 1000;

@@ -88,9 +88,16 @@ export function sizedFill(outline, fill) {
   return fill * Math.max(0.3, Math.min(1, sizeScale(outline) / biggest));
 }
 
-export function newDraft(placeId, at) {
+/** Where a new thing is drawn when no spot was held; Finish then places it (play/placement.js). */
+export const DEFAULT_SPOT = Object.freeze([0.5, 0.62]);
+
+/**
+ * A new draft. `held`: the parent held a spot on the board (US-11.3) and the thing stays where it
+ * is drawn there; otherwise Finish puts it on a free spot of the ground (addThing spot "free").
+ */
+export function newDraft(placeId, at, held = false) {
   // legTarget: the leg count picked on the Legs step (null = not picked yet); not part of the Thing.
-  return { id: null, placeId, step: 0, at, thing: { names: {}, cues: {}, eyes: [], legs: [], legTarget: null, outline: null, color: null, motion: null }, clips: [] };
+  return { id: null, placeId, step: 0, at, held, thing: { names: {}, cues: {}, eyes: [], legs: [], legTarget: null, outline: null, color: null, motion: null }, clips: [] };
 }
 
 /**
@@ -101,7 +108,8 @@ export function newDraft(placeId, at) {
 export function normalizeDraft(d, fallbackAt) {
   const t = d.thing ?? {};
   const thing = { names: {}, cues: {}, eyes: [], legs: [], legTarget: null, outline: null, color: null, motion: null, ...t };
-  if (!validOutline(thing.outline)) thing.outline = null;
+  // Eyes and legs sit on the body: without it they would be saved off the body drawn next.
+  if (!validOutline(thing.outline)) Object.assign(thing, { outline: null, eyes: [], legs: [], legTarget: null });
   if (!Array.isArray(thing.eyes)) thing.eyes = [];
   if (!Array.isArray(thing.legs)) thing.legs = [];
   if (!thing.names || typeof thing.names !== "object") thing.names = {};
@@ -110,8 +118,10 @@ export function normalizeDraft(d, fallbackAt) {
     ...d,
     step: Math.min(step, furthestStep(thing)),
     at: d.at ?? fallbackAt,
+    held: d.held === true,
     thing,
-    clips: Array.isArray(d.clips) ? d.clips : [],
+    // a draft saved before sounds shared one slot may hold two: the last recorded stays
+    clips: Array.isArray(d.clips) ? d.clips.reduce(upsertClip, []) : [],
   };
 }
 
@@ -145,12 +155,16 @@ export function stampEye(eyes, eye) {
   return eyes.length < 2 ? [...eyes, eye] : [eyes[eyes.length - 1], eye];
 }
 
-const sameSlot = (a, b) => a.language === b.language && a.kind === b.kind && a.take === b.take;
+// A thing has one sound whichever language tab recorded it (QA round 3, as saveClip and the thing
+// card keep it): sounds share one slot, so a new one replaces the old and every tab shows it.
+const sameSlot = (a, b) => a.kind === b.kind && (a.kind === "sound" || (a.language === b.language && a.take === b.take));
 
+/** The draft's clips with `clip` in its slot (a name or question per language and take; one sound). */
 export function upsertClip(clips, clip) {
   return [...clips.filter((c) => !sameSlot(c, clip)), clip];
 }
 
+/** The clip in a slot; a sound is found from any language tab. */
 export function findClip(clips, { language, kind, take = 1 }) {
   return clips.find((c) => sameSlot(c, { language, kind, take })) ?? null;
 }
@@ -171,17 +185,6 @@ export function canAdvance(step, thing) {
   if (step === "legs") return !Number.isInteger(thing.legTarget) || (thing.legs?.length ?? 0) >= thing.legTarget;
   if (step === "moves") return !!thing.motion;
   return true;
-}
-
-/** A spot in the ground band as far as possible from the things already there. */
-export function freeSpot(centers, y = 0.62) {
-  const xs = [0.5, 0.3, 0.7, 0.18, 0.82, 0.4, 0.6];
-  let best = xs[0], bestD = -1;
-  for (const x of xs) {
-    const d = centers.length ? Math.min(...centers.map(([cx, cy]) => Math.hypot(cx - x, (cy - y) * 0.75))) : 1;
-    if (d > bestD + 1e-9) (bestD = d), (best = x);
-  }
-  return [best, y];
 }
 
 export function cleanNames(names = {}) {

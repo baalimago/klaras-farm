@@ -62,3 +62,26 @@ test("createPlace with seed persists the new scene and its animals in one change
   await again.hydrate();
   assert.deepEqual(again.thingsIn(garden.id).map((t) => t.id), garden.thingOrder);
 });
+
+test("copyThing and a free-spot addThing ask the occupancy where things stand; a failing one falls back to the saved spots", async () => {
+  const { s, farm, pig } = await farmWithRecordedPig();
+  const asked = [];
+  // the pig has wandered to the middle of the ground
+  const live = [{ x: 0.5, y: 0.8, left: 0.1, right: 0.1, top: 0.1, bottom: 0.1 }];
+  s.setOccupancy((placeId) => (asked.push(placeId), placeId === farm ? live : null));
+  assert.equal(typeof s.occupancy, "function");
+  await s.copyThing({ placeId: farm, thingId: pig });
+  const copy = s.thingsIn(farm).at(-1);
+  const cx = (Math.min(...copy.outline.map((p) => p[0])) + Math.max(...copy.outline.map((p) => p[0]))) / 2;
+  assert.ok(Math.abs(cx - 0.5) > 0.15, `beside the wandered pig: ${cx}`);
+  await s.addThing({ placeId: farm, outline: square(0.5, 0.1, 0.05), color: "red" });
+  await s.addThing({ placeId: farm, outline: square(0.5, 0.1, 0.05), color: "red", spot: "free" });
+  assert.deepEqual(asked, [farm, farm], "asked by the copy and the free-spot add only");
+  assert.ok(Math.min(...s.thingsIn(farm).at(-1).outline.map((p) => p[1])) > 0.5, "the free-spot add is on the ground");
+  s.setOccupancy(() => { throw new Error("gone"); });
+  await s.copyThing({ placeId: farm, thingId: pig, occupied: [] });
+  await s.copyThing({ placeId: farm, thingId: pig });
+  assert.equal(s.thingsIn(farm).length, 6, "both copies made");
+  s.setOccupancy(null);
+  assert.equal(s.occupancy, null);
+});

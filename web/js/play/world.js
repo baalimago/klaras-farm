@@ -18,7 +18,7 @@
 import { resolveMotion, pose, newPose, restPose } from "../motion/pose.js";
 import { travelSpeed, REACT_S, DROP_S, WIGGLE_S, SLEEP_SETTLE_S, jump, jumpStretch, jumpSpin, drop, dropStretch, wiggle, yawn } from "../motion/blocks.js";
 import { centroid, extents, ASPECT } from "./hit.js";
-import { spreadBoxes } from "./spread.js";
+import { spreadBoxes, EDIT_SPREAD } from "./spread.js";
 import { LEG_MAX } from "../farm/legs.js";
 
 export const TICK = 1 / 60;
@@ -35,14 +35,9 @@ const STIR_S = 0.6;
 const DROP_STAGGER_S = 0.12;
 /** Edit mode spreads overlapping things apart in this long a glide (the badges are re-placed at 400 ms). */
 export const GLIDE_S = 0.3;
-// Room around each thing in edit mode, in board widths: its pencil and cross (52 px) sit centred
-// on its top edge, at most 70 px each side of the middle. Legs hang below the outline by up to
-// farm/legs.js LEG_MAX of the board height. The edit bar (kf-edit-layer.css: centred, about 545 px
-// of the 1094 px board, its top 76 px above the board's bottom) is an obstacle: a thing under it moves up.
-const SPREAD = {
-  gap: 0.015, padTop: 0.03, minHalfWidth: 0.055, margin: MARGIN,
-  obstacles: [{ left: 0.24, top: 0.9, right: 0.76, bottom: 1 }],
-};
+// Room around each thing in edit mode: play/spread.js EDIT_SPREAD (badges, gap, the edit bar).
+// Legs hang below the outline by up to farm/legs.js LEG_MAX of the board height.
+const SPREAD = EDIT_SPREAD;
 
 const lerp = (a, b, u) => a + (b - a) * u;
 const near = (a, b) => Math.abs(a - b) < 1e-9;
@@ -180,10 +175,7 @@ export function setMode(world, mode, rng) {
  * board (takeSpreadMoves), which saves them like drags, so the layout sticks.
  */
 export function spreadActors(world) {
-  const boxes = world.actors.map((a) => ({
-    x: a.x, y: a.y, left: a.ext.left, right: a.ext.right, top: a.ext.top,
-    bottom: a.ext.bottom + (a.nLegs > 0 ? LEG_MAX : 0),
-  }));
+  const boxes = world.actors.map((a) => actorBox(a, a.x, a.y));
   const to = spreadBoxes(boxes, SPREAD);
   world.actors.forEach((a, i) => {
     const { x, y } = to[i];
@@ -195,6 +187,29 @@ export function spreadActors(world) {
     a.glideT = 0;
     a.spreadPending = true;
   });
+}
+
+/**
+ * The room an actor takes at (x, y), as play/spread.js boxes it: its outline, legs below, and for
+ * a walker a floor so a spread never lifts its feet out of the ground band.
+ */
+function actorBox(a, x, y) {
+  const mode = a.motion?.travel?.mode;
+  const walker = mode === "ground" || mode === "hop";
+  return {
+    x, y, left: a.ext.left, right: a.ext.right, top: a.ext.top,
+    bottom: a.ext.bottom + (a.nLegs > 0 ? LEG_MAX : 0),
+    ...(walker ? { floor: GROUND_TOP - a.ext.bottom } : {}),
+  };
+}
+
+/**
+ * Where the things of the world stand now, as spread boxes (play/placement.js places a new thing
+ * clear of them): a gliding actor counts where it glides to.
+ * @returns {import('./spread.js').SpreadBox[]}
+ */
+export function standingBoxes(world) {
+  return world.actors.map((a) => (a.glideT >= 0 ? actorBox(a, a.tx, a.ty) : actorBox(a, a.x, a.y)));
 }
 
 /**

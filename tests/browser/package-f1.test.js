@@ -226,8 +226,15 @@ test("add a thing end to end: draw, felt, eyes, legs, moves, name, one question,
   assert.equal(out.t.color, "pink");
   assert.equal(out.t.motion.preset, "float");
   assert.equal(out.t.eyes.length, 2);
-  assert.deepEqual(await eyesInside(page, out.t.eyes), [true, true]);
-  assert.deepEqual(out.t.legs, legs.map(({ x, y }) => ({ x: Math.round(x * 1000) / 1000, y: Math.round(y * 1000) / 1000 })));
+  // Finish stands it on a free spot of the ground (play/placement.js): eyes and legs move with the body.
+  const drawn = await page.evaluate(() => window.__el.thing.outline);
+  const [dx, dy] = [out.t.outline[0][0] - drawn[0][0], out.t.outline[0][1] - drawn[0][1]];
+  assert.deepEqual(await page.evaluate(async ({ eyes, outline }) => {
+    const g = await import("./js/components/kf-guided-add/shape.js");
+    return eyes.map((e) => g.pointInPolygon([e.x, e.y], outline));
+  }, { eyes: out.t.eyes, outline: out.t.outline }), [true, true]);
+  assert.equal(out.t.legs.length, legs.length);
+  out.t.legs.forEach((l, i) => assert.ok(Math.abs(l.x - (legs[i].x + dx)) < 2e-3 && Math.abs(l.y - (legs[i].y + dy)) < 2e-3, `leg ${i} moved with the body`));
   assert.equal(out.t.legTarget, undefined, "the picked count is a draft detail, not part of the thing");
   assert.deepEqual(out.clips.map((c) => `${c.kind}${c.take}`).sort(), ["name1", "prompt1"]);
   assert.ok(out.clips.every((c) => c.thingId === out.t.id));

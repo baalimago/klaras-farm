@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { spreadBoxes } from "./spread.js";
+import { spreadBoxes, crowding } from "./spread.js";
 
 const A = 0.75; // board height over width
 const box = (x, y, r = 0.1, ry = r / A) => ({ x, y, left: r, right: r, top: ry, bottom: ry });
@@ -190,4 +190,30 @@ test("the tie-break is pinned: two boxes on one spot, the later one goes up", ()
   assert.deepEqual(out[0], { x: 0.5, y: 0.5 });
   assert.ok(Math.abs(out[1].x - 0.5) < 1e-9);
   assert.ok(Math.abs(out[1].y - (0.5 - 0.2 / A * 1)) < 1e-9 || out[1].y < 0.5, `y ${out[1].y}`);
+});
+
+test("a box with a floor is never moved above it (a walker stays on the ground)", () => {
+  // a row of things on the ground, and one more dropped on the middle one: room only above
+  const row = [0.1, 0.3, 0.5, 0.7, 0.9].map((x) => box(x, 0.8, 0.09, 0.12));
+  const extra = { ...box(0.5, 0.8, 0.09, 0.12), floor: 0.6 };
+  const out = spreadBoxes([...row, extra]);
+  assert.ok(out[5].y >= 0.6 - 1e-9, `kept at or below its floor: ${out[5].y}`);
+  const free = spreadBoxes([...row, box(0.5, 0.8, 0.09, 0.12)]);
+  assert.ok(free[5].y < 0.6, "without a floor it goes up");
+  // a box already above its floor may stay there, but is never moved further up
+  const high = { ...box(0.5, 0.3, 0.05), floor: 0.6 };
+  assert.deepEqual(spreadBoxes([high]), [{ x: 0.5, y: 0.3 }]);
+  const pushed = spreadBoxes([box(0.5, 0.3, 0.05), { ...box(0.5, 0.32, 0.05), floor: 0.6 }]);
+  assert.ok(pushed[1].y >= 0.32 - 1e-9, `not moved up: ${pushed[1].y}`);
+});
+
+test("crowding is 0 exactly when the spread leaves a box where it is", () => {
+  const opts = { gap: 0.015, padTop: 0.03, minHalfWidth: 0.055, obstacles: [{ left: 0.24, top: 0.9, right: 0.76, bottom: 1 }] };
+  const others = [box(0.3, 0.7, 0.06), box(0.7, 0.7, 0.06)];
+  for (const b of [box(0.5, 0.7, 0.04), box(0.36, 0.7, 0.04), box(0.5, 0.3, 0.05), box(0.5, 0.9, 0.04), box(0.1, 0.7, 0.03)]) {
+    const stays = (() => { const out = spreadBoxes([...others, b], opts); return out[2].x === b.x && out[2].y === b.y; })();
+    assert.equal(crowding(b, others, opts) === 0, stays, JSON.stringify(b));
+  }
+  assert.ok(crowding(box(0.3, 0.7, 0.06), others) > 0, "on top of another");
+  assert.equal(crowding(box(0.5, 0.2, 0.05), []), 0);
 });

@@ -118,7 +118,7 @@ test("createPlace with seed adds 3 or 4 random things from the repertoire in one
     // Apart, in the ground band.
     const boxes = things.map(boxOf);
     for (const [i, a] of boxes.entries()) {
-      assert.ok(a.b >= 0.65 && a.b <= 0.921, `bottom ${a.b}`);
+      assert.ok(a.b >= 0.65 && a.b + 34 / 600 <= 0.991, `bottom ${a.b}: on the ground, legs on the board`);
       for (const b of boxes.slice(i + 1)) assert.ok(a.r <= b.l || b.r <= a.l || a.b <= b.t || b.b <= a.t, `seed ${seed}: overlap`);
     }
     // Deterministic for the injected rng.

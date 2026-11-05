@@ -65,3 +65,30 @@ test("an untouched starter thing folds into its example in the library", () => {
   assert.deepEqual(own, [], "the starter animals are listed once, as examples");
   assert.equal(listed.length, examples.length);
 });
+
+// The starter before QA round 3 (commit 78e7f77) had no Finnish names, and every iPad in use holds
+// things like that. They must still be listed and seeded once, as their example.
+const withoutFinnish = (template) => ({ ...template, things: template.things.map((t) => { const { fi, ...names } = t.names; return { ...t, names }; }) });
+
+test("a starter thing from before Finnish names still folds into its example, and seeding never doubles it", async () => {
+  const { createPlace } = await import("../farm/intents.js");
+  const s = starterSnapshot(withoutFinnish(buildStarter()), fixedEnv({ prefix: "s" }), "en", "v1");
+  assert.ok(s.things.every((t) => !t.names.fi && t.names.sv));
+  assert.deepEqual(libraryEntries(s, examples).own, [], "each starter animal is listed once");
+  for (let seed = 1; seed <= 40; seed++) {
+    const env = fixedEnv({ seed, prefix: `n${seed}` });
+    const r = createPlace(s, { name: "Seeded", seed: { examples } }, env);
+    const placeId = r.snapshot.settings.currentPlaceId;
+    const names = r.snapshot.things.filter((t) => t.placeId === placeId).map((t) => t.names.en);
+    assert.equal(new Set(names).size, names.length, `seed ${seed}: ${names}`);
+  }
+});
+
+test("a starter thing the family renamed is its own, whatever languages the example gained", () => {
+  const s = starterSnapshot(withoutFinnish(buildStarter()), fixedEnv({ prefix: "s" }), "en", "v1");
+  const pig = s.things.find((t) => t.names.en === "Pig");
+  const renamed = { ...s, things: s.things.map((t) => (t === pig ? { ...t, names: { ...t.names, sv: "Nasse" } } : t)) };
+  assert.deepEqual(libraryEntries(renamed, examples).own.map((e) => e.thing.names.sv), ["Nasse"]);
+  const extra = { ...s, things: s.things.map((t) => (t === pig ? { ...t, names: { ...t.names, it: "Maiale" } } : t)) };
+  assert.deepEqual(libraryEntries(extra, examples).own.map((e) => e.thing.names.it), ["Maiale"], "a name the example lacks");
+});
