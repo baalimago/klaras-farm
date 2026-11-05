@@ -193,12 +193,13 @@ test("adult check fails after 10 s idle", async () => {
   await page.waitForFunction(() => !document.querySelector("kf-adult-check"));
 });
 
-test("edit layer: bar, badges at the things, + Add disabled with a reason when the scene is full (Settings: 4 things)", async () => {
+test("edit layer: bar, badges at the things, + Add shows the count and the reason when the scene is full (Settings: 4 things)", async () => {
   const page = await open({ things: 2 });
   await toEdit(page);
   const labels = await page.locator("kf-edit-layer .kf-edit-bar button").allInnerTexts();
-  assert.deepEqual(labels.map((l) => l.trim()), ["Scenes", "Change scene", "+ Add", "Settings", "Done"]);
+  assert.deepEqual(labels.map((l) => l.trim().replace(/\s+/g, " ")), ["Scenes", "Change scene", "+ Add 2/8", "Settings", "Done"]);
   assert.equal(await page.locator('kf-edit-layer [data-action="add"]').isDisabled(), false);
+  assert.equal(await page.locator('kf-edit-layer [data-action="add"]').getAttribute("aria-label"), "Add an animal (2 of 8 in this scene)");
   assert.equal(await page.locator("kf-edit-layer .kf-edit-reason").isVisible(), false);
 
   const badges = await page.locator("kf-edit-layer .kf-badge").all();
@@ -226,14 +227,17 @@ test("edit layer: bar, badges at the things, + Add disabled with a reason when t
     await store.addThing({ placeId: store.currentPlace.id, names: { en: "Hen" }, outline: sq(0.6), color: "red" });
     await store.addThing({ placeId: store.currentPlace.id, names: { en: "Cat" }, outline: sq(0.8), color: "red" });
   });
-  await page.waitForFunction(() => document.querySelector('kf-edit-layer [data-action="add"]').disabled);
+  await page.waitForFunction(() => document.querySelector('kf-edit-layer [data-action="add"]').classList.contains("full"));
+  // Still on: the library it opens says the scene is full and what to do.
+  assert.equal(await page.locator('kf-edit-layer [data-action="add"]').isDisabled(), false);
+  assert.equal((await page.locator('kf-edit-layer [data-testid="add-count"]').innerText()).trim(), "4/4");
   assert.equal(await page.locator("kf-edit-layer .kf-edit-reason").isVisible(), true);
   assert.match(await page.textContent("kf-edit-layer .kf-edit-reason"), /4 things/);
   assert.equal(await page.locator('kf-edit-layer [data-action="add"]').getAttribute("aria-describedby"), "kf-edit-reason");
   assert.equal(await page.locator("kf-edit-layer .kf-badge").count(), 8);
 });
 
-test("edit layer: pencil opens the card panel; + Add opens guided add", async () => {
+test("edit layer: pencil opens the card panel; + Add opens the animal library", async () => {
   const page = await open();
   await toEdit(page);
   const id = await page.evaluate(() => window.t.store.thingsIn(window.t.store.currentPlace.id)[1].id);
@@ -242,7 +246,7 @@ test("edit layer: pencil opens the card panel; + Add opens guided add", async ()
   await page.evaluate(() => window.t.session.closePanel());
   await page.waitForSelector("kf-edit-layer .kf-edit-bar");
   await page.click('kf-edit-layer [data-action="add"]');
-  assert.deepEqual(await page.evaluate(() => window.t.session.state.panel), { name: "guided", params: {} });
+  assert.deepEqual(await page.evaluate(() => window.t.session.state.panel), { name: "library", params: {} });
 });
 
 test("edit layer: the cross confirms naming the recordings, deletes, and Undo restores", async () => {
@@ -278,8 +282,9 @@ test("edit layer: an empty place offers to add a thing", async () => {
   await toEdit(page);
   assert.equal(await page.locator("kf-edit-layer .kf-edit-empty").isVisible(), true);
   assert.equal(await page.locator("kf-edit-layer .kf-badge").count(), 0);
+  assert.equal(await page.locator('kf-edit-layer [data-action="add-first"]').innerText(), "Add an animal");
   await page.click('kf-edit-layer [data-action="add-first"]');
-  assert.equal(await page.evaluate(() => window.t.session.state.panel?.name), "guided");
+  assert.equal(await page.evaluate(() => window.t.session.state.panel?.name), "library");
 });
 
 test("edit mode closes by itself after 60 s idle; the hold alone reopens it within 5 minutes", async () => {

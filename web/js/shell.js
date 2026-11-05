@@ -10,6 +10,7 @@ const PANELS = {
   card: "kf-thing-card",
   guided: "kf-guided-add",
   scenes: "kf-scenes",
+  library: "kf-library",
   scene: "kf-scene-tools",
   settings: "kf-settings",
   welcome: "kf-welcome",

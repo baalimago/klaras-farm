@@ -120,112 +120,174 @@ function outlineOf(shapes, { x, y, s, seed }) {
 // ---------- the starter things (local units ≈ the approved felt sketch's species, x right, y down) ----------
 const SPECIES = {
   pig: {
-    names: { en: "Pig", sv: "Gris", de: "Schwein", fr: "Cochon", es: "Cerdo" }, color: "pink", motion: "walk",
+    names: { en: "Pig", sv: "Gris", fi: "Possu", de: "Schwein", fr: "Cochon", es: "Cerdo" }, color: "pink", motion: "walk",
     shapes: [E(0, 0, 34, 21), E(33, -8, 17, 16), P([24, -18], [30, -36], [40, -20]), E(50, -4, 8, 7), C(2.5, [-33, -2], [-40, -8], [-38, -14])],
     eyes: [[29, -12], [40, -13]],
     legs: [-22, -10, 10, 22],
   },
   cow: {
-    names: { en: "Cow", sv: "Ko", de: "Kuh", fr: "Vache", es: "Vaca" }, color: "white", motion: "walk",
+    names: { en: "Cow", sv: "Ko", fi: "Lehmä", de: "Kuh", fr: "Vache", es: "Vaca" }, color: "white", motion: "walk",
     shapes: [E(0, 0, 44, 24), E(48, -8, 15, 14), E(58, -2, 9, 7), P([38, -16], [30, -26], [42, -20]), P([56, -18], [66, -26], [60, -14]),
       C(2.5, [42, -18], [40, -30]), C(2.5, [52, -19], [55, -31]), C(2.5, [-43, -4], [-50, 10], [-50, 20])],
     eyes: [[45, -12], [55, -11]],
     legs: [-30, -14, 14, 30],
   },
   chicken: {
-    names: { en: "Chicken", sv: "Höna", de: "Huhn", fr: "Poule", es: "Gallina" }, color: "yellow", motion: "walk",
+    names: { en: "Chicken", sv: "Höna", fi: "Kana", de: "Huhn", fr: "Poule", es: "Gallina" }, color: "yellow", motion: "walk",
     shapes: [E(0, 0, 21, 17), E(16, -19, 10, 10), P([24, -22], [36, -18], [24, -14]), P([10, -26], [13, -35], [16, -28], [19, -35], [22, -27]),
       P([-16, -6], [-30, -22], [-26, -2])],
     eyes: [[19, -21]],
     legs: [-6, 6],
   },
   fish: {
-    names: { en: "Fish", sv: "Fisk", de: "Fisch", fr: "Poisson", es: "Pez" }, color: "orange", motion: "float",
+    names: { en: "Fish", sv: "Fisk", fi: "Kala", de: "Fisch", fr: "Poisson", es: "Pez" }, color: "orange", motion: "float",
     shapes: [E(0, 0, 30, 18), P([-24, 0], [-46, -16], [-40, 0], [-46, 16]), P([-10, -14], [2, -27], [14, -14]), P([-2, 14], [6, 22], [12, 14])],
     eyes: [[15, -5]],
   },
   octopus: {
-    names: { en: "Octopus", sv: "Bläckfisk", de: "Krake", fr: "Pieuvre", es: "Pulpo" }, color: "pink", motion: "float",
+    names: { en: "Octopus", sv: "Bläckfisk", fi: "Mustekala", de: "Krake", fr: "Pieuvre", es: "Pulpo" }, color: "pink", motion: "float",
     shapes: [E(0, -12, 23, 24), ...[-16, -8, 0, 8, 16].map((x, i) => C(3.6, [x * 0.8, 4], [x * 1.1 + (i % 2 ? 3 : -3), 18], [x * 1.3, 32]))],
     eyes: [[-8, -14], [8, -14]],
   },
   crab: {
-    names: { en: "Crab", sv: "Krabba", de: "Krabbe", fr: "Crabe", es: "Cangrejo" }, color: "red", motion: "scuttle",
+    names: { en: "Crab", sv: "Krabba", fi: "Rapu", de: "Krabbe", fr: "Crabe", es: "Cangrejo" }, color: "red", motion: "scuttle",
     shapes: [E(0, -22, 27, 15), C(2.5, [-18, -28], [-30, -34]), C(2.5, [18, -28], [30, -34]), E(-35, -39, 10, 8), E(35, -39, 10, 8),
       C(2.4, [-7, -34], [-9, -45]), C(2.4, [7, -34], [9, -45]), E(-9, -47, 5, 5), E(9, -47, 5, 5)],
     eyes: [[-9, -47], [9, -47]],
     legs: [-21, -15, -9, -3, 3, 9, 15, 21],
   },
   spoon: {
-    names: { en: "Spoon", sv: "Sked", de: "Löffel", fr: "Cuillère", es: "Cuchara" }, color: "silver", motion: "float",
+    names: { en: "Spoon", sv: "Sked", fi: "Lusikka", de: "Löffel", fr: "Cuillère", es: "Cuchara" }, color: "silver", motion: "float",
     shapes: [P([-4.5, -40], [4.5, -40], [3.5, 2], [-3.5, 2]), E(0, 3, 6, 4), E(0, -58, 20, 23)],
     eyes: [[-6, -62], [6, -62]],
   },
   teapot: {
-    names: { en: "Teapot", sv: "Tekanna", de: "Teekanne", fr: "Théière", es: "Tetera" }, color: "blue", motion: "float",
+    names: { en: "Teapot", sv: "Tekanna", fi: "Teekannu", de: "Teekanne", fr: "Théière", es: "Tetera" }, color: "blue", motion: "float",
     shapes: [E(0, -24, 27, 21), P([16, -24], [38, -44], [45, -40], [26, -10]), E(0, -46, 14, 6), E(0, -53, 5, 5), C(4, [-24, -36], [-36, -30], [-36, -18], [-24, -12])],
     eyes: [[-8, -28], [8, -28]],
   },
   cat: {
-    names: { en: "Cat", sv: "Katt", de: "Katze", fr: "Chat", es: "Gato" }, color: "grey", motion: "walk",
+    names: { en: "Cat", sv: "Katt", fi: "Kissa", de: "Katze", fr: "Chat", es: "Gato" }, color: "grey", motion: "walk",
     shapes: [E(0, 0, 32, 14), E(33, -14, 13, 12), P([23, -20], [25, -36], [33, -24]), P([33, -24], [42, -36], [43, -20]),
       C(3, [-31, -2], [-43, -10], [-45, -26], [-38, -32])],
     eyes: [[30, -17], [39, -17]],
     legs: [-22, -10, 10, 22],
   },
   chair: {
-    names: { en: "Chair", sv: "Stol", de: "Stuhl", fr: "Chaise", es: "Silla" }, color: "wood", motion: "walk",
+    names: { en: "Chair", sv: "Stol", fi: "Tuoli", de: "Stuhl", fr: "Chaise", es: "Silla" }, color: "wood", motion: "walk",
     shapes: [R(-18, -80, 18, -36), R(-24, -40, 24, -28)],
     eyes: [[-6, -64], [6, -64]],
     legs: [-21, -8, 8, 21],
   },
   sheep: {
-    names: { en: "Sheep", sv: "Får", de: "Schaf", fr: "Mouton", es: "Oveja" }, color: "cream", motion: "walk",
+    names: { en: "Sheep", sv: "Får", fi: "Lammas", de: "Schaf", fr: "Mouton", es: "Oveja" }, color: "cream", motion: "walk",
     shapes: [E(0, 0, 28, 18), E(-17, -9, 14, 13), E(0, -15, 15, 12), E(17, -9, 14, 13), E(-19, 6, 12, 10), E(19, 6, 12, 10),
       E(34, -8, 11, 13), P([26, -16], [20, -24], [30, -20])],
     eyes: [[33, -11], [40, -11]],
     legs: [-20, -8, 8, 20],
   },
   duck: {
-    names: { en: "Duck", sv: "Anka", de: "Ente", fr: "Canard", es: "Pato" }, color: "white", motion: "walk",
+    names: { en: "Duck", sv: "Anka", fi: "Ankka", de: "Ente", fr: "Canard", es: "Pato" }, color: "white", motion: "walk",
     shapes: [E(0, 0, 24, 15), P([-18, -8], [-32, -16], [-24, 4]), C(5, [12, -6], [17, -18]), E(18, -22, 10, 10), E(30, -20, 9, 4)],
     eyes: [[21, -25]],
     legs: [-6, 6],
   },
   dog: {
-    names: { en: "Dog", sv: "Hund", de: "Hund", fr: "Chien", es: "Perro" }, color: "tan", motion: "walk",
+    names: { en: "Dog", sv: "Hund", fi: "Koira", de: "Hund", fr: "Chien", es: "Perro" }, color: "tan", motion: "walk",
     shapes: [E(0, 0, 30, 14), C(6, [22, -4], [28, -12]), E(32, -16, 13, 11), E(43, -12, 8, 6), E(25, -12, 5, 10),
       C(2.5, [-29, -4], [-38, -16], [-34, -24])],
     eyes: [[33, -20], [40, -19]],
     legs: [-20, -8, 8, 20],
   },
   horse: {
-    names: { en: "Horse", sv: "Häst", de: "Pferd", fr: "Cheval", es: "Caballo" }, color: "brown", motion: "walk",
+    names: { en: "Horse", sv: "Häst", fi: "Hevonen", de: "Pferd", fr: "Cheval", es: "Caballo" }, color: "brown", motion: "walk",
     shapes: [E(0, 0, 40, 18), P([22, -10], [38, -40], [52, -32], [38, 0]), E(53, -36, 15, 9), P([40, -42], [42, -54], [48, -42]),
       C(3, [-38, -6], [-48, 4], [-50, 18])],
     eyes: [[50, -38], [58, -37]],
     legs: [-28, -15, 15, 28],
   },
   bunny: {
-    names: { en: "Bunny", sv: "Kanin", de: "Hase", fr: "Lapin", es: "Conejo" }, color: "lilac", motion: "hop",
+    names: { en: "Bunny", sv: "Kanin", fi: "Pupu", de: "Hase", fr: "Lapin", es: "Conejo" }, color: "lilac", motion: "hop",
     shapes: [E(0, 0, 20, 15), E(18, -12, 11, 10), C(3.5, [14, -20], [12, -38]), C(3.5, [22, -20], [25, -37]), E(-20, -4, 6, 6)],
     eyes: [[16, -14], [23, -14]],
     legs: [-12, -4, 5, 13],
   },
   mouse: {
-    names: { en: "Mouse", sv: "Mus", de: "Maus", fr: "Souris", es: "Ratón" }, color: "silver", motion: "scuttle",
+    names: { en: "Mouse", sv: "Mus", fi: "Hiiri", de: "Maus", fr: "Souris", es: "Ratón" }, color: "silver", motion: "scuttle",
     shapes: [E(0, 0, 22, 12), E(20, -4, 10, 8), P([26, -9], [38, -2], [26, 3]), E(15, -14, 7, 7),
       C(1.8, [-21, 0], [-32, -6], [-38, -2])],
     eyes: [[24, -6]],
     legs: [-13, -5, 5, 13],
   },
   spider: {
-    names: { en: "Spider", sv: "Spindel", de: "Spinne", fr: "Araignée", es: "Araña" }, color: "brown", motion: "scuttle",
+    names: { en: "Spider", sv: "Spindel", fi: "Hämähäkki", de: "Spinne", fr: "Araignée", es: "Araña" }, color: "brown", motion: "scuttle",
     shapes: [E(0, 0, 26, 15), E(0, -20, 13, 11)],
     eyes: [[-5, -22], [5, -22]],
     legs: [-22, -16, -10, -4, 4, 10, 16, 22],
   },
+  // ---- library-only examples (QA round 3: "we should have more default") ----
+  fox: {
+    names: { en: "Fox", sv: "Räv", fi: "Kettu", de: "Fuchs", fr: "Renard", es: "Zorro" }, color: "orange", motion: "walk",
+    shapes: [E(0, 0, 30, 13), E(31, -12, 12, 10), P([38, -17], [56, -9], [38, -4]), P([23, -18], [25, -35], [33, -21]), P([31, -21], [40, -34], [41, -17]),
+      C(5, [-27, -3], [-40, -9]), E(-48, -10, 13, 8)],
+    eyes: [[30, -14], [38, -14]],
+    legs: [-20, -8, 9, 21],
+  },
+  frog: {
+    names: { en: "Frog", sv: "Groda", fi: "Sammakko", de: "Frosch", fr: "Grenouille", es: "Rana" }, color: "leaf", motion: "hop",
+    shapes: [E(0, 0, 25, 14), E(-11, -13, 8, 8), E(11, -13, 8, 8), E(-20, 5, 10, 7), E(20, 5, 10, 7)],
+    eyes: [[-11, -14], [11, -14]],
+    legs: [-15, -5, 5, 15],
+  },
+  bird: {
+    names: { en: "Bird", sv: "Fågel", fi: "Lintu", de: "Vogel", fr: "Oiseau", es: "Pájaro" }, color: "blue", motion: "hop",
+    shapes: [E(0, 0, 18, 13), E(14, -13, 10, 9), P([22, -16], [33, -12], [22, -9]), P([-13, -4], [-31, -14], [-27, 3]), P([-8, -6], [6, -2], [-6, 6])],
+    eyes: [[16, -15]],
+    legs: [-4, 4],
+  },
+  turtle: {
+    names: { en: "Turtle", sv: "Sköldpadda", fi: "Kilpikonna", de: "Schildkröte", fr: "Tortue", es: "Tortuga" }, color: "leaf", motion: "walk",
+    shapes: [E(0, -6, 28, 17), R(-30, -4, 30, 4), E(34, -2, 9, 7), P([-28, 0], [-39, 3], [-28, 4])],
+    eyes: [[37, -4]],
+    legs: [-19, -7, 7, 19],
+  },
+  snail: {
+    names: { en: "Snail", sv: "Snigel", fi: "Etana", de: "Schnecke", fr: "Escargot", es: "Caracol" }, color: "yellow", motion: "walk",
+    shapes: [E(-5, -15, 17, 16), E(4, 3, 30, 6), C(5, [24, 1], [30, -11]), C(1.6, [29, -12], [27, -25]), C(1.6, [31, -12], [37, -23]),
+      E(27, -25, 3, 3), E(37, -23, 3, 3)],
+    eyes: [[29, -9]],
+  },
+  elephant: {
+    names: { en: "Elephant", sv: "Elefant", fi: "Norsu", de: "Elefant", fr: "Éléphant", es: "Elefante" }, color: "grey", motion: "walk",
+    shapes: [E(0, 0, 38, 23), E(37, -12, 16, 15), E(27, -8, 11, 15), C(5, [48, -6], [54, 8], [52, 20]), C(1.6, [-37, -4], [-44, 8])],
+    eyes: [[42, -16]],
+    legs: [-26, -12, 11, 25],
+  },
+  hedgehog: {
+    names: { en: "Hedgehog", sv: "Igelkott", fi: "Siili", de: "Igel", fr: "Hérisson", es: "Erizo" }, color: "brown", motion: "scuttle",
+    shapes: [E(0, 0, 26, 14), P(...Array.from({ length: 15 }, (_, i) => {
+      const a = Math.PI + (i / 14) * Math.PI * 0.86;
+      const r = i % 2 ? 22 : 31;
+      return [Math.cos(a) * r * 1.05 - 2, Math.sin(a) * r * 0.8 + 2];
+    }), [8, 2], [-24, 2]), P([18, -8], [36, 2], [18, 8])],
+    eyes: [[24, -1]],
+    legs: [-14, -4, 6, 15],
+  },
+  whale: {
+    names: { en: "Whale", sv: "Val", fi: "Valas", de: "Wal", fr: "Baleine", es: "Ballena" }, color: "blue", motion: "swim",
+    shapes: [E(0, 0, 40, 18), P([-34, -2], [-56, -20], [-48, 0], [-56, 14]), P([-4, 10], [8, 23], [12, 10])],
+    eyes: [[24, -3]],
+  },
+  owl: {
+    names: { en: "Owl", sv: "Uggla", fi: "Pöllö", de: "Eule", fr: "Hibou", es: "Búho" }, color: "tan", motion: "hop",
+    shapes: [E(0, 0, 17, 22), P([-15, -13], [-13, -30], [-4, -19]), P([4, -19], [13, -30], [15, -13]), P([-3, -8], [3, -8], [0, -2])],
+    eyes: [[-7, -10], [7, -10]],
+    legs: [-5, 5],
+  },
 };
+
+/** The pre-made examples that are not in a starter scene, in library order. */
+export const LIBRARY_ONLY = Object.freeze(["fox", "frog", "bird", "turtle", "snail", "elephant", "hedgehog", "whale", "owl"]);
 
 /** One starter thing at virtual position (x, y), scale s (virtual px per local unit). */
 function makeThing(id, placeId, kind, x, y, s, seed) {
@@ -372,15 +434,48 @@ export function starterJson() {
   return JSON.stringify(buildStarter(), null, 1) + "\n";
 }
 
+export const LIBRARY_PATH = resolve(fileURLToPath(import.meta.url), "../../web/data/library.json");
+export const LIBRARY_VERSION = 1;
+
+/** Moves a thing so its box is centred across the board and its body ends at y = 0.9. */
+function standCentred(thing) {
+  const xs = thing.outline.map(([x]) => x), ys = thing.outline.map(([, y]) => y);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y1 = Math.max(...ys);
+  const r3 = (v) => Math.round(v * 1000) / 1000;
+  const dx = r3(0.5 - (x0 + x1) / 2), dy = r3(0.9 - y1);
+  const at = ({ x, y }) => ({ x: r3(x + dx), y: r3(y + dy) });
+  return { ...thing, outline: thing.outline.map(([x, y]) => [r3(x + dx), r3(y + dy)]), eyes: thing.eyes.map(at), legs: thing.legs.map(at) };
+}
+
+/**
+ * The animal library's pre-made examples (web/data/library.json): every starter thing as drawn
+ * in its scene (the full eight-per-scene set, so the bunny too), then the library-only animals.
+ * Each stands centred on the ground; the app copies one onto a free spot of a scene. A starter
+ * thing keeps exactly its starter look, so an untouched starter thing in a family's scene folds
+ * into its example in the library (farm/library.js thingKey ignores position).
+ */
+export function buildLibrary() {
+  const starter = buildStarter({ maxPerPlace: 8 }).things.map((t) => ({ ...t, id: t.id.replace(/^thing-/, "example-"), placeId: "library" }));
+  const extra = LIBRARY_ONLY.map((kind, i) => makeThing(`example-${kind}`, "library", kind, 600, 640, 2.3, 101 + i));
+  return { version: LIBRARY_VERSION, examples: [...starter, ...extra].map(standCentred) };
+}
+
+export function libraryJson() {
+  return JSON.stringify(buildLibrary(), null, 1) + "\n";
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const json = starterJson();
+  const outputs = [[STARTER_PATH, starterJson()], [LIBRARY_PATH, libraryJson()]];
   if (process.argv.includes("--check")) {
-    const ok = readFileSync(STARTER_PATH, "utf8") === json;
-    console.log(ok ? "starter.json is up to date" : "starter.json is out of date: run node tools/make-starter.mjs");
-    process.exit(ok ? 0 : 1);
+    const stale = outputs.filter(([path, json]) => readFileSync(path, "utf8") !== json);
+    for (const [path] of stale) console.log(`${path} is out of date: run node tools/make-starter.mjs`);
+    if (!stale.length) console.log("starter.json and library.json are up to date");
+    process.exit(stale.length ? 1 : 0);
   }
-  writeFileSync(STARTER_PATH, json);
+  for (const [path, json] of outputs) writeFileSync(path, json);
   const s = buildStarter();
-  console.log(`wrote ${STARTER_PATH}: ${s.places.length} places, ${s.things.length} things, ${json.length} bytes`);
-  for (const t of s.things) console.log(`  ${t.id}: ${t.outline.length} points`);
+  console.log(`wrote ${STARTER_PATH}: ${s.places.length} places, ${s.things.length} things`);
+  const lib = buildLibrary();
+  console.log(`wrote ${LIBRARY_PATH}: ${lib.examples.length} examples`);
+  for (const t of lib.examples) console.log(`  ${t.id}: ${t.outline.length} points, ${t.legs.length} legs`);
 }

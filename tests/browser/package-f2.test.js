@@ -180,6 +180,9 @@ test("scenes: + New scene creates a place with name, backdrop and colours, then 
   assert.equal(made.skyColor, "pink");
   assert.equal(made.groundColor, "sand");
   assert.equal(s.settings.currentPlaceId, made.id);
+  // QA round 3: a new scene is never empty; a few animals from the repertoire move in.
+  assert.ok(made.thingOrder.length >= 3 && made.thingOrder.length <= 4, `seeded ${made.thingOrder.length}`);
+  for (const id of made.thingOrder) assert.equal(s.things.find((t) => t.id === id)?.placeId, made.id);
   const order = await calls(page);
   assert.ok(order.indexOf("kf-close") < order.indexOf("session.sceneTools"), "closes the shelf before switching to scene tools");
 });

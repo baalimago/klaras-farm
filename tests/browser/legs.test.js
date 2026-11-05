@@ -61,6 +61,7 @@ test("a parent adds a thing with 4 legs through guided add; the legs survive a r
   await dismissWelcome(page);
   await enterEdit(page);
   await page.locator('[data-action="add"]').click();
+  await page.locator('kf-library [data-action="draw-new"]').click();
   await page.locator("kf-guided-add").waitFor();
   await page.locator("kf-draw-pad").waitFor();
   await drag(page, circle(0.5, 0.55, 0.15));

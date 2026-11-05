@@ -156,6 +156,7 @@ test("a parent adds a thing with a recorded name, and it survives a reload", asy
   const before = await kf(page, () => window.__kf.store.thingsIn(window.__kf.store.currentPlace.id).length);
   await enterEdit(page);
   await page.locator('[data-action="add"]').click();
+  await page.locator('kf-library [data-action="draw-new"]').click();
   await page.locator("kf-guided-add").waitFor();
   await page.locator("kf-draw-pad").waitFor();
   await drag(page, circle(0.5, 0.55, 0.15));
@@ -198,7 +199,8 @@ test("a parent adds a thing with a recorded name, and it survives a reload", asy
   assert.deepEqual(after, { count: before + 1, name: "Bird", color: "blue", clips: ["name"] });
   // A scene holds 8 by default (meeting 2); the starter leaves room for exactly one own thing.
   assert.equal(after.count, 8);
-  assert.equal(await page.locator('[data-action="add"]').isDisabled(), true, "the eighth thing fills the scene");
+  await page.waitForFunction(() => document.querySelector('[data-action="add"]').classList.contains("full"));
+  assert.equal((await page.locator('[data-testid="add-count"]').innerText()).trim(), "8/8", "the eighth thing fills the scene");
 
   await page.reload();
   await page.waitForFunction(() => document.documentElement.dataset.ready === "true");
