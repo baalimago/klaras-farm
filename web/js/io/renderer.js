@@ -10,6 +10,9 @@
 // scaled drawImage: no felt repaint while the finger moves. A piece or thing that was only moved
 // keeps its sprite when the store catches up (geometry/transform.js translationBetween), so the
 // drop costs no repaint either. Only a recoloured, reshaped or resized piece is repainted, alone.
+// Edit mode resize: an actor with `scale` ≠ 1 is its cached sprite, legs, eyes and shadow drawn
+// scaled about its anchor (one more factor in the transform); the sprite is repainted once, when
+// the store has the resized outline.
 import { INK, hex } from "../farm/palette.js";
 import { bbox, centroid } from "../geometry/stroke.js";
 import { translationBetween } from "../geometry/transform.js";
@@ -184,8 +187,9 @@ export class Renderer {
     const b = bbox(thing.outline);
     const [cx, cy] = centroid(thing.outline);
     if (!a) return b;
-    const dx = a.x + (a.pose?.dx ?? 0) - cx, dy = a.y + (a.pose?.dy ?? 0) - cy;
-    return { x: b.x + dx, y: b.y + dy, w: b.w, h: b.h };
+    const k = a.scale > 0 ? a.scale : 1; // a thing being resized is drawn scaled about its anchor
+    const ax = a.x + (a.pose?.dx ?? 0), ay = a.y + (a.pose?.dy ?? 0);
+    return { x: ax + (b.x - cx) * k, y: ay + (b.y - cy) * k, w: b.w * k, h: b.h * k };
   }
 
   // ---------- loop ----------
@@ -243,6 +247,7 @@ export class Renderer {
     const x = (a.x + (p ? p.dx : 0)) * W;
     const y = (a.y + (p ? p.dy : 0)) * H;
     const facing = a.facing === -1 ? -1 : 1;
+    const k = a.scale > 0 ? a.scale : 1; // edit mode resize preview: the cached sprite, scaled
     const legs = p && p.legs ? p.legs : null;
     const nLegs = legs ? legs.length : 0;
 
@@ -259,14 +264,14 @@ export class Renderer {
 
     // contact shadow stays on the ground while the thing jumps
     if (en.walker) {
-      const sw = en.halfW * 2.1, sh = Math.max(4, en.halfW * 0.35);
-      c.setTransform(1, 0, 0, 1, x, a.y * H + en.footY);
+      const sw = en.halfW * 2.1 * k, sh = Math.max(4, en.halfW * 0.35 * k);
+      c.setTransform(1, 0, 0, 1, x, a.y * H + en.footY * k);
       c.drawImage(this._shadow, -sw / 2, -sh / 2, sw, sh);
     }
 
     c.setTransform(1, 0, 0, 1, x, y);
     if (p && p.rot) c.rotate(p.rot);
-    c.scale((p ? p.sx : 1) * facing, p ? p.sy : 1);
+    c.scale((p ? p.sx : 1) * facing * k, (p ? p.sy : 1) * k);
 
     if (nLegs > 0) this._drawLegs(c, en, legs, nLegs);
     const s = en.sprite;

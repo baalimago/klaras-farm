@@ -5,7 +5,7 @@ import { PlayEngine } from "../../web/js/play-engine.js";
 import { FarmStore } from "../../web/js/farm-store.js";
 import { MemoryRepo } from "../../web/js/io/memory-repo.js";
 import { fixedEnv, square, aSnapshot, aPlace, aThing, aClip } from "../builders.js";
-import { movedThingPatch } from "../../web/js/geometry/transform.js";
+import { movedThingPatch, scaledThingPatch } from "../../web/js/geometry/transform.js";
 
 const preset = (id) => JSON.parse(readFileSync(new URL(`../../web/data/motions/${id}.json`, import.meta.url), "utf8"));
 const presets = { walk: preset("walk"), float: preset("float") };
@@ -294,6 +294,60 @@ test("edit mode drag: release without commit puts the thing back; leaving edit m
   engine.grab("cow");
   engine.setMode("play");
   assert.equal(engine.held, null);
+});
+
+test("edit mode resize: grabResize, resizeTo scales live about the feet, release gives the patch; no store writes until then", async () => {
+  const { engine, store, events } = await setup();
+  assert.equal(engine.grabResize("pig"), null, "no resizing in play");
+  engine.setMode("edit");
+  assert.equal(engine.grabResize("nobody"), null);
+  let writes = 0;
+  store.addEventListener("change", () => writes++);
+  const start = engine.grabResize("pig");
+  assert.ok(Math.abs(start.px - 0.3) < 1e-9 && Math.abs(start.py - 0.78) < 1e-9, "the pivot is the bottom centre");
+  assert.equal(engine.held, "pig");
+  events.length = 0;
+  engine.resizeTo(1.5);
+  assert.ok(events.some((e) => e[0] === "wake"), "each move asks for a frame");
+  const a = actor(engine, "pig");
+  assert.equal(a.scale, 1.5);
+  assert.ok(Math.abs(a.y + a.ext.bottom * a.scale - 0.78) < 1e-9, "the feet stay put");
+  engine.resizeTo(0); // ignored
+  assert.equal(a.scale, 1.5);
+  engine.dragTo(0.1, 0.1); // a resize is not a move
+  assert.equal(writes, 0, "no store writes while resizing");
+  const d = engine.release();
+  assert.equal(d.thingId, "pig");
+  assert.equal(d.s, 1.5);
+  assert.ok(Math.abs(d.dx) < 1e-9 && Math.abs(d.dy) < 1e-9, JSON.stringify([d, a.homeX, a.homeY, a.x, a.y]));
+  const thing = store.snapshot.things.find((t) => t.id === "pig");
+  await store.updateThing({ thingId: "pig", patch: scaledThingPatch(thing, d.s) });
+  assert.equal(writes, 1);
+  const b = actor(engine, "pig");
+  assert.equal(b.scale, 1, "drawn at its own (new) size");
+  assert.ok(Math.abs(b.y + b.ext.bottom - 0.78) < 1e-3, "no jump when the store has the resized outline");
+  assert.ok(Math.abs(b.ext.left - 0.12) < 1e-3);
+});
+
+test("edit mode resize: a cancel, an unchanged size or leaving edit mode puts the old size back with nothing to save", async () => {
+  const { engine } = await setup();
+  engine.setMode("edit");
+  engine.grabResize("cow");
+  engine.resizeTo(1.6);
+  assert.equal(engine.release(false), null);
+  const a = actor(engine, "cow");
+  assert.equal(a.scale, 1);
+  assert.ok(Math.abs(a.x - 0.7) < 1e-9 && Math.abs(a.y - 0.7) < 1e-9);
+  engine.grabResize("cow");
+  assert.equal(engine.release(), null, "a tap on the handle changes nothing");
+  engine.grabResize("cow");
+  engine.resizeTo(0.6);
+  engine.setMode("play");
+  assert.equal(engine.held, null);
+  assert.equal(a.scale, 1);
+  assert.ok(Math.abs(a.y - 0.7) < 1e-9);
+  engine.resizeTo(2); // nothing held
+  assert.equal(a.scale, 1);
 });
 
 test("dispose stops listening to the store", async () => {

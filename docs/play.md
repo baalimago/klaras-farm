@@ -32,7 +32,10 @@ Play is the live board a toddler touches. Things wander, blink, jump and speak w
 | `pick(x, y)` | Which thing is at (x, y), any mode. Used for edit taps and the edit-mode hold. |
 | `grab(thingId)` | Edit mode only: pick a thing up to drag it. It holds a still rest pose. Returns its anchor `{x, y}` or null. |
 | `dragTo(x, y)` | Puts the held thing's anchor at (x, y) exactly (no smoothing) and fires `wake`. |
-| `release(commit = true)` | Puts it down. With `commit` it stays and the result `{thingId, dx, dy}` is how far to move its outline in the store (`geometry/transform.js` `movedThingPatch`); without, it goes back and returns null. `held` is the id being dragged. Leaving edit mode drops the hold. |
+| `release(commit = true)` | Puts it down. With `commit` it stays and the result `{thingId, dx, dy}` is how far to move its outline in the store (`geometry/transform.js` `movedThingPatch`); without, it goes back and returns null. `held` is the id being dragged or resized. Leaving edit mode drops the hold. A resize released: see `grabResize`. |
+| `grabResize(thingId)` | Edit mode only: pick a thing up to resize it (held still, like `grab`). Returns `{x, y, px, py}`: its anchor and the pivot, the bottom centre of its outline (its feet), or null. `dragTo` does nothing during a resize. |
+| `resizeTo(k)` | Shows the held thing `k` times its size about the pivot (the caller clamps k: `geometry/transform.js` `clampThingScale`) and fires `wake`. Number writes only, no store writes. |
+| `release(commit)` after a resize | With `commit` and a size change: `{thingId, s, dx, dy}`, saved by the board as `scaledThingPatch(thing, s)` moved by `(dx, dy)` (non-zero only if the thing was off its home when picked up). Otherwise (cancel, no change, leaving edit mode) it goes back to its old size and returns null. |
 | `fingerDown(bool)` | All things pause while a finger is down (US-5.3). |
 | `startFind(kind)` | `'animal'` or `'color'`. Starts a round, or repeats the question if that game is already running. Call inside the press. |
 | `stopFind()` | Ends a round quietly. |
@@ -54,7 +57,7 @@ Events (all `CustomEvent`):
 
 ### World (`play/world.js`)
 
-`createWorld(things, {rng, presets, mode, reduceMotion})`, `syncWorld(world, things, rng, {drop})`, `setMode`, `react`, `dropActor`, `sleepAll`, `step(world, dt, {fingerDown}, rng)`, `isIdle`, `nextWakeMs`, `hitTargets`, `actorFor`, `spreadActors`, `takeSpreadMoves` and `isSettling` (edit-mode spread, below), and for the edit drag `holdActor` (still, settled wiggle), `placeActor(world, id, x, y)` and `settleActor` (the drop point becomes home; the actor's outline moves with it so taps hit it before the store catches up; returns `[dx, dy]`). Constants: `TICK = 1/60`, `GROUND_TOP = 0.55`, `GLIDE_S = 0.3`.
+`createWorld(things, {rng, presets, mode, reduceMotion})`, `syncWorld(world, things, rng, {drop})`, `setMode`, `react`, `dropActor`, `sleepAll`, `step(world, dt, {fingerDown}, rng)`, `isIdle`, `nextWakeMs`, `hitTargets`, `actorFor`, `spreadActors`, `takeSpreadMoves` and `isSettling` (edit-mode spread, below), and for the edit drag `holdActor` (still, settled wiggle), `placeActor(world, id, x, y)` and `settleActor` (the drop point becomes home; the actor's outline moves with it so taps hit it before the store catches up; returns `[dx, dy]`), and for the edit resize `footPivot(world, id)` (the bottom centre of the actor's outline where it is), `scaleActor(world, id, k, x0, y0, px, py)` (actor `scale = k`, anchor scaled about the pivot from `(x0, y0)`) and `settleResize` (the scaled actor is home, its outline scaled so taps hit the new size; returns `{s, dx, dy}`). `scale` (1 by default) is read by the renderer: it draws the cached sprite, legs, eyes and shadow scaled about the anchor. `fitThing` resets it to 1 when the farm has a new outline for the thing, so the preview ends exactly when the resized drawing arrives; its extents stay the old ones until then, so `syncWorld` sees the size change and spreads again. Constants: `TICK = 1/60`, `GROUND_TOP = 0.55`, `GLIDE_S = 0.3`.
 
 Actor states:
 
@@ -64,6 +67,7 @@ idle ──rest timer──▶ moving ──arrived──▶ idle
   new / place switched ──▶ drop (0.7 s, staggered 0.12 s) ──▶ idle | wiggle | sleep
   setMode('edit') ──▶ wiggle (decays over 2 s, then still); overlapping things glide apart (0.3 s)
   edit: grab ──▶ wiggle, settled (held still, follows dragTo) ──release──▶ same, home = drop point
+  edit: grabResize ──▶ wiggle, settled (scale follows resizeTo, feet still) ──release──▶ home = scaled anchor, scale 1 once the farm has the new outline
   sleepAll ──▶ sleep (yawn 1.6 s, settled at 2.2 s; a tap only stirs for 0.6 s)
 ```
 
@@ -80,7 +84,7 @@ idle ──rest timer──▶ moving ──arrived──▶ idle
 
 Owner request after meeting 2: in edit mode no two things overlap, so each one and its pencil and cross can be reached.
 
-- When: entering edit mode (`setMode('edit')`), and when `syncWorld` in edit mode adds things (a new thing, an undone delete, a place switched to) or a thing's extents change (Size, Redraw). Never in play or scene mode. A thing a parent drops onto another stays there: the parent chose the spot; the next edit session spreads it.
+- When: entering edit mode (`setMode('edit')`), and when `syncWorld` in edit mode adds things (a new thing, an undone delete, a place switched to) or a thing's extents change (the resize handle, Redraw). Never in play or scene mode. A thing a parent drops onto another stays there: the parent chose the spot; the next edit session spreads it.
 - `spreadBoxes(boxes, {gap, padTop, minHalfWidth, margin, obstacles})` works in board widths on both axes. A box that overlaps nothing (boxes or obstacles) keeps its exact position. The others are placed one by one in drawing order: each keeps its spot if free, else takes the nearest free spot flush beside a placed box or obstacle (or a board edge), clamped onto the board; if nothing is free, the spot with the least overlap. Greedy placement instead of pairwise pushes, because pushes jam when a row is wider than the board. Deterministic; about n³ candidate checks for n ≤ 12, once per spread.
 - World settings (`SPREAD` in `world.js`): gap 0.015, `padTop` 0.03 (the 52 px badges sit centred on each thing's top edge), `minHalfWidth` 0.055 (pencil and cross sit at most 70 px each side of the top centre), margin 0.01, and the edit bar as an obstacle (x 0.24 to 0.76, y from 0.9). A thing with legs counts `farm/legs.js` `LEG_MAX` below its outline. A moved box never goes further past an edge than it already was.
 - Each moved actor glides over `GLIDE_S` (smoothstep, `glideT`, from `gx, gy` to `tx, ty`) and is marked `spreadPending`. `isIdle` is false while gliding. Picking a thing up (`holdActor`, `placeActor`) stops its glide under the finger and drops its pending move (its drop saves it); leaving edit mode finishes a glide at once.

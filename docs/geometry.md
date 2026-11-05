@@ -12,7 +12,7 @@ The geometry domain is the pure math behind drawing and tapping: cleaning up fin
 - `web/js/geometry/union.js`: `unionOutlines`, the raster union of several drawn shapes into one simple closed outline.
 - `web/js/geometry/join.js`: `joinOpenStroke`, closing an open stroke whose ends lie inside drawn shapes, so it joins them.
 - `web/js/geometry/hit.js`: `hitTest`, tap hit testing over things in drawing order.
-- `web/js/geometry/transform.js`: moving and resizing drawings: `translationBetween`, `clampDelta`, `translatePoints`, `scaleAbout`, `clampScale`, `movedThingPatch`, `MIN_SIDE`.
+- `web/js/geometry/transform.js`: moving and resizing drawings: `translationBetween`, `clampDelta`, `translatePoints`, `scaleAbout`, `clampScale`, `movedThingPatch`, `MIN_SIDE`, and for resizing things `thingSize`, `footPoint`, `clampThingScale`, `scaledThingPatch`.
 
 ## Units
 
@@ -58,6 +58,7 @@ The geometry domain is the pure math behind drawing and tapping: cleaning up fin
 - `translatePoints(points, dx, dy)`, `scaleAbout(points, s, cx, cy)`.
 - `clampScale(box, s, cx, cy)`: the nearest scale that keeps the box on the board with its smaller side at least `MIN_SIDE = 0.02` (a piece already smaller never shrinks further).
 - `movedThingPatch(thing, dx, dy)`: `{outline, eyes, legs?}` all moved together, limited to the board. Used by the board's edit-mode drag for `store.updateThing`.
+- Resizing a thing (the edit-mode resize handle): `THING_BOX = {w: 0.24, h: 0.32}` (a new thing fills it one way), `thingSize(outline)` (the larger of width / 0.24 and height / 0.32; 0 for an empty outline), `footPoint(outline)` (bottom centre of the box: the pivot, so the feet stay put), `clampThingScale(thing, s)` (the nearest scale keeping the size between `THING_SCALE_MIN = 0.4` and `THING_SCALE_MAX = 1.8` and the box on the board; a thing already outside the limits is never forced to change; 1 for a bad `s`), and `scaledThingPatch(thing, s)`: `{outline, eyes, legs?}` scaled by the clamped `s` about the foot point, other eye and leg fields kept.
 
 `hit.js`
 - `hitTest(targets, pt, {scale = 1.3, minRadius = 0, aspect = BOARD_ASPECT})` returns a target id or `null`.
@@ -94,6 +95,6 @@ The geometry domain is the pure math behind drawing and tapping: cleaning up fin
 - `web/js/geometry/stroke.test.js`: `simplify`, `smooth`, `pathLength`, `closeGap` (including property tests on random gaps, overshoot, scribbles), area and centroid, `pointInPolygon` on concave shapes, `snapInside` properties, `fitOutline`, `toBoard`/`fromBoard`, `fitRect` letterboxing.
 - `web/js/geometry/union.test.js`: single shape passthrough, overlap area, touching and disjoint shapes become one piece, nested shapes, filled rings, self-intersecting scribbles, aspect, determinism, validity in a snapshot, speed, and a property test on random wobbly shapes.
 - `web/js/geometry/join.test.js`: `shapeAt` (tolerance, smallest wins, degenerate shapes), an ear drawn from inside the body joins it, a neck between two shapes is thickened and joins them, ends outside are refused, a stroke inside the body changes nothing, `thickenStroke`.
-- `web/js/geometry/transform.test.js`: moves within rounding, reshapes refused, clamping to the board, scale limits, thing patches.
+- `web/js/geometry/transform.test.js`: moves within rounding, reshapes refused, clamping to the board, scale limits, thing patches; resizing a thing about its feet with eyes and legs, its min and max size and the board edges.
 - `web/js/geometry/hit.test.js`: inside hits, misses, the 1.3 times area, `minRadius` with aspect, topmost wins, nearest centre in overlapping margins, and a property test.
 - `tests/browser/shapes.test.js`: two shapes drawn with the pad save as one outline and reload; redraw on the thing card glues a shape on; an open stroke from inside the body joins it.
