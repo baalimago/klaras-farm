@@ -1,5 +1,5 @@
 // What a find question plays, in order (US-6.2, playtest round 3 "the question must always be
-// heard"). Pure: the engine passes clips, script lines and an rng, and runs the plan.
+// heard"; QA round 3: the parent panels say what plays through play/voice.js, which follows this order). Pure: the engine passes clips, script lines and an rng, and runs the plan.
 //
 // A plan is { ask: Step[], clue: Step|null }.
 //   ask   alternatives, best first. The engine plays ask[0]; when a step is not heard (resolves
@@ -30,9 +30,11 @@ function pickFresh(list, rng, lastId) {
 export function planAnimalAsk({ prompts, lang, lines, linesLang, name, sound, canSpeak, rng, lastId = null }) {
   const ask = [];
   const own = prompts.filter((c) => c.language === lang);
-  const pool = own.length ? own : prompts;
-  if (pool.length) ask.push({ kind: "clip", clip: pickFresh(pool, rng, lastId) });
+  if (own.length) ask.push({ kind: "clip", clip: pickFresh(own, rng, lastId) });
   if (canSpeak && lines.length) ask.push({ kind: "speak", text: pick(lines, rng), lang: linesLang });
+  // Another language's recording only when the voice is not heard: the card of a language without
+  // recordings says "the iPad voice reads this" (play/voice.js), and that is what plays.
+  if (!own.length && prompts.length) ask.push({ kind: "clip", clip: pickFresh(prompts, rng, lastId) });
   if (name) ask.push({ kind: "clip", clip: name });
   ask.push({ kind: "chime" });
   return { ask, clue: sound ? { kind: "clip", clip: sound } : null };

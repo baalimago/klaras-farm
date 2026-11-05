@@ -246,6 +246,30 @@ test("tapClips plays the name then the sound, falling back to another language",
   assert.deepEqual(I.tapClips(s, t, "en").map((c) => c.kind), ["name", "sound"]);
 });
 
+// ---------- QA round 3: "re-recorded sound, this is like the original one" ----------
+
+test("a thing has one sound: a new sound recorded in any language tab replaces the old one", () => {
+  const s = aSnapshot().withPlace(aPlace().withThing(aThing().withClip(aClip({ kind: "sound", language: "en" })))).build();
+  const t = s.things[0].id;
+  const { id, createdAt, ...fresh } = aClip({ thingId: t, kind: "sound", language: "sv" }).build();
+  const r = I.saveClip(s, { clip: fresh }, env());
+  valid(r.snapshot);
+  const sounds = I.clipsFor(r.snapshot, t, { kind: "sound" });
+  assert.deepEqual(sounds.map((c) => c.language), ["sv"], "the English take is gone");
+  assert.equal(r.writes.filter((w) => w.op === "delete").length, 1, "deleted in the same batch");
+  assert.equal(I.tapClips(r.snapshot, t, "en").find((c) => c.kind === "sound").language, "sv", "an English tap plays the new sound");
+});
+
+test("an old farm with a sound in two languages plays the newest one, whatever the play language", () => {
+  const s = aSnapshot().withPlace(aPlace().withThing(aThing()
+    .withClip(aClip({ id: "new", kind: "sound", language: "sv", createdAt: "2026-11-04T12:00:00.000Z" }))
+    .withClip(aClip({ id: "old", kind: "sound", language: "en", createdAt: "2026-11-01T12:00:00.000Z" })))).build();
+  const t = s.things[0].id;
+  assert.equal(I.soundClip(s, t).id, "new");
+  assert.equal(I.tapClips(s, t, "en")[0].id, "new");
+  assert.equal(I.soundClip(s, "nobody"), null);
+});
+
 test("playLanguageFor: fixed language, or a random pick among recorded languages when mixing", () => {
   const mix = { playLanguage: "alternate", languages: ["sv", "en", "de"] };
   assert.equal(I.playLanguageFor({ playLanguage: "sv", languages: ["sv", "en"] }, { rng: () => 0.9 }), "sv");

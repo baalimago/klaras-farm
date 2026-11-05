@@ -24,10 +24,13 @@ test("animal: a random take among the recorded ones, never the same one twice in
   assert.equal(planAnimalAsk({ ...base, prompts: [clip("p1")], lastId: "p1" }).ask[0].clip.id, "p1", "one take repeats");
 });
 
-test("animal: prompts in the play language win; else any language's prompts", () => {
+test("animal: prompts in the play language win; else the device voice, then another language's prompts", () => {
   const prompts = [clip("en1"), clip("sv1", "sv")];
   assert.equal(planAnimalAsk({ ...base, prompts, lang: "sv" }).ask[0].clip.id, "sv1");
-  assert.equal(planAnimalAsk({ ...base, prompts: [clip("sv1", "sv")], lang: "de" }).ask[0].clip.id, "sv1");
+  const de = planAnimalAsk({ ...base, prompts: [clip("sv1", "sv")], lang: "de" });
+  assert.deepEqual(kinds(de), ["speak", "clip", "chime"], "QA round 3: the card says the iPad voice reads it");
+  assert.equal(de.ask[1].clip.id, "sv1", "a recording still asks when the voice is not heard");
+  assert.equal(planAnimalAsk({ ...base, prompts: [clip("sv1", "sv")], lang: "de", canSpeak: false }).ask[0].clip.id, "sv1");
 });
 
 test("animal: no recording and no voice still asks something; no sound means no clue", () => {

@@ -371,3 +371,31 @@ test("every script language has a word for every simple colour and colour questi
   assert.deepEqual(colorLine(scripts, "blue", "nl"), { text: "Tap on an animal that is blue!", lang: "en" });
   assert.deepEqual(Object.keys(COLOR_GROUPS), [...SIMPLE_COLORS], "the colour game's colours are the palette's simple colours");
 });
+
+// ---------- QA round 3: the child hears exactly what the thing card says plays ----------
+
+test("a sound re-recorded on another language's tab is the sound a tap plays", async () => {
+  const { audio, store, tapThing } = await setup();
+  await store.saveClip({ clip: { ...aClip({ language: "sv", kind: "sound" }).build(), thingId: "pig" } });
+  tapThing("pig");
+  assert.equal(audio.last("playThing"), "en:name,sv:sound");
+});
+
+test("a recorded sound but no recorded name: the device says the name, then the sound plays", async () => {
+  const { audio, store, tapThing } = await setup();
+  await store.saveClip({ clip: { ...aClip({ language: "en", kind: "sound" }).build(), thingId: "cow" } });
+  const n = audio.calls.length;
+  tapThing("cow");
+  assert.deepEqual(audio.since(n), [["chime", "tap"], ["speak", "en:cow"]], "the card says the iPad voice says its name");
+  await audio.finishNext(true);
+  assert.deepEqual(audio.since(n + 2), [["playClip", "en:sound:1"]]);
+});
+
+test("no question recorded in the play language: the device voice reads its lines, not another language's recording", async () => {
+  const { audio, roundOn } = await setup({ lang: "sv" });
+  const n = audio.calls.length;
+  await roundOn("pig");
+  const asked = audio.since(n).filter((c) => c[0] === "speak" || c[0] === "playClip");
+  assert.equal(asked[0][0], "speak", "the Swedish tab says the iPad voice reads it");
+  assert.match(asked[0][1], /^sv:/);
+});

@@ -1,5 +1,5 @@
 // Size and walking style in the parent UI (meeting 2), each element mounted alone with fake services:
-// the thing card's Size and Moves rows, and guided add's Size (Felt step) and Moves step.
+// the thing card's Moves row (its Size row is gone since QA round 3), and guided add's Size (Felt step) and Moves step.
 // Set KF_SHOTS to a folder to save iPad-sized screenshots for a look.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -50,31 +50,10 @@ const box = (o) => {
 };
 const pressed = (page, sel) => page.waitForFunction((s) => window.__el.querySelector(s)?.getAttribute("aria-pressed") === "true", sel);
 
-test("thing card: Size Big and Medium rescale outline, eyes and legs; Hops and Scuttles save", async () => {
+test("thing card: no Size row (animals are resized with the edit-mode scale tool); Hops and Scuttles save", async () => {
   const page = await panelPage("kf-thing-card", true);
-  const thing = () => page.evaluate(() => window.__t.store.snapshot.things[0]);
-  const before = await thing();
-  // a 0.16 × 0.2 thing is about 2/3 of the Medium box (0.24 × 0.32): the nearest size, Small, is pressed
-  assert.equal(await page.locator('.kf-tc-size[data-size="small"]').getAttribute("aria-pressed"), "true");
-  assert.equal(await page.locator('.kf-tc-size[aria-pressed="true"]').count(), 1);
-  await shot(page, "card-size-small");
-
-  await page.locator('.kf-tc-size[data-size="big"]').click();
-  await pressed(page, '.kf-tc-size[data-size="big"]');
-  const big = await thing();
-  const b0 = box(before.outline), b1 = box(big.outline);
-  assert.ok(Math.abs(b1.w - 0.24 * 1.3) < 0.002, `big width ${b1.w}`); // the width fills the box
-  assert.ok(Math.abs(b1.h / b1.w - b0.h / b0.w) < 0.02, "same shape");
-  assert.ok(Math.abs(b1.bottom - b0.bottom) < 0.002, "feet stay where they stand");
-  const spread = (t) => t.legs[1].x - t.legs[0].x;
-  assert.ok(Math.abs(spread(big) / spread(before) - b1.h / b0.h) < 0.03, "legs scale with the body");
-  assert.equal(big.eyes.length, 1);
-  await shot(page, "card-size-big");
-
-  await page.locator('.kf-tc-size[data-size="medium"]').click();
-  await pressed(page, '.kf-tc-size[data-size="medium"]');
-  assert.ok(Math.abs(box((await thing()).outline).w - 0.24) < 0.002);
-
+  assert.equal(await page.locator(".kf-tc-size").count(), 0, "QA round 3: no Small / Medium / Big on the card");
+  assert.equal(await page.getByRole("group", { name: "Size" }).count(), 0);
   assert.deepEqual(await page.locator(".kf-tc-motion").allTextContents(), ["🐾 Walks", "🐇 Hops", "🦀 Scuttles", "〰 Floats"]);
   for (const preset of ["hop", "scuttle"]) {
     await page.locator(`.kf-tc-motion[data-motion="${preset}"]`).click();

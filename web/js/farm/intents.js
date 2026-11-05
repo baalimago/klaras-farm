@@ -251,8 +251,8 @@ function checkClipOwner(s, clip) {
 
 /**
  * Saves a clip, replacing any clip with the same key (clipKey: thing, language, kind, take; or for
- * colour game clips language, kind, colour, take). The old clip is replaced only now, when the new
- * one is saved (US-4.7).
+ * colour game clips language, kind, colour, take). A thing's sound replaces its sound in every
+ * language: a thing has one sound. The old clip is replaced only now, when the new one is saved (US-4.7).
  * @param {{clip: Omit<import('../types.js').Clip,'id'|'createdAt'>, blob?: import('../types.js').BlobRecord}} args
  */
 export function saveClip(s, { clip: input, blob }, env) {
@@ -262,14 +262,16 @@ export function saveClip(s, { clip: input, blob }, env) {
   if (!Number.isInteger(clip.take) || clip.take < 1 || clip.take > MAX_QUESTIONS) throw new FarmError("invalid", "clip take");
   if (game && clip.kind === "color-question") delete clip.color;
   const key = clipKey(clip);
-  const previous = s.clips.find((c) => clipKey(c) === key);
+  // A thing has one sound, whichever language tab recorded it (QA round 3): a new sound replaces them all.
+  const sound = !game && clip.kind === "sound";
+  const previous = s.clips.filter((c) => clipKey(c) === key || (sound && c.thingId === clip.thingId && c.kind === "sound"));
   const saved = { ...clip, id: env.newId(), createdAt: env.now() };
   const writes = [];
   if (blob) writes.push(put("blobs", blob));
-  if (previous) writes.push(del("clips", previous.id));
+  for (const p of previous) writes.push(del("clips", p.id));
   writes.push(put("clips", saved));
   return {
-    snapshot: { ...s, clips: [...s.clips.filter((c) => c !== previous), saved] },
+    snapshot: { ...s, clips: [...s.clips.filter((c) => !previous.includes(c)), saved] },
     writes,
     change: change("clip-saved", game ? [saved.id] : [clip.thingId, saved.id]),
   };
@@ -425,15 +427,27 @@ export function playLanguageFor(settings, { available = [], rng = () => 0 } = {}
 }
 
 /**
- * Clips to play when a thing is tapped: its name, then its sound. Falls back to any language
- * that has a name clip when the play language has none.
+ * Clips to play when a thing is tapped: its name, then its sound (`soundClip`). Falls back to any
+ * language that has a name clip when the play language has none.
  */
 export function tapClips(s, thingId, language) {
   const names = clipsFor(s, thingId, { kind: "name" });
   const name = names.find((c) => c.language === language) ?? names[0] ?? null;
-  const sounds = clipsFor(s, thingId, { kind: "sound" });
-  const sound = sounds.find((c) => c.language === language) ?? sounds[0] ?? null;
-  return [name, sound].filter(Boolean);
+  return [name, soundClip(s, thingId)].filter(Boolean);
+}
+
+/**
+ * A thing's sound: one for every language (saveClip keeps one). A farm saved before QA round 3 may
+ * hold one per language: the newest plays, so the last take the parent recorded is what Klara hears.
+ * @returns {import('../types.js').Clip|null}
+ */
+export function soundClip(s, thingId) {
+  let best = null;
+  for (const c of s.clips) {
+    if (c.thingId !== thingId || c.kind !== "sound") continue;
+    if (!best || String(c.createdAt) >= String(best.createdAt)) best = c;
+  }
+  return best;
 }
 
 const round3 = (v) => Math.round(v * 1000) / 1000;

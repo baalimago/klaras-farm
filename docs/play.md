@@ -13,6 +13,7 @@ Play is the live board a toddler touches. Things wander, blink, jump and speak w
 - `web/js/play/sleep.js`: the sleep timer.
 - `web/js/play/find.js`: the Find games state machine (animal and colour rounds).
 - `web/js/play/ask.js`: what a find question plays, in order (pure plans: `planAnimalAsk`, `planColorAsk`, `colorAskLanguage`, `recordedColorLangs`).
+- `web/js/play/voice.js`: what the child hears for each recording slot, the one rule shared by play and the parent panels (QA round 3): `spokenName(thing, lang)`, `nameVoice(s, thing, lang, canSpeak)` (`recording`, `other-language`, `voice` or `none`), `soundVoice(s, thingId)`, `lineVoice(recordedTakes, take, canSpeak)` and `questionVoice(...)` (`recording`, `skipped`, `voice` or `none`). The thing card and the find setup show its answer on every slot, so what the card says is what plays.
 - `web/js/play/colors.js`: folds felt palette keys into simple colour words, and the hex for each colour button.
 - `web/js/play-engine.js`: `PlayEngine`, the state owner. Wires the pure parts to the store, audio and renderer.
 - Tests: `web/js/play/*.test.js`, `tests/unit/play-engine.test.js`, `tests/unit/find-it.test.js`.
@@ -95,9 +96,10 @@ Owner request after meeting 2: in edit mode no two things overlap, so each one a
 
 ## Audio during play
 
-- A tap plays the thing's name then its sound (`farm/intents.tapClips`). No recording: a chime, then the device voice says the typed name.
+- A tap plays the thing's name then its sound (`farm/intents.tapClips`; `_sayThing`, shared with a correct answer). No recorded name: a chime, then the device voice says the typed name (`play/voice.js` `spokenName`), then the recorded sound if there is one.
+- A thing has one sound for every language (`farm/intents.soundClip`, the newest sound clip). Before QA round 3 the sound was per language and a tap played the play language's take, so a sound re-recorded on another language tab never played ("I don't know what the animals say anymore").
 - Language: fixed, or with "mix" (`playLanguage: "alternate"`) a random language among those recorded for that thing, per tap (`playLanguageFor` with the injected rng).
-- Animal question: the parent's recorded prompt (a random take), else a cue line in the device voice, else the recorded name; only then the thing's sound as a clue (`play/ask.js`). Colour question: the recorded colour question then the recorded colour word (`audio.playSequence`), else "Tap on an animal that is yellow!" in the device voice, else a chime.
+- Animal question: the parent's recorded prompt in the play language (a random take among the recorded lines; unrecorded lines are skipped), else a cue line in the device voice, else a prompt recorded in another language, else the recorded name; only then the thing's sound as a clue (`play/ask.js`). Colour question: the recorded colour question then the recorded colour word (`audio.playSequence`), else "Tap on an animal that is yellow!" in the device voice, else a chime.
 - Correct: a happy jump, confetti, a `yay` chime, then the name and sound.
 - Audio calls go through `_call`, which swallows errors. Audio trouble never breaks play.
 
@@ -129,6 +131,7 @@ Owner request after meeting 2: in edit mode no two things overlap, so each one a
 - `web/js/play/hit.test.js`, `mash.test.js`, `sleep.test.js`, `find.test.js`: each pure module, with fixed rng.
 - `tests/unit/play-engine.test.js`: the engine with a fake audio and a MemoryRepo-backed store. Taps, sounds, confetti, 1.3x hit target, catch-up after idle.
 - `web/js/play/ask.test.js`: question plans and their fallbacks.
+- `web/js/play/voice.test.js`: what each slot says plays. `tests/unit/find-it.test.js` "QA round 3" checks the engine plays exactly that: a sound re-recorded on another tab, a sound without a recorded name, a language without recorded questions.
 - `tests/unit/find-it.test.js`: find games end to end. Never starts by itself, button visibility, voice fallbacks, the question before the sound (also when the device voice is not heard), random takes, colour question plus word, nudges, hints, timeouts.
 - `tests/browser/animals.test.js`: eight walking things (the designed Farm) on the real `PlayEngine` and `Renderer`: over 50 fps and a small frame-work budget at 1x and 2x, then idle at 0 fps once edit mode settles.
 - `tests/browser/find-games.test.js`: the 🔍 asks first in the real app; the colour round plays the recorded question then word.

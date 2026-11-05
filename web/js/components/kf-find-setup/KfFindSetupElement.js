@@ -6,11 +6,14 @@
 //   'color'   "Colour game": the colour question per language ("Tap on an animal that is…", up to
 //             6 ways), then tap an animal or a colour to record that colour's word. Shows which
 //             colours of this scene and which languages still miss a recording.
+// Every slot says what Klara hears for it now ("Your recording", or "iPad voice for now" with an
+// invitation to record your own); play/voice.js is the rule, the same one play follows.
 // State: setup.js (pure). It renders from that state and the store after every event; an open
 // <kf-recorder> is kept across renders so a store change never cuts a recording off.
 // Props: services ({store, audio, scripts, recorder, session, env}), params {game}. Dispatches kf-close.
 import { h, ensureElement, languageName } from "../kf-guided-add/dom.js";
-import { clipSlot } from "../kf-thing-card/clip-slot.js";
+import { clipSlot, lineVoiceText } from "../kf-thing-card/clip-slot.js";
+import { lineVoice } from "../../play/voice.js";
 import { questionsSection } from "../kf-thing-card/questions.js";
 import { stripClip } from "../kf-guided-add/steps.js";
 import { pressGuard } from "../kf-dialog/press-guard.js";
@@ -44,6 +47,7 @@ export class KfFindSetupElement extends HTMLElement {
   }
 
   get store() { return this.services.store; }
+  get canSpeak() { return this.services?.audio?.canSpeak !== false; }
   get languages() {
     const l = this.store.settings?.languages;
     return l?.length ? l : ["en"];
@@ -137,7 +141,8 @@ export class KfFindSetupElement extends HTMLElement {
           heading: false,
           busy: !!this.state.recording,
           shell: this.services.shell,
-          slot: (take, line) => this._slot({ kind: "prompt", thingId: thing.id, take }, line, `question ${take} for the ${this._name(thing)}`),
+          canSpeak: this.canSpeak,
+          slot: (take, line, voice) => this._slot({ kind: "prompt", thingId: thing.id, take }, line, `question ${take} for the ${this._name(thing)}`, lineVoiceText(voice)),
           onArticle: (article) => this._setArticle(thing, article),
           onError: (e) => this._error(e),
         })));
@@ -149,7 +154,8 @@ export class KfFindSetupElement extends HTMLElement {
     const questions = this.store.gameClips({ kind: "color-question", language: lang });
     const words = this.store.gameClips({ kind: "color-word", language: lang });
     const said = colorQuestionText(scripts, lang);
-    const slots = askSlots(this.state, questions.map((c) => c.take));
+    const takes = questions.map((c) => c.take);
+    const slots = askSlots(this.state, takes);
     const missing = this._missing(lang);
     const picked = this.state.picked;
     const status = missingText(missing, (c) => this._colorName(c));
@@ -157,7 +163,10 @@ export class KfFindSetupElement extends HTMLElement {
       h("section", { class: "kf-fs-ask" },
         h("h3", { text: "1. The question" }),
         h("p", { class: "kf-note", text: `Say it so a colour can follow, for example “${said}”` }),
-        Array.from({ length: slots }, (_, i) => this._slot({ kind: "color-question", take: i + 1 }, said, `colour question ${i + 1}`)),
+        !takes.length && this.canSpeak
+          ? h("p", { class: "kf-invite", "data-testid": "color-invite", text: "The iPad voice asks this for now. Record your own: Klara knows your voice best." })
+          : null,
+        Array.from({ length: slots }, (_, i) => this._slot({ kind: "color-question", take: i + 1 }, said, `colour question ${i + 1}`, lineVoiceText(lineVoice(takes, i + 1, this.canSpeak)))),
         h("button", { class: "kf-btn", type: "button", "data-action": "add-ask", text: "+ Another way to ask", disabled: slots >= 6, onclick: () => this.dispatch({ type: "add-ask", shown: slots }) })),
       h("section", { class: "kf-fs-colors" },
         h("h3", { text: "2. The colours" }),
@@ -183,7 +192,8 @@ export class KfFindSetupElement extends HTMLElement {
         picked
           ? h("div", { class: "kf-fs-word", "data-color": picked },
               h("p", { class: "kf-fs-word-title", text: `${this._colorName(picked)}` }),
-              this._slot({ kind: "color-word", color: picked }, `Say just the colour: “${colorWord(scripts, picked, lang) ?? picked}”`, `the word for ${this._colorName(picked)}`))
+              this._slot({ kind: "color-word", color: picked }, `Say just the colour: “${colorWord(scripts, picked, lang) ?? picked}”`, `the word for ${this._colorName(picked)}`,
+                lineVoiceText(words.some((w) => w.color === picked) ? "recording" : this.canSpeak ? "voice" : "none")))
           : null),
       h("p", { class: status ? "kf-warning kf-fs-status" : "kf-note kf-fs-status", role: "status", text: status ?? `Everything for this scene is recorded in ${languageName(lang)} ✓` }),
     ];
@@ -204,8 +214,8 @@ export class KfFindSetupElement extends HTMLElement {
     return colorWord(this.services.scripts ?? {}, group, "en") ?? group;
   }
 
-  /** A recording slot for a question take or a colour word, in the current language. */
-  _slot(slot, cue, what) {
+  /** A recording slot for a question take or a colour word, in the current language; `voice` says what plays now. */
+  _slot(slot, cue, what, voice = null) {
     const lang = this.state.lang;
     const clip = this._clipFor(slot);
     const open = isRecording(this.state, slot);
@@ -218,7 +228,8 @@ export class KfFindSetupElement extends HTMLElement {
       take: slot.take ?? 1,
       color: slot.color,
       what,
-      recordText: clip ? "Re-record" : "Record",
+      recordText: clip ? "Re-record" : "Record your own",
+      voice,
       cue: typeof cue === "string" ? cue : "",
       open,
       clipRef: { thingId: slot.thingId ?? null, language: lang, kind: slot.kind, take: slot.take ?? 1 },

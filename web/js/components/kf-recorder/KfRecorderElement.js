@@ -1,10 +1,11 @@
 // <kf-recorder>: one recording slot (flows 5 and 6; US-4.1, 4.3, 4.4, 4.7).
 // States (data-state): ready → starting → recording → processing → saved;
 // errors: denied (iPad Settings steps), error (data-error = too-short | silent | failed | unsupported).
-// Every take that passes the checks is kept: the recorder dispatches 'kf-recorded' {clip, blob}
+// Every take that passes the checks is handed over: the recorder dispatches 'kf-recorded' {clip, blob}
 // as soon as it finishes, then shows "Saved ✓" with ▶ Play and Re-record. It never writes to the
-// store, so an existing clip stays until the parent panel saves the new one; a re-record that
-// fails or is cancelled saves nothing and the old clip stays.
+// store, so an existing clip stays until the parent panel saves the new one over it (one take per
+// slot is kept, and that is what plays); a re-record that fails or is cancelled saves nothing and
+// the old clip stays.
 //
 // Props: services ({audio, recorder, env?, engine?}), label (cue text), clipRef
 // {thingId|null, language, kind, take}, existing (Clip|null).

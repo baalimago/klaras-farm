@@ -1,7 +1,11 @@
 // <kf-thing-card>: everything about one thing on one card (flow 2; US-3.6–3.8, 4.5, 4.7, 9.1).
-// One tab per language (typed name, name clip, 1–6 free-text questions with recordings, sound) plus
-// "+ Language"; felt colour, motion, size (Small / Medium / Big), Redraw, Re-stamp eyes, Place legs, Delete with confirm and Undo.
-// Changes save immediately; there is no Save button. Props: `services`, `params = {thingId}`.
+// One tab per language (typed name, name clip, 1–6 free-text questions with recordings) plus
+// "+ Language"; one sound for every language; felt colour, motion, Redraw, Re-stamp eyes, Place
+// legs, Delete with confirm and Undo. Size is not here: animals are resized with the edit-mode scale tool.
+// Every recording slot says what Klara hears for it now (play/voice.js, the rule play uses): "Your
+// recording" with ▶, or the iPad voice with an invitation to record. A new take replaces the old one.
+// An empty name field is highlighted ("Give it a name"); Enter in any text field commits it and
+// closes the keyboard. Changes save immediately; there is no Save button. Props: `services`, `params = {thingId}`.
 import { h, ensureElement, languageName } from "../kf-guided-add/dom.js";
 import { loadGeometry, snapPoint } from "../kf-guided-add/geometry.js";
 import { ThingPreview, viewFor, FULL_VIEW } from "../kf-guided-add/preview.js";
@@ -10,13 +14,16 @@ import { ShapeDrawing } from "../kf-guided-add/drawing.js";
 import { ShapeEditor } from "../kf-guided-add/shape-editor.js";
 import { bodyGuide } from "../kf-guided-add/guide.js";
 import { LegPlacer } from "../kf-guided-add/legs.js";
-import { MOTIONS, THING_SIZES, stripClip, refitEyes, nearestSize, sizeScale, sizeBox, resizeThing, sizedFill } from "../kf-guided-add/steps.js";
+import { MOTIONS, stripClip, refitEyes, sizeScale, sizeBox, sizedFill } from "../kf-guided-add/steps.js";
 import { languageOptions } from "./languages.js";
 import { THING_COLORS, hex } from "../../farm/palette.js";
 import { cueLines } from "../../farm/scripts.js";
 import { clipSlot } from "./clip-slot.js";
 import { questionsSection } from "./questions.js";
 import { pressGuard } from "../kf-dialog/press-guard.js";
+import { commitOnEnter } from "./enter.js";
+import { nameVoice, soundVoice } from "../../play/voice.js";
+import { lineVoiceText } from "./clip-slot.js";
 
 const KIND_LABEL = { name: "name", prompt: "question", sound: "sound" };
 
@@ -104,7 +111,7 @@ export class ThingCardElement extends HTMLElement {
   _renderAround() {
     const thing = this.thing;
     const title = this.querySelector("#kf-tc-title");
-    if (title) title.textContent = this.displayName(thing);
+    if (title) title.textContent = this.titleText(thing);
     const look = this.querySelector(".kf-tc-look");
     if (!look) return;
     look.replaceWith(this._look(thing));
@@ -115,6 +122,13 @@ export class ThingCardElement extends HTMLElement {
     const n = thing?.names ?? {};
     return n[this.lang] || n[this.languages[0]] || Object.values(n).find(Boolean) || "thing";
   }
+
+  /** The card's title: its name, or "No name yet" so a nameless thing is obvious (QA round 3). */
+  titleText(thing = this.thing) {
+    return Object.values(thing?.names ?? {}).some(Boolean) ? this.displayName(thing) : "No name yet";
+  }
+
+  get canSpeak() { return this.services?.audio?.canSpeak !== false; }
 
   // ---------- rendering ----------
 
@@ -129,7 +143,7 @@ export class ThingCardElement extends HTMLElement {
       h(
         "div",
         { class: "kf-row kf-tc-head" },
-        h("h2", { id: "kf-tc-title", text: this.displayName(thing) }),
+        h("h2", { id: "kf-tc-title", text: this.titleText(thing) }),
         h("button", { class: "kf-btn icon", type: "button", "aria-label": "Close", text: "✕", onclick: () => this._close() }),
       ),
       this._tabs(),
@@ -184,6 +198,7 @@ export class ThingCardElement extends HTMLElement {
 
   _words(thing) {
     const lang = this.lang;
+    const name = thing.names?.[lang] ?? "";
     return h(
       "div",
       { class: "kf-tc-words", role: "tabpanel", "aria-label": languageName(lang) },
@@ -191,9 +206,14 @@ export class ThingCardElement extends HTMLElement {
       h(
         "div",
         { class: "kf-tc-line" },
-        h("label", { class: "kf-field" }, h("span", { text: `Name in ${languageName(lang)}` }),
+        // An empty name stands out and says what to do: a nameless thing is easy to miss (QA round 3).
+        h("label", { class: `kf-field kf-tc-name${name ? "" : " is-missing"}` },
+          h("span", { text: name ? `Name in ${languageName(lang)}` : "Give it a name" }),
           h("input", {
-            type: "text", name: "name", value: thing.names?.[lang] ?? "", autocomplete: "off", autocapitalize: "words", enterkeyhint: "done", spellcheck: "false",
+            type: "text", name: "name", value: name, placeholder: name ? null : `Its name in ${languageName(lang)}`,
+            "aria-invalid": name ? null : "true",
+            autocomplete: "off", autocapitalize: "words", enterkeyhint: "done", spellcheck: "false",
+            onkeydown: commitOnEnter,
             onchange: (e) => this._rename(e.target.value),
           })),
         this._clipControls("name", 1),
@@ -205,11 +225,13 @@ export class ThingCardElement extends HTMLElement {
         lang,
         busy: !!this._recording,
         shell: this.services.shell,
-        slot: (take) => this._clipControls("prompt", take),
+        canSpeak: this.canSpeak,
+        slot: (take, _line, voice) => this._clipControls("prompt", take, lineVoiceText(voice)),
         onArticle: (article) => this._setCue({ article }),
         onError: (e) => this._error(e),
       }),
       h("h3", { text: "Sound" }),
+      h("p", { class: "kf-note", text: "One sound for every language." }),
       h("div", { class: "kf-tc-line" }, this._clipControls("sound", 1)),
     );
   }
@@ -218,8 +240,27 @@ export class ThingCardElement extends HTMLElement {
     return this.services.store.clipsFor(this.thingId, { language: this.lang, kind }).filter((c) => take == null || c.take === take);
   }
 
-  _clipControls(kind, take) {
-    const clip = this._clips({ kind, take })[0] ?? null;
+  /** This slot's own recording: the sound is one for every language, the rest are per language. */
+  _slotClip(kind, take) {
+    if (kind === "sound") return soundVoice(this.services.store.snapshot, this.thingId).clip ?? null;
+    return this._clips({ kind, take })[0] ?? null;
+  }
+
+  /** What Klara hears for the name or the sound right now, in words (play/voice.js). */
+  _voice(kind) {
+    const snap = this.services.store.snapshot;
+    if (kind === "sound") {
+      return soundVoice(snap, this.thingId).clip ? { source: "recording", text: "Your recording" } : { source: "none", text: "No sound yet" };
+    }
+    const v = nameVoice(snap, this.thing, this.lang, this.canSpeak);
+    if (v.source === "recording") return { source: v.source, text: "Your recording" };
+    if (v.source === "other-language") return { source: v.source, clip: v.clip, text: `Plays your ${languageName(v.clip.language)} recording for now` };
+    if (v.source === "voice") return { source: v.source, text: `iPad voice says “${v.text}” for now` };
+    return { source: "none", text: "Just a chime for now" };
+  }
+
+  _clipControls(kind, take, voice = kind === "prompt" ? null : this._voice(kind)) {
+    const clip = this._slotClip(kind, take);
     const open = !!this._recording && this._recording.kind === kind && this._recording.take === take && this._recording.language === this.lang;
     return clipSlot({
       services: this.services,
@@ -232,6 +273,7 @@ export class ThingCardElement extends HTMLElement {
       open,
       clipRef: { thingId: this.thingId, language: this.lang, kind, take },
       failed: !!clip && this._failed.has(clip.id),
+      voice,
       onOpen: () => { this._recording = { language: this.lang, kind, take }; this._render(); },
       onCancel: () => { this._recording = null; this._render(); },
       onRecorded: (detail) => this._saveRecording(detail, { kind, take }),
@@ -241,18 +283,20 @@ export class ThingCardElement extends HTMLElement {
   /** Say exactly what to record, so the name and the sound are never mixed up. */
   _recordText(kind, again) {
     if (kind === "name") {
-      const word = this.thing.names?.[this.lang] || this.displayName(this.thing);
+      const word = this.thing.names?.[this.lang];
+      if (!word) return again ? "Re-record its name" : "Record its name";
       return `${again ? "Re-record" : "Record"}: say “${word}”`;
     }
     if (kind === "sound") return again ? "Re-record its sound" : "Record its sound (moo! cluck!)";
-    return again ? "Re-record" : "Record";
+    return again ? "Re-record" : "Record your own";
   }
 
   _cueFor(kind, take) {
     const thing = this.thing;
     if (kind === "prompt") return cueLines(this.services.scripts ?? {}, thing, this.lang).lines[take - 1] ?? "";
     if (kind === "sound") return `Make the ${this.displayName(thing)}'s sound, not its name (moo! cluck!)`;
-    return `Say just the word, slowly and clearly: “${thing.names?.[this.lang] || this.displayName(thing)}”`;
+    const word = thing.names?.[this.lang];
+    return word ? `Say just the word, slowly and clearly: “${word}”` : "Say just its name, slowly and clearly";
   }
 
   _look(thing) {
@@ -282,17 +326,6 @@ export class ThingCardElement extends HTMLElement {
           h("button", {
             class: "kf-btn kf-tc-motion", type: "button", "data-motion": m.preset, "aria-pressed": String(thing.motion?.preset === m.preset), text: `${m.icon} ${m.label}`,
             onclick: () => this._update({ motion: { kind: "preset", preset: m.preset, params: { ...(thing.motion?.preset === m.preset ? thing.motion.params : {}) } } }),
-          }),
-        ),
-      ),
-      h("h3", { text: "Size" }),
-      h(
-        "div",
-        { class: "kf-row", role: "group", "aria-label": "Size" },
-        THING_SIZES.map((sz) =>
-          h("button", {
-            class: "kf-btn kf-tc-size", type: "button", "data-size": sz.id, "aria-pressed": String(nearestSize(thing.outline) === sz.id), text: sz.label,
-            onclick: () => this._update(resizeThing(thing, sz.scale)),
           }),
         ),
       ),
@@ -329,7 +362,7 @@ export class ThingCardElement extends HTMLElement {
     if (v) names[this.lang] = v;
     else delete names[this.lang];
     const title = this.querySelector("#kf-tc-title");
-    return this._update({ names }).then(() => { if (title) title.textContent = this.displayName(); });
+    return this._update({ names }).then(() => { if (title && this.thing) title.textContent = this.titleText(); });
   }
 
   _setCue(change) {
@@ -361,7 +394,7 @@ export class ThingCardElement extends HTMLElement {
   async _saveRecording(detail, { kind, take }) {
     const { clip, blob } = detail ?? {};
     if (!clip) return;
-    const old = this._clips({ kind, take })[0];
+    const old = this._slotClip(kind, take);
     let saved;
     try {
       saved = this.services.store.saveClip({ clip: { ...stripClip(clip), thingId: this.thingId, language: this.lang, kind, take }, blob });

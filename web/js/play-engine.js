@@ -21,9 +21,10 @@ import { hitTest } from "./play/hit.js";
 import { decideTap, idleMash, startPlaying, stopPlaying } from "./play/mash.js";
 import { createSleep, tickSleep, sleepRemainingS } from "./play/sleep.js";
 import { createFind, startRound, endRound, stepFind, answerFind, isAnswer, hinting, reconcileFind, findRemainingS } from "./play/find.js";
-import { tapClips, playLanguageFor, clipsFor, gameClips } from "./farm/intents.js";
+import { tapClips, soundClip, playLanguageFor, clipsFor, gameClips } from "./farm/intents.js";
 import { planAnimalAsk, planColorAsk, colorAskLanguage, recordedColorLangs } from "./play/ask.js";
 import { cueLines, colorLine } from "./farm/scripts.js";
+import { spokenName } from "./play/voice.js";
 
 const MODES = ["play", "edit", "scene"];
 
@@ -125,7 +126,6 @@ export class PlayEngine extends EventTarget {
     this._askToken++;
     const snap = this.store.snapshot;
     const lang = this._langFor(snap, id, "name");
-    const clips = tapClips(snap, id, lang);
     this._mash = startPlaying(this._mash, id, nowMs);
     const token = this._mash.token;
     // Called synchronously inside the tap so iOS treats it as user-initiated.
@@ -138,16 +138,9 @@ export class PlayEngine extends EventTarget {
         this._ask(true);
       }
     };
-    let playing;
-    if (clips.length) {
-      playing = this._call("playThing", clips);
-    } else {
-      // No recording yet: a chime, then the device's voice says the name until a parent records it.
-      this._call("chime", "tap");
-      const name = this._nameFor(id, lang);
-      playing = name ? this._call("speak", name.text, name.lang) : null;
-    }
-    Promise.resolve(playing).then(done, done);
+    // No recorded name yet: a chime first, so the tap is heard at once while the voice starts.
+    if (!tapClips(snap, id, lang).some((c) => c.kind === "name")) this._call("chime", "tap");
+    Promise.resolve(this._sayThing(id, lang, token)).then(done, done);
     this._wake();
     return id;
   }
@@ -386,14 +379,13 @@ export class PlayEngine extends EventTarget {
     if (!thing) return null;
     const lang = this._langFor(snap, thing.id, "prompt");
     const { lines, fallback } = cueLines(this.scripts, thing, lang);
-    const sounds = clipsFor(snap, thing.id, { kind: "sound" });
     return planAnimalAsk({
       prompts: clipsFor(snap, thing.id, { kind: "prompt" }),
       lang,
       lines,
       linesLang: fallback ? "en" : lang,
       name: tapClips(snap, thing.id, lang).find((c) => c.kind === "name") ?? null,
-      sound: sounds.find((c) => c.language === lang) ?? sounds[0] ?? null,
+      sound: soundClip(snap, thing.id),
       canSpeak,
       rng: this.rng,
       lastId: this._lastAskClipId,
@@ -456,38 +448,30 @@ export class PlayEngine extends EventTarget {
     const a = react(this.world, id);
     this.dispatchEvent(new CustomEvent("reaction", { detail: { thingId: id, x: a.x, y: a.y, celebrate: true } }));
     this._call("chime", "yay");
-    const snap = this.store.snapshot;
-    const lang = this._langFor(snap, id, "name");
-    const clips = tapClips(snap, id, lang);
+    const lang = this._langFor(this.store.snapshot, id, "name");
     const nowMs = this.now();
     this._mash = startPlaying(this._mash, id, nowMs);
     const token = this._mash.token;
     const done = () => { this._mash = stopPlaying(this._mash, token); this._wake(); };
-    let playing;
-    if (clips.some((c) => c.kind === "name")) {
-      playing = this._call("playThing", clips);
-    } else {
-      // No recorded name: the device says it, then the recorded sound (if any) follows.
-      const name = this._nameFor(id, lang);
-      const sound = clips.find((c) => c.kind === "sound");
-      playing = Promise.resolve(name ? this._call("speak", name.text, name.lang) : null).then((ok) =>
-        sound && ok !== false && this._mash.token === token ? this._call("playClip", sound) : undefined,
-      );
-    }
-    Promise.resolve(playing).then(done, done);
+    Promise.resolve(this._sayThing(id, lang, token)).then(done, done);
     this._wake();
     return id;
   }
 
-  /** The typed name to say for a thing: in the play language if typed, else any typed name. */
-  _nameFor(thingId, lang) {
-    const thing = this.store.snapshot.things.find((t) => t.id === thingId);
-    if (!thing?.names) return null;
-    const base = lang.split("-")[0];
-    if (thing.names[lang]) return { text: thing.names[lang], lang };
-    if (thing.names[base]) return { text: thing.names[base], lang: base };
-    const [l, text] = Object.entries(thing.names).find(([, v]) => v) ?? [];
-    return text ? { text, lang: l } : null;
+  /**
+   * Its name, then its sound: what the thing card says plays (play/voice.js). A recorded name plays
+   * with the sound as one; without one the device voice says the typed name, then the sound follows
+   * (unless the voice was not heard, or another tap took over). Returns when it has finished.
+   */
+  _sayThing(id, lang, token) {
+    const snap = this.store.snapshot;
+    const clips = tapClips(snap, id, lang);
+    if (clips.some((c) => c.kind === "name")) return this._call("playThing", clips);
+    const name = spokenName(snap.things.find((t) => t.id === id), lang);
+    const said = name ? this._call("speak", name.text, name.lang) : null;
+    const sound = clips[0];
+    if (!sound) return said;
+    return Promise.resolve(said).then((ok) => (ok !== false && this._mash.token === token ? this._call("playClip", sound) : undefined));
   }
 
   /** Before an outside event changes the world, account for the idle time since the last step. */
