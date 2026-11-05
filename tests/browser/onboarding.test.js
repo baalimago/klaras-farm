@@ -122,6 +122,27 @@ async function mountTour(page, { mode = "play" } = {}) {
 const step = (page) => page.evaluate(() => window.__t.el.step);
 const ringBox = (page) => box(page.locator(".kf-tour-ring"));
 
+test("recording tip: a timer that fires a moment before the clock reaches its end still hides the tip", async () => {
+  const page = await h.modulePage('<div id="stage"></div><div id="parent-layer"></div>');
+  await page.evaluate(async () => {
+    await import("./js/components/kf-find-buttons/define.js");
+    const engine = new EventTarget();
+    Object.assign(engine, { mode: "play", findAvailable: true, findRound: null, startFind: () => {} });
+    const session = new EventTarget();
+    session.state = { mode: "play", panel: null };
+    session.holdStart = () => {};
+    const el = document.createElement("kf-find-buttons");
+    el.services = { engine, session, audio: { unlock() {} }, prefs: { recordingTips: true } };
+    document.getElementById("stage").append(el);
+    engine.dispatchEvent(new CustomEvent("ask", { detail: { kind: "animal", recorded: false, repeat: false } }));
+    // From now on the clock reads 200 ms behind the timers (coarsened clocks do this).
+    el.now = () => performance.now() - 200;
+  });
+  const hint = page.locator(".kf-find-hint");
+  assert.equal(await hint.isVisible(), true);
+  await page.waitForFunction(() => document.querySelector(".kf-find-hint").hidden, null, { timeout: 9000 });
+});
+
 test("tour alone: four cards in order with Next and Back; it points at an animal and never covers it", async () => {
   const page = await h.modulePage('<div id="parent-layer" class="parent-layer"></div>');
   await mountTour(page);

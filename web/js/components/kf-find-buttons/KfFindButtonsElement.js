@@ -132,7 +132,9 @@ export class KfFindButtonsElement extends HTMLElement {
     const before = this._hint.showing;
     this._hint = nextHint(this._hint, event);
     const showing = this._hint.showing;
-    if (showing && showing !== before) {
+    // A timer can fire a moment before `now()` reaches `until` (clock coarsening); then the tip is
+    // still showing after "expire" and the timer is armed again, so it never sticks.
+    if (showing && (showing !== before || event.type === "expire")) {
       // The tip fades by itself (CSS), and the state drops it when its time is up.
       clearTimeout(this._hintTimer);
       this._hintTimer = setTimeout(() => this._hintStep({ type: "expire", now: this.now() }), Math.max(0, showing.until - this.now()));
