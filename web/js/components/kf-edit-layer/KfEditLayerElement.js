@@ -6,15 +6,21 @@
 // pencil → the thing card; cross → confirm (naming the recordings) → delete → Undo toast.
 // Badges are placed once from services.board.actorRect(id) and re-placed on store changes and resize,
 // never per frame. Hidden while a panel is open over edit mode, and while a thing is dragged.
-// Selection: the thing last tapped or dragged on the board is selected (a dashed felt ring). Tapping
-// empty board never drops it; only selecting another thing changes it. Like a piece in the scene
-// tools: a tap on a thing selects it, a tap on the selected thing opens its card (so does its pencil).
+// Selection and resize are the pure machine in edit/selection.js (`this._sel`); every event goes
+// through `_dispatch`, and the ring, its handle and the badges are rendered from the state after it.
+// Selection: the thing last tapped, dragged or edited with its pencil is selected (a dashed felt
+// ring). Tapping empty board never drops it; only selecting another thing, deleting it or leaving
+// edit mode does. Like a piece in the scene tools: a tap on a thing selects it, a tap on the selected
+// thing opens its card (so does its pencil).
 // Resize: the ring has a round handle at its bottom-right corner. Dragging it calls the board's
 // resizeStart / resizeTo / resizeEnd (the thing grows or shrinks about its feet, live, one store write
-// on release); meanwhile the ring and badges hide, and only the handle moves, with a transform, to
-// the scaled corner. Badges are not re-placed while a resize is going on.
+// on release; a pointercancel, a lost capture, deleting the thing or leaving edit mode puts the old
+// size back). Meanwhile the ring and badges hide (`.resizing`), and only the handle moves, with a
+// transform from the state, to the scaled corner: the DOM under the finger is not rebuilt (it holds
+// the pointer capture), so badges are placed again only once the resize has ended.
 import { editSound } from "../kf-dialog/feedback.js";
 import { isPalm } from "../../edit/hold.js";
+import { initialSelection, nextSelection, selectedId, isResizing, ownsPointer, tapAction, handleOffset, resizeOutcome } from "../../edit/selection.js";
 
 const BADGE = 52; // px, ≥ 44 pt target
 const RING_PAD = 10; // px between a thing and its ring
@@ -23,6 +29,17 @@ const BADGE_SPREAD_MAX = 70; // px from the top centre to each badge's centre
 const SETTLE_MS = 400; // > GLIDE_S (0.3 s)
 
 export class KfEditLayerElement extends HTMLElement {
+  constructor() {
+    super();
+    this._sel = initialSelection();
+  }
+
+  /** The selected thing's id, or null (from the selection state). */
+  get selected() { return selectedId(this._sel); }
+
+  /** The selection state (edit/selection.js), read-only. */
+  get selection() { return this._sel; }
+
   connectedCallback() {
     const s = this.services ?? {};
     // Guard against a stale mount (the Shell renders asynchronously): one layer, and only in edit mode.
@@ -43,17 +60,15 @@ export class KfEditLayerElement extends HTMLElement {
     sub(s.board, "kf-thing-tap", (e) => {
       const id = e.detail?.thingId;
       if (!id || s.session?.state?.panel) return;
+      const action = tapAction(this._sel, id);
+      if (action === "ignore") return;
       editSound(s, "select");
-      if (this.selected !== id) {
-        this.selected = id; // first tap: the ring with its resize handle
-        this.placeBadges();
-        return;
-      }
-      s.session?.openPanel("card", { thingId: id });
+      this._dispatch({ type: "tap", id }); // first tap: the ring with its resize handle
+      if (action === "open-card") s.session?.openPanel("card", { thingId: id });
     });
     sub(s.board, "kf-thing-grab", (e) => {
-      this.selected = e.detail?.thingId ?? this.selected;
       this.classList.add("dragging");
+      this._dispatch({ type: "grab", id: e.detail?.thingId });
     });
     sub(s.board, "kf-thing-drop", () => {
       this.classList.remove("dragging");
@@ -77,7 +92,35 @@ export class KfEditLayerElement extends HTMLElement {
     for (const off of this._subs ?? []) off();
     this._subs = [];
     clearTimeout(this._late);
-    if (this._sizing) this._endResize(false);
+    this._dispatch({ type: "leave" }); // a resize going on goes back to the old size
+  }
+
+  /**
+   * The one way the selection changes: the next state, the board told when a resize ends
+   * (resizeEnd(true) on lifting the finger, resizeEnd(false) otherwise), then the screen from the state.
+   */
+  _dispatch(e) {
+    const prev = this._sel;
+    const next = nextSelection(prev, e);
+    if (next === prev) return;
+    this._sel = next;
+    const outcome = resizeOutcome(prev, next, e);
+    if (outcome) {
+      try { this.services?.board?.resizeEnd?.(outcome === "commit"); } catch (err) { console.error(err); }
+    }
+    this._renderSelection();
+  }
+
+  /** The ring, handle and badges from the selection state. While resizing, only the handle's transform. */
+  _renderSelection() {
+    const resizing = isResizing(this._sel);
+    this.classList.toggle("resizing", resizing);
+    if (!resizing) return void this.placeBadges();
+    const handle = this._badges?.querySelector(".kf-resize-handle");
+    if (!handle) return;
+    const [dx, dy] = handleOffset(this._sel);
+    // The handle rides the scaled ring corner: one transform write, no layout.
+    handle.style.transform = this._sel.k === 1 ? "" : `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px)`;
   }
 
   _build() {
@@ -168,14 +211,16 @@ export class KfEditLayerElement extends HTMLElement {
     this._reason.hidden = !full || panelOpen;
     this._empty.hidden = panelOpen || !place || things.length > 0;
     this._dot.hidden = !s.updateReady;
-    this.placeBadges();
+    const before = this._sel;
+    this._dispatch({ type: "things", ids: things.map((t) => t.id) }); // the selected thing was deleted
+    if (this._sel === before) this.placeBadges();
   }
 
   /** Puts a pencil and a cross above each thing, from the board's actor rectangles. */
   placeBadges() {
     if (!this._badges) return;
     const s = this.services ?? {};
-    if (this._sizing) return; // the handle under the finger must stay; placed again on release
+    if (isResizing(this._sel)) return; // the handle under the finger must stay; placed again on release
     this._badges.replaceChildren();
     if (s.session?.state?.panel) return;
     // Things are gliding apart or dropping in: badges placed now would float where they were.
@@ -188,7 +233,7 @@ export class KfEditLayerElement extends HTMLElement {
       const r = s.board?.actorRect?.(thing.id);
       if (!r) continue;
       const name = this._name(thing);
-      if (thing.id === this.selected) {
+      if (thing.id === selectedId(this._sel)) {
         const hx = clampX(r.right + RING_PAD);
         // Low enough to stay clear of the pencil and cross on a flat thing's top edge.
         const hy = clampY(Math.max(r.bottom + RING_PAD, r.top + BADGE + 6));
@@ -199,7 +244,10 @@ export class KfEditLayerElement extends HTMLElement {
       const half = Math.max(BADGE / 2 + 6, Math.min(BADGE_SPREAD_MAX, r.width * 0.3));
       const y = clampY(r.top);
       const needsVoice = s.store.clipsFor(thing.id, { kind: "name" }).length === 0;
-      const pencil = this._badge("pencil", needsVoice ? `Edit ${name} (needs your voice)` : `Edit ${name}`, "✎", clampX(cx - half), y, () => s.session?.openPanel("card", { thingId: thing.id }));
+      const pencil = this._badge("pencil", needsVoice ? `Edit ${name} (needs your voice)` : `Edit ${name}`, "✎", clampX(cx - half), y, () => {
+        this._dispatch({ type: "pencil", id: thing.id });
+        s.session?.openPanel("card", { thingId: thing.id });
+      });
       if (needsVoice) {
         // A small mic dot: this thing has no recorded name yet, so play uses the iPad's voice.
         const dot = document.createElement("span");
@@ -219,7 +267,7 @@ export class KfEditLayerElement extends HTMLElement {
   _ring(r) {
     const ring = document.createElement("div");
     ring.className = "kf-edit-ring";
-    ring.dataset.thingId = this.selected;
+    ring.dataset.thingId = selectedId(this._sel);
     ring.setAttribute("aria-hidden", "true");
     const pad = RING_PAD;
     Object.assign(ring.style, {
@@ -241,48 +289,33 @@ export class KfEditLayerElement extends HTMLElement {
     b.style.top = `${Math.round(y)}px`;
     b.addEventListener("pointerdown", (e) => this._startResize(e, b, thingId));
     b.addEventListener("pointermove", (e) => this._moveResize(e));
-    b.addEventListener("pointerup", (e) => this._upResize(e));
-    b.addEventListener("pointercancel", (e) => this._upResize(e, false));
-    b.addEventListener("lostpointercapture", (e) => this._upResize(e, false));
+    b.addEventListener("pointerup", (e) => {
+      this._moveResize(e); // the last position counts
+      this._dispatch({ type: "handle-up", pointerId: e.pointerId });
+    });
+    b.addEventListener("pointercancel", (e) => this._dispatch({ type: "handle-cancel", pointerId: e.pointerId }));
+    b.addEventListener("lostpointercapture", (e) => this._dispatch({ type: "lost-capture", pointerId: e.pointerId }));
     return b;
   }
 
   _startResize(e, handle, thingId) {
-    if (!e.isPrimary || isPalm(e) || this._sizing) return;
+    if (!e.isPrimary || isPalm(e) || isResizing(this._sel)) return;
     e.preventDefault();
     e.stopPropagation();
-    const board = this.services?.board;
     let pivot = null;
-    try { pivot = board?.resizeStart?.(thingId, e.clientX, e.clientY) ?? null; } catch (err) { console.error(err); }
+    try { pivot = this.services?.board?.resizeStart?.(thingId, e.clientX, e.clientY) ?? null; } catch (err) { console.error(err); }
     if (!pivot) return;
-    const left = parseFloat(handle.style.left), top = parseFloat(handle.style.top);
-    this._sizing = { pointerId: e.pointerId, handle, pivot, corner: [left, top] };
+    const corner = [parseFloat(handle.style.left), parseFloat(handle.style.top)];
+    this._dispatch({ type: "handle-down", id: thingId, pointerId: e.pointerId, pivot, corner });
+    if (!isResizing(this._sel)) return void this.services.board.resizeEnd?.(false); // never left half started
     try { handle.setPointerCapture(e.pointerId); } catch {}
-    this.classList.add("resizing");
   }
 
   _moveResize(e) {
-    const z = this._sizing;
-    if (!z || e.pointerId !== z.pointerId) return;
-    let k = 1;
-    try { k = this.services?.board?.resizeTo?.(e.clientX, e.clientY) ?? 1; } catch (err) { console.error(err); }
-    // The handle rides the scaled ring corner: one transform write, no layout.
-    const [px, py] = z.pivot, [cx, cy] = z.corner;
-    z.handle.style.transform = `translate(${(px + (cx - px) * k - cx).toFixed(1)}px, ${(py + (cy - py) * k - cy).toFixed(1)}px)`;
-  }
-
-  _upResize(e, commit = true) {
-    const z = this._sizing;
-    if (!z || e.pointerId !== z.pointerId) return;
-    if (commit) this._moveResize(e); // the last position counts
-    this._endResize(commit);
-  }
-
-  _endResize(commit) {
-    this._sizing = null;
-    this.classList.remove("resizing");
-    try { this.services?.board?.resizeEnd?.(commit); } catch (err) { console.error(err); }
-    this.placeBadges();
+    if (!ownsPointer(this._sel, e.pointerId)) return;
+    let k = this._sel.k;
+    try { k = this.services?.board?.resizeTo?.(e.clientX, e.clientY) ?? k; } catch (err) { console.error(err); }
+    this._dispatch({ type: "handle-move", pointerId: e.pointerId, k });
   }
 
   _badge(kind, label, glyph, x, y, onClick) {

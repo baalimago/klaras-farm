@@ -7,14 +7,19 @@
 // Drag events: `kf-thing-grab` {thingId} once the press has moved past the tap slop, `kf-thing-drop` {thingId}.
 // Resize (edit mode, driven by the selection ring's handle in <kf-edit-layer>): resizeStart /
 // resizeTo / resizeEnd. The thing grows or shrinks about its feet under the finger (engine.grabResize /
-// resizeTo, a scaled sprite in the renderer's next frame; the scale is the finger's distance from the
-// feet over its distance at the start, clamped by geometry/transform.js clampThingScale), and the
-// store is written once, on release (scaledThingPatch: outline, eyes and legs). Event: `kf-thing-resized` {thingId}.
+// resizeTo, a scaled sprite in the renderer's next frame; the scale is edit/selection.js
+// resizeGestureTo: the finger's distance from the feet over its distance at the start, clamped by
+// geometry/transform.js clampThingScale), and the store is written once, on release (scaledThingPatch:
+// outline, eyes and legs, then movedThingPatch if the thing was off its home), so the saved thing is
+// where the preview showed it. A failed write is reported like any other (reportFailure: a toast).
+// Event: `kf-thing-resized` {thingId}.
 import { Renderer } from "../../io/renderer.js";
 import { toBoard, fromBoard } from "../../geometry/stroke.js";
-import { movedThingPatch, clampThingScale, scaledThingPatch } from "../../geometry/transform.js";
+import { movedThingPatch, scaledThingPatch } from "../../geometry/transform.js";
 import { isPalm } from "../../edit/hold.js";
+import { resizeGesture, resizeGestureTo } from "../../edit/selection.js";
 import { editSound } from "../kf-dialog/feedback.js";
+import { reportFailure } from "../kf-dialog/dom.js";
 
 const guard = (fn) => { try { fn(); } catch (e) { console.error(e); } };
 
@@ -31,7 +36,7 @@ export class KfBoardElement extends HTMLElement {
     this._canvas = null;
     this._down = null;
     this._drag = null; // edit mode: {id, rect, cx, cy, x, y, lifted}
-    this._sizing = null; // edit mode: {id, thing, pivot: [clientX, clientY], d0, s}
+    this._sizing = null; // edit mode: a resize gesture (edit/selection.js resizeGesture) or null
     this._ro = null;
     this._onDown = this._onDown.bind(this);
     this._onMove = this._onMove.bind(this);
@@ -127,7 +132,7 @@ export class KfBoardElement extends HTMLElement {
     if (!start) return null;
     const rect = this.boardRect(); // once per resize: no layout reads while it changes
     const pivot = [rect.left + start.px * rect.width, rect.top + start.py * rect.height];
-    this._sizing = { id: thingId, thing, pivot, d0: Math.hypot(clientX - pivot[0], clientY - pivot[1]), s: 1 };
+    this._sizing = resizeGesture(thingId, thing, pivot, [clientX, clientY]);
     editSound(s, "pick");
     this.renderer?.wake();
     return pivot;
@@ -135,10 +140,8 @@ export class KfBoardElement extends HTMLElement {
 
   /** Follows the finger: shows the thing at the clamped scale for (clientX, clientY) and returns it. */
   resizeTo(clientX, clientY) {
-    const r = this._sizing;
-    if (!r) return 1;
-    const raw = r.d0 < 1 ? 1 : Math.hypot(clientX - r.pivot[0], clientY - r.pivot[1]) / r.d0;
-    r.s = clampThingScale(r.thing, raw);
+    if (!this._sizing) return 1;
+    const r = (this._sizing = resizeGestureTo(this._sizing, [clientX, clientY]));
     this.services?.engine?.resizeTo?.(r.s);
     return r.s;
   }
@@ -160,7 +163,7 @@ export class KfBoardElement extends HTMLElement {
     if (thing) {
       let patch = scaledThingPatch(thing, out.s);
       if (out.dx || out.dy) patch = movedThingPatch({ ...thing, ...patch }, out.dx, out.dy);
-      s.store.updateThing({ thingId: r.id, patch }).catch((err) => console.error(err));
+      guard(() => s.store.updateThing({ thingId: r.id, patch }).catch((err) => reportFailure(s, err)));
     }
     this.dispatchEvent(new CustomEvent("kf-thing-resized", { bubbles: true, composed: true, detail: { thingId: r.id } }));
     return out.s;

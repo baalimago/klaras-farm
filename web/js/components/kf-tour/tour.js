@@ -69,8 +69,8 @@ export function tourCard(step, { mode, holdMs }) {
       };
     case "edit":
       return editing
-        ? { title: "Change an animal", body: "Tap an animal's ✎ pencil to change how it looks, its name and its sounds. Done takes you back to play.", target: { kind: "selector", selector: PENCIL } }
-        : { title: "How to edit", body: `Press and hold the scene for ${hold}. A ring fills, then a quick grown-up check opens edit mode. There, tap an animal's ✎ pencil to change it.`, target: null };
+        ? { title: "Change an animal", body: "Tap an animal to select it, then drag the round handle on its ring to make it bigger or smaller. Tap it again, or its ✎ pencil, to change its look, name and sounds. Done takes you back to play.", target: { kind: "selector", selector: PENCIL } }
+        : { title: "How to edit", body: `Press and hold the scene for ${hold}. A ring fills, then a quick grown-up check opens edit mode. There, tap an animal to select it: the round handle on its ring resizes it, and a second tap (or its ✎ pencil) opens its card.`, target: null };
     case "scenes":
       return editing
         ? { title: "Scenes", body: "Tap Scenes to switch to another scene, or to make a new one.", target: { kind: "selector", selector: SCENES_BUTTON } }

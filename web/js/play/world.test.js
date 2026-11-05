@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { createWorld, syncWorld, step, setMode, react, dropActor, sleepAll, isIdle, nextWakeMs, hitTargets, holdActor, placeActor, settleActor, takeSpreadMoves, isSettling, footPivot, scaleActor, settleResize, TICK, GROUND_TOP, GLIDE_S } from "./world.js";
 import { MAX_SPEED, REACT_S, DROP_S, WIGGLE_S, SLEEP_SETTLE_S } from "../motion/blocks.js";
 import { ASPECT } from "./hit.js";
+import { footPoint, scaledThingPatch, movedThingPatch } from "../geometry/transform.js";
 
 const preset = (id) => JSON.parse(readFileSync(new URL(`../../data/motions/${id}.json`, import.meta.url), "utf8"));
 const presets = { walk: preset("walk"), float: preset("float"), hop: preset("hop") };
@@ -558,4 +559,74 @@ test("an unrelated farm change mid-resize keeps the preview", () => {
   scaleActor(w, "pig", 1.4, a.x, a.y, ...footPivot(w, "pig"));
   syncWorld(w, [{ ...pig, color: "red" }], rng); // same outline
   assert.equal(a.scale, 1.4);
+});
+
+// A lopsided thing (an L): its centroid, the actor's anchor, is far from its box's bottom centre.
+const lopsided = (id, x, y) => ({
+  id, outline: [[x, y], [x + 0.2, y], [x + 0.2, y + 0.05], [x + 0.05, y + 0.05], [x + 0.05, y + 0.2], [x, y + 0.2]],
+  eyes: [{ x: x + 0.02, y: y + 0.02 }], legs: [{ x: x + 0.02, y: y + 0.19 }], motion: { kind: "preset", preset: "walk", params: {} },
+});
+/** Where an actor is drawn: its outline's box at `scale` about the anchor. */
+const drawnBox = (a) => ({ l: a.x - a.ext.left * a.scale, r: a.x + a.ext.right * a.scale, t: a.y - a.ext.top * a.scale, b: a.y + a.ext.bottom * a.scale });
+const sameBox = (p, q, eps = 1e-9) => { for (const k of ["l", "r", "t", "b"]) near(p[k], q[k], eps); };
+
+test("resize of a lopsided thing: the preview keeps its feet at the outline's foot point, and the saved outline is drawn exactly there", () => {
+  const rng = seeded();
+  const pig = lopsided("pig", 0.3, 0.45);
+  const w = createWorld([pig], { rng, presets, mode: "edit" });
+  run(w, 1, rng);
+  const a = holdActor(w, "pig");
+  assert.ok(Math.abs(a.x - 0.4) > 0.02, "the anchor is off the box centre");
+  const [px, py] = footPivot(w, "pig");
+  const [fx, fy] = footPoint(pig.outline);
+  near(px, fx);
+  near(py, fy);
+  scaleActor(w, "pig", 1.5, a.x, a.y, px, py);
+  const shown = drawnBox(a);
+  near((shown.l + shown.r) / 2, fx); // centred over its feet
+  near(shown.b, fy); // feet where they stood
+  near(shown.r - shown.l, 0.3);
+  const r = settleResize(w, "pig");
+  near(r.dx, 0);
+  near(r.dy, 0);
+  syncWorld(w, [{ ...pig, ...scaledThingPatch(pig, r.s) }], rng);
+  assert.equal(a.scale, 1);
+  sameBox(drawnBox(a), shown); // no jump when the farm has it
+});
+
+test("resize of a thing grabbed off its home (mid-glide): settleResize says how far to move it, and the saved thing lands where it was shown", () => {
+  const rng = seeded();
+  const cow = thing("cow", 0.32, 0.58), pig = lopsided("pig", 0.3, 0.45);
+  const w = createWorld([cow, pig], { rng, presets, mode: "edit" });
+  const a = w.actors[1];
+  assert.ok(a.glideT >= 0, "the overlapping things glide apart");
+  run(w, GLIDE_S / 2, rng);
+  holdActor(w, "pig"); // stops where the finger found it, its home still where it was drawn
+  const off = [a.x - a.homeX, a.y - a.homeY];
+  assert.ok(Math.hypot(...off) > 0.005, `off its home by ${off}`);
+  scaleActor(w, "pig", 1.3, a.x, a.y, ...footPivot(w, "pig"));
+  const shown = drawnBox(a);
+  const r = settleResize(w, "pig");
+  near(r.s, 1.3);
+  near(r.dx, off[0], 1e-12);
+  near(r.dy, off[1], 1e-12);
+  // The board's patch: scaled about the stored feet, then moved by (dx, dy).
+  const patch = movedThingPatch({ ...pig, ...scaledThingPatch(pig, r.s) }, r.dx, r.dy);
+  syncWorld(w, [cow, { ...pig, ...patch }], rng);
+  assert.equal(a.scale, 1);
+  sameBox(drawnBox(a), shown);
+});
+
+test("resizing a thing that is still gliding stops the glide: it stays where the resize put it", () => {
+  const rng = seeded();
+  const w = createWorld([thing("cow", 0.36, 0.62), thing("pig", 0.3, 0.6)], { rng, presets, mode: "edit" });
+  const a = w.actors[1];
+  run(w, TICK, rng);
+  assert.ok(a.glideT >= 0, "gliding");
+  scaleActor(w, "pig", 1.2, a.x, a.y, ...footPivot(w, "pig"));
+  assert.equal(a.glideT, -1);
+  const at = [a.x, a.y];
+  run(w, GLIDE_S, rng);
+  near(a.x, at[0]);
+  near(a.y, at[1]);
 });
