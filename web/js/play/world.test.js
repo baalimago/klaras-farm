@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { createWorld, syncWorld, step, setMode, react, dropActor, sleepAll, isIdle, nextWakeMs, hitTargets, holdActor, placeActor, settleActor, takeSpreadMoves, isSettling, TICK, GROUND_TOP, GLIDE_S } from "./world.js";
+import { createWorld, syncWorld, step, setMode, react, dropActor, sleepAll, isIdle, nextWakeMs, hitTargets, holdActor, placeActor, settleActor, takeSpreadMoves, isSettling, footPivot, scaleActor, settleResize, TICK, GROUND_TOP, GLIDE_S } from "./world.js";
 import { MAX_SPEED, REACT_S, DROP_S, WIGGLE_S, SLEEP_SETTLE_S } from "../motion/blocks.js";
 import { ASPECT } from "./hit.js";
 
@@ -492,4 +492,70 @@ test("a thing under the edit bar moves up out of it; one beside the bar stays", 
   const [pig, hen] = w.actors;
   assert.ok(pig.y + pig.ext.bottom <= 0.9, `pig bottom ${pig.y + pig.ext.bottom}`);
   assert.ok(Math.abs(hen.x - 0.1) < 1e-9 && Math.abs(hen.y - 0.9) < 1e-9);
+});
+
+// ---------- edit mode resize (the selection ring's handle) ----------
+
+const near = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) <= eps, `${a} ≈ ${b}`);
+
+test("resize preview: the held actor scales about its feet; the feet stay put", () => {
+  const rng = seeded();
+  const w = createWorld([thing("pig", 0.3, 0.6)], { rng, presets, mode: "edit" });
+  run(w, 1, rng);
+  const a = holdActor(w, "pig");
+  assert.equal(a.scale, 1, "actors start at their own size");
+  const [px, py] = footPivot(w, "pig");
+  near(px, 0.3);
+  near(py, 0.68);
+  scaleActor(w, "pig", 1.5, a.x, a.y, px, py);
+  near(a.scale, 1.5);
+  near(a.x, 0.3);
+  near(a.y, 0.68 - 0.08 * 1.5, 1e-12); // the anchor rises with the body
+  near(a.y + a.ext.bottom * a.scale, 0.68); // drawn feet where they stood
+  run(w, 0.5, rng);
+  near(a.scale, 1.5); // steps leave the preview alone
+  scaleActor(w, "pig", 0.5, 0.3, 0.6, px, py);
+  near(a.y, 0.68 - 0.08 * 0.5);
+  assert.equal(footPivot(w, "nobody"), null);
+  assert.equal(scaleActor(w, "nobody", 2, 0, 0, 0, 0), null);
+});
+
+test("settleResize: the scaled actor is home, taps hit the new size, and the farm catching up ends the preview without a jump", () => {
+  const rng = seeded();
+  const pig = thing("pig", 0.3, 0.6), cow = thing("cow", 0.5, 0.6);
+  const w = createWorld([pig, cow], { rng, presets, mode: "edit" });
+  run(w, 1, rng);
+  const a = holdActor(w, "pig");
+  const [px, py] = footPivot(w, "pig");
+  scaleActor(w, "pig", 2, a.x, a.y, px, py);
+  const r = settleResize(w, "pig");
+  near(r.s, 2);
+  near(r.dx, 0);
+  near(r.dy, 0);
+  assert.deepEqual([a.homeX, a.homeY], [a.x, a.y]);
+  const hit = hitTargets(w)[0];
+  near(Math.min(...hit.poly.map((p) => p[0])), 0.3 - 0.16); // the outline is the new size
+  near(Math.max(...hit.poly.map((p) => p[1])), 0.68);
+  assert.equal(a.scale, 2, "still drawn scaled: the farm has the old outline");
+  assert.equal(settleResize(w, "nobody"), null);
+  // The farm gets the outline scaled about its feet (geometry/transform.js scaledThingPatch).
+  const bigOutline = pig.outline.map(([x, y]) => [px + (x - px) * 2, py + (y - py) * 2]);
+  const before = [a.x, a.y];
+  syncWorld(w, [{ ...pig, outline: bigOutline }, cow], rng);
+  assert.equal(a.scale, 1, "the preview ends: the new outline is drawn at its own size");
+  near(a.x, before[0]);
+  near(a.y, before[1]);
+  assert.equal(isSettling(w), true, "the bigger pig now reaches the cow: they spread again");
+  run(w, GLIDE_S, rng);
+  assert.ok(!actorsOverlap(w.actors[0], w.actors[1]));
+});
+
+test("an unrelated farm change mid-resize keeps the preview", () => {
+  const rng = seeded();
+  const pig = thing("pig", 0.3, 0.6);
+  const w = createWorld([pig], { rng, presets, mode: "edit" });
+  const a = holdActor(w, "pig");
+  scaleActor(w, "pig", 1.4, a.x, a.y, ...footPivot(w, "pig"));
+  syncWorld(w, [{ ...pig, color: "red" }], rng); // same outline
+  assert.equal(a.scale, 1.4);
 });

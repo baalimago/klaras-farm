@@ -97,6 +97,26 @@ kf-edit-layer.dragging .kf-edit-badges { display: none; }
   touch-action: manipulation;
 }
 .kf-badge.pencil { background: var(--paper); color: var(--ink); }
+/* The selected thing's resize handle, as in the scene tools: blue felt with a stitched edge. */
+.kf-resize-handle {
+  position: absolute;
+  width: 52px;
+  height: 52px;
+  margin: -26px 0 0 -26px;
+  padding: 0;
+  border: 3px dashed var(--paper);
+  border-radius: 50%;
+  background: var(--blue);
+  color: #fff;
+  font: 700 1.4rem/1 var(--font);
+  box-shadow: var(--shadow);
+  cursor: nwse-resize;
+  touch-action: none;
+  will-change: transform;
+}
+/* While resizing only the handle shows: the ring and badges would mark the old size. */
+kf-edit-layer.resizing .kf-badge,
+kf-edit-layer.resizing .kf-edit-ring { visibility: hidden; }
 .kf-badge.cross { background: var(--red); color: #fff; }
 /* "Needs your voice": a small red mic dot on the pencil of things without a recorded name. */
 .kf-voice-dot {

@@ -1,7 +1,7 @@
 // PlayEngine: owns the ephemeral play world for the current place (ARCHITECTURE §4).
 // Reads the FarmStore, never writes it. The Renderer calls step(dt) each frame and reads
-// `actors`; the board calls tap / pick / fingerDown; guided add calls dropIn; the find buttons
-// call startFind.
+// `actors`; the board calls tap / pick / fingerDown, and in edit mode grab / dragTo / release (move)
+// and grabResize / resizeTo / release (resize); guided add calls dropIn; the find buttons call startFind.
 //
 // Events:
 //   'reaction' {thingId, x, y}   a tap reaction started (confetti), board coordinates
@@ -18,7 +18,7 @@
 // Time: step(dt) takes the frame delta. While the world is idle the renderer may stop calling
 // step; the engine then counts the idle gap with its own clock (`now`), so a wake-up step can pass
 // any dt (even 0). Pass the frame delta, not the time since the last frame before the loop stopped.
-import { createWorld, syncWorld, step, setMode, react, dropActor, sleepAll, isIdle, nextWakeMs, hitTargets, actorFor, holdActor, placeActor, settleActor, isSettling, takeSpreadMoves } from "./play/world.js";
+import { createWorld, syncWorld, step, setMode, react, dropActor, sleepAll, isIdle, nextWakeMs, hitTargets, actorFor, holdActor, placeActor, settleActor, isSettling, takeSpreadMoves, footPivot, scaleActor, settleResize } from "./play/world.js";
 import { hitTest } from "./play/hit.js";
 import { decideTap, idleMash, startPlaying, stopPlaying } from "./play/mash.js";
 import { createSleep, tickSleep, sleepRemainingS } from "./play/sleep.js";
@@ -78,6 +78,7 @@ export class PlayEngine extends EventTarget {
     if (!MODES.includes(mode) || mode === this._mode) return;
     this._catchUp();
     this._mode = mode;
+    if (this._held?.pivot) this.release(false); // a resize ends with edit mode, at the old size
     this._held = null; // a drag ends with edit mode
     setMode(this.world, mode, this.rng);
     this._queueSpread();
@@ -215,7 +216,7 @@ export class PlayEngine extends EventTarget {
   /** Moves the held thing's anchor to (x, y). One number write and a frame request per pointermove. */
   dragTo(x, y) {
     const h = this._held;
-    if (!h) return;
+    if (!h || h.pivot) return; // a resize is not a move
     placeActor(this.world, h.thingId, x, y);
     this._wake();
   }
@@ -229,6 +230,7 @@ export class PlayEngine extends EventTarget {
     const h = this._held;
     this._held = null;
     if (!h) return null;
+    if (h.pivot) return this._releaseResize(h, commit);
     if (!commit) {
       placeActor(this.world, h.thingId, h.x, h.y);
       this._wake();
@@ -239,7 +241,39 @@ export class PlayEngine extends EventTarget {
     return d ? { thingId: h.thingId, dx: d[0], dy: d[1] } : null;
   }
 
-  /** The thing being dragged, or null. */
+  /**
+   * Edit mode: pick a thing up to resize it about its feet (the bottom centre of its outline).
+   * Returns {x, y, px, py}: its anchor and the pivot, board coordinates; or null.
+   */
+  grabResize(thingId) {
+    const start = this.grab(thingId);
+    if (!start) return null;
+    const [px, py] = footPivot(this.world, thingId);
+    this._held.pivot = [px, py];
+    return { ...start, px, py };
+  }
+
+  /** Shows the thing being resized at `k` times its size (the caller clamps k). A few number writes and a frame request. */
+  resizeTo(k) {
+    const h = this._held;
+    if (!h?.pivot || !(k > 0)) return;
+    scaleActor(this.world, h.thingId, k, h.x, h.y, h.pivot[0], h.pivot[1]);
+    this._wake();
+  }
+
+  /** Release of a resize: {thingId, s, dx, dy} to save (geometry/transform.js scaledThingPatch), or back to the old size. */
+  _releaseResize(h, commit) {
+    let out = null;
+    if (commit && actorFor(this.world, h.thingId)?.scale !== 1) {
+      const r = settleResize(this.world, h.thingId);
+      if (r) out = { thingId: h.thingId, ...r };
+    }
+    if (!out) scaleActor(this.world, h.thingId, 1, h.x, h.y, h.pivot[0], h.pivot[1]);
+    this._wake();
+    return out;
+  }
+
+  /** The thing being dragged or resized, or null. */
   get held() { return this._held?.thingId ?? null; }
 
   /** All things pause while a finger is down (US-5.3). */

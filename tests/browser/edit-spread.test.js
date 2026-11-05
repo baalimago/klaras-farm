@@ -83,8 +83,11 @@ test("edit mode: piled-up things glide apart, with every pencil and cross clear 
   assert.equal(after.badges.length, 2 * after.things.length);
   for (const t of after.things) assert.ok(t.l >= -0.5 && t.r <= 1180.5 && t.t >= -0.5 && t.b <= 820.5, `${t.id} is on screen`);
   if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/edit-spread.png` });
-  // A tap on a spread thing opens its own card: the hit test follows the spread.
+  // A tap on a spread thing selects it, a second tap opens its own card: the hit test follows the spread.
   const first = after.things[after.things.length - 1];
+  await page.mouse.click((first.l + first.r) / 2, (first.t + first.b) / 2 + 4);
+  await page.locator(`.kf-edit-ring[data-thing-id="${first.id}"]`).waitFor();
+  await page.waitForTimeout(600); // not a double tap
   await page.mouse.click((first.l + first.r) / 2, (first.t + first.b) / 2 + 4);
   await page.locator("kf-thing-card").waitFor();
   assert.equal(await page.evaluate(() => window.__kf.session.state.panel?.params?.thingId), first.id);

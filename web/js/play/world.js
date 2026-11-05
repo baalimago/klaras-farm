@@ -13,6 +13,8 @@
 //   stir           seconds left of a sleepy stir (tap while asleep)
 //   glideT         seconds into an edit-mode spread glide (< 0 none), from (gx, gy) to (tx, ty)
 //   spreadPending  the spread moved this actor and the farm has not been told yet (takeSpreadMoves)
+//   scale          (shared with the renderer) 1, or the live size of a thing being resized in edit
+//                  mode (scaleActor) until the farm has its new outline
 import { resolveMotion, pose, newPose, restPose } from "../motion/pose.js";
 import { travelSpeed, REACT_S, DROP_S, WIGGLE_S, SLEEP_SETTLE_S, jump, jumpStretch, jumpSpin, drop, dropStretch, wiggle, yawn } from "../motion/blocks.js";
 import { centroid, extents, ASPECT } from "./hit.js";
@@ -98,6 +100,7 @@ export function syncWorld(world, things, rng, { drop: dropNew = false } = {}) {
 }
 
 function fitThing(world, a, thing, cx, cy) {
+  if (a.outline !== thing.outline) a.scale = 1; // a resize preview ends when the farm has the new outline
   a.homeX = cx;
   a.homeY = cy;
   a.outline = thing.outline;
@@ -111,7 +114,7 @@ function fitThing(world, a, thing, cx, cy) {
 
 function newActor(world, thing, cx, cy, rng) {
   const a = {
-    thingId: thing.id, x: cx, y: cy, facing: 1, t: 0, state: "idle", stateTime: 0, pose: newPose(0),
+    thingId: thing.id, x: cx, y: cy, scale: 1, facing: 1, t: 0, state: "idle", stateTime: 0, pose: newPose(0),
     homeX: cx, homeY: cy, ext: null, outline: null, eyes: 0, motion: null, nLegs: 0,
     move: 0, tx: cx, ty: cy, rest: 0, blinkIn: 0, blinkT: -1, stir: 0, glideT: -1, gx: cx, gy: cy, spreadPending: false,
   };
@@ -274,6 +277,50 @@ export function settleActor(world, thingId) {
   // Taps hit the thing where it now is, even before the store has the moved outline.
   a.outline = a.outline.map(([x, y]) => [x + dx, y + dy]);
   return [dx, dy];
+}
+
+/**
+ * Where a held actor is resized about, board coordinates [x, y]: the bottom centre of its outline
+ * where it is now (geometry/transform.js footPoint), so its feet stay put. Null for no such thing.
+ */
+export function footPivot(world, thingId) {
+  const a = actorFor(world, thingId);
+  if (!a) return null;
+  return [a.x + (a.ext.right - a.ext.left) / 2, a.y + a.ext.bottom];
+}
+
+/**
+ * Edit mode resize preview: the held actor drawn `k` times its size about the pivot (px, py), its
+ * anchor at (x0, y0) before the resize. Number writes only; the renderer scales the cached sprite,
+ * its eyes and legs by `scale`, so the store is not touched until the release.
+ */
+export function scaleActor(world, thingId, k, x0, y0, px, py) {
+  const a = actorFor(world, thingId);
+  if (!a) return null;
+  a.glideT = -1;
+  a.scale = k;
+  a.x = a.tx = px + (x0 - px) * k;
+  a.y = a.ty = py + (y0 - py) * k;
+  return a;
+}
+
+/**
+ * The resize was let go: the scaled actor is the thing's new home. Returns {s, dx, dy}: the caller
+ * writes the thing scaled by `s` about its foot point (geometry/transform.js scaledThingPatch),
+ * then moved by (dx, dy) (non-zero only if the actor was off its home when picked up). The actor
+ * keeps drawing its old sprite at `scale` until the farm has the new outline (fitThing resets it),
+ * and its extents stay the old ones so that syncWorld sees the size change and spreads again.
+ */
+export function settleResize(world, thingId) {
+  const a = actorFor(world, thingId);
+  if (!a) return null;
+  const k = a.scale;
+  const px = a.homeX + (a.ext.right - a.ext.left) / 2, py = a.homeY + a.ext.bottom;
+  const dx = a.x - (px + (a.homeX - px) * k), dy = a.y - (py + (a.homeY - py) * k);
+  a.outline = a.outline.map(([x, y]) => [px + (x - px) * k + dx, py + (y - py) * k + dy]);
+  a.homeX = a.x;
+  a.homeY = a.y;
+  return { s: k, dx, dy };
 }
 
 export function actorFor(world, thingId) {

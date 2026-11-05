@@ -5,9 +5,14 @@
 // (US-11.3): the thing follows the finger 1:1 from the first pixel (engine.grab / dragTo, drawn in
 // the renderer's next frame, board rect read once per drag), and the store is written once, on release.
 // Drag events: `kf-thing-grab` {thingId} once the press has moved past the tap slop, `kf-thing-drop` {thingId}.
+// Resize (edit mode, driven by the selection ring's handle in <kf-edit-layer>): resizeStart /
+// resizeTo / resizeEnd. The thing grows or shrinks about its feet under the finger (engine.grabResize /
+// resizeTo, a scaled sprite in the renderer's next frame; the scale is the finger's distance from the
+// feet over its distance at the start, clamped by geometry/transform.js clampThingScale), and the
+// store is written once, on release (scaledThingPatch: outline, eyes and legs). Event: `kf-thing-resized` {thingId}.
 import { Renderer } from "../../io/renderer.js";
 import { toBoard, fromBoard } from "../../geometry/stroke.js";
-import { movedThingPatch } from "../../geometry/transform.js";
+import { movedThingPatch, clampThingScale, scaledThingPatch } from "../../geometry/transform.js";
 import { isPalm } from "../../edit/hold.js";
 import { editSound } from "../kf-dialog/feedback.js";
 
@@ -26,6 +31,7 @@ export class KfBoardElement extends HTMLElement {
     this._canvas = null;
     this._down = null;
     this._drag = null; // edit mode: {id, rect, cx, cy, x, y, lifted}
+    this._sizing = null; // edit mode: {id, thing, pivot: [clientX, clientY], d0, s}
     this._ro = null;
     this._onDown = this._onDown.bind(this);
     this._onMove = this._onMove.bind(this);
@@ -103,6 +109,65 @@ export class KfBoardElement extends HTMLElement {
     const r = this.boardRect();
     return new DOMRect(r.left + b.x * r.width, r.top + b.y * r.height, b.w * r.width, b.h * r.height);
   }
+
+  // ---------- resize (edit mode) ----------
+  /**
+   * Starts resizing a thing from a press at (clientX, clientY), usually on its resize handle.
+   * Returns the pivot (its feet) in client px [x, y], or null when it cannot (not edit mode, a panel
+   * is open, a drag or resize is going on, no such thing).
+   */
+  resizeStart(thingId, clientX, clientY) {
+    const s = this.services;
+    const engine = s?.engine;
+    if (this._drag || this._sizing || typeof engine?.grabResize !== "function") return null;
+    if (this._mode() !== "edit" || s.session?.state?.panel) return null;
+    const thing = s.store?.snapshot?.things?.find((t) => t.id === thingId);
+    if (!thing) return null;
+    const start = engine.grabResize(thingId);
+    if (!start) return null;
+    const rect = this.boardRect(); // once per resize: no layout reads while it changes
+    const pivot = [rect.left + start.px * rect.width, rect.top + start.py * rect.height];
+    this._sizing = { id: thingId, thing, pivot, d0: Math.hypot(clientX - pivot[0], clientY - pivot[1]), s: 1 };
+    editSound(s, "pick");
+    this.renderer?.wake();
+    return pivot;
+  }
+
+  /** Follows the finger: shows the thing at the clamped scale for (clientX, clientY) and returns it. */
+  resizeTo(clientX, clientY) {
+    const r = this._sizing;
+    if (!r) return 1;
+    const raw = r.d0 < 1 ? 1 : Math.hypot(clientX - r.pivot[0], clientY - r.pivot[1]) / r.d0;
+    r.s = clampThingScale(r.thing, raw);
+    this.services?.engine?.resizeTo?.(r.s);
+    return r.s;
+  }
+
+  /**
+   * Lets go: with `commit`, one store write of the resized thing; without (a cancelled pointer), it
+   * goes back to its size. Returns the saved scale, or null when nothing changed.
+   */
+  resizeEnd(commit = true) {
+    const r = this._sizing;
+    this._sizing = null;
+    const s = this.services;
+    if (!r || !s?.engine) return null;
+    const out = s.engine.release?.(commit) ?? null;
+    this.renderer?.wake();
+    if (!out) return null;
+    editSound(s, "drop");
+    const thing = s.store?.snapshot?.things?.find((t) => t.id === r.id);
+    if (thing) {
+      let patch = scaledThingPatch(thing, out.s);
+      if (out.dx || out.dy) patch = movedThingPatch({ ...thing, ...patch }, out.dx, out.dy);
+      s.store.updateThing({ thingId: r.id, patch }).catch((err) => console.error(err));
+    }
+    this.dispatchEvent(new CustomEvent("kf-thing-resized", { bubbles: true, composed: true, detail: { thingId: r.id } }));
+    return out.s;
+  }
+
+  /** The thing being resized, or null. */
+  get resizing() { return this._sizing?.id ?? null; }
 
   // ---------- internals ----------
   _resize() {
