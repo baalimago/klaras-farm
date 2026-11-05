@@ -40,7 +40,10 @@ export function planAnimalAsk({ prompts, lang, lines, linesLang, name, sound, ca
   if (!own.length && prompts.length) ask.push({ kind: "clip", clip: pickFresh(prompts, rng, lastId) });
   if (name) ask.push({ kind: "clip", clip: name });
   ask.push({ kind: "chime" });
-  return { ask, clue: sound ? { kind: "clip", clip: sound } : null, recorded: pool.length > 0 };
+  // recorded: a parent's own question is what asks (the find buttons' recording tip stays away)
+  const voiced = canSpeak && lines.length > 0;
+  const recorded = own.length > 0 || (!voiced && prompts.length > 0);
+  return { ask, clue: sound ? { kind: "clip", clip: sound } : null, recorded };
 }
 
 /**

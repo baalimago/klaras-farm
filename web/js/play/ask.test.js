@@ -78,7 +78,8 @@ test("the device voice reads a line in the language of its script, not the play 
 
 test("recorded tells whether the parent's own question plays (the find buttons' recording tip)", () => {
   assert.equal(planAnimalAsk({ ...base, prompts: [clip("p1")] }).recorded, true);
-  assert.equal(planAnimalAsk({ ...base, prompts: [clip("sv1", "sv")], lang: "en" }).recorded, true, "another language's recording still plays");
+  assert.equal(planAnimalAsk({ ...base, prompts: [clip("sv1", "sv")], lang: "en" }).recorded, false, "the iPad voice asks in English: tip");
+  assert.equal(planAnimalAsk({ ...base, prompts: [clip("sv1", "sv")], lang: "en", canSpeak: false }).recorded, true, "no voice: another language's recording asks");
   assert.equal(planAnimalAsk({ ...base, name: clip("n", "en", "name") }).recorded, false, "a recorded name is not a question");
   assert.equal(planAnimalAsk({ ...base, canSpeak: false }).recorded, false);
   const line = { text: "Tap on an animal that is yellow!", lang: "en" };
