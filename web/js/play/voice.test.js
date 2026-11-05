@@ -16,6 +16,7 @@ test("spokenName: the play language, its base language, any typed name, or nothi
   assert.deepEqual(spokenName(t, "en-GB"), { text: "Cow", lang: "en" });
   assert.deepEqual(spokenName(t, "fi"), { text: "Cow", lang: "en" });
   assert.equal(spokenName({ names: { en: "" } }, "en"), null);
+  assert.deepEqual(spokenName({ names: { en: "", sv: "Ko" } }, "fi"), { text: "Ko", lang: "sv" }, "an empty name is skipped");
   assert.equal(spokenName({}, "en"), null);
   assert.equal(spokenName(null, "en"), null);
 });

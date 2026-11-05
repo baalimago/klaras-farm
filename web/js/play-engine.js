@@ -18,7 +18,7 @@
 // Time: step(dt) takes the frame delta. While the world is idle the renderer may stop calling
 // step; the engine then counts the idle gap with its own clock (`now`), so a wake-up step can pass
 // any dt (even 0). Pass the frame delta, not the time since the last frame before the loop stopped.
-import { createWorld, syncWorld, step, setMode, react, dropActor, sleepAll, isIdle, nextWakeMs, hitTargets, actorFor, holdActor, placeActor, settleActor, isSettling, takeSpreadMoves, footPivot, scaleActor, settleResize } from "./play/world.js";
+import { createWorld, syncWorld, step, setMode, react, dropActor, sleepAll, isIdle, nextWakeMs, hitTargets, actorFor, holdActor, placeActor, settleActor, isSettling, takeSpreadMoves, footPivot, scaleActor, settleResize, standingBoxes } from "./play/world.js";
 import { hitTest } from "./play/hit.js";
 import { decideTap, idleMash, startPlaying, stopPlaying } from "./play/mash.js";
 import { createSleep, tickSleep, sleepRemainingS } from "./play/sleep.js";
@@ -67,6 +67,19 @@ export class PlayEngine extends EventTarget {
     this.world = createWorld(this._things(), { rng, presets, reduceMotion: !!settings.reduceMotion });
     this._onChange = (e) => this._storeChanged(e.detail ?? {});
     store.addEventListener("change", this._onChange);
+    // A new thing lands beside the things where they stand now, not where the farm saved them.
+    this._occupancy = (placeId) => this.occupied(placeId);
+    store.setOccupancy?.(this._occupancy);
+  }
+
+  /**
+   * Where the things of `placeId` stand now (play/world.js standingBoxes), or null when it is not
+   * the place on the board (the farm's saved positions are right for it then).
+   * @returns {import('./play/spread.js').SpreadBox[] | null}
+   */
+  occupied(placeId) {
+    if (this._disposed || placeId !== (this.store.currentPlace?.id ?? null)) return null;
+    return standingBoxes(this.world);
   }
 
   /** @returns {import('./types.js').Actor[]} the same array, mutated in place */
@@ -318,6 +331,7 @@ export class PlayEngine extends EventTarget {
   dispose() {
     this._disposed = true;
     this.store.removeEventListener("change", this._onChange);
+    if (this.store.occupancy === this._occupancy) this.store.setOccupancy?.(null);
   }
 
   // ---- internals ----

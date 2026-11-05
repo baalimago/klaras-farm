@@ -7,7 +7,8 @@ Play is the live board a toddler touches. Things wander, blink, jump and speak w
 ## Files
 
 - `web/js/play/world.js`: the pure simulation. Actors, wandering, blinking, reactions, drop-in, edit wiggle, sleep, fixed timestep, `isIdle` and `nextWakeMs`.
-- `web/js/play/spread.js`: `spreadBoxes(boxes, opts)`, moves overlapping boxes apart for edit mode (below).
+- `web/js/play/spread.js`: `spreadBoxes(boxes, opts)`, moves overlapping boxes apart for edit mode (below); `crowding(box, others, opts)`, the same overlap test for one box; `EDIT_SPREAD`, the edit-mode room.
+- `web/js/play/placement.js`: `placeThing(thing, occupied, place)`, where a new thing lands (below); `thingBox`, `thingBoxes`, `isWalker`, `GROUND_AT`.
 - `web/js/play/hit.js`: point in polygon, `hitTest` with a 1.3x outline and a minimum radius, `centroid`, `extents`, `ASPECT = 0.75`.
 - `web/js/play/mash.js`: mash policy for taps (restart after 300 ms, nothing queues).
 - `web/js/play/sleep.js`: the sleep timer.
@@ -45,7 +46,8 @@ Play is the live board a toddler touches. Things wander, blink, jump and speak w
 | `isIdle()`, `nextWakeMs()` | For the renderer's 0 fps idle (below). |
 | `settling` | Things are gliding apart (edit-mode spread) or dropping in. `<kf-edit-layer>` places no badges until it is false. |
 | `hitMinRadius` | Board widths. The board sets it to `60 / boardWidthPx` (targets at least 120 CSS px across). |
-| `actorFor(id)`, `dispose()` | Live actor lookup; removes the store listener. |
+| `actorFor(id)`, `dispose()` | Live actor lookup; removes the store listener and its occupancy. |
+| `occupied(placeId)` | Where the things of the place on the board stand now (`standingBoxes`), or null for another place. The engine registers it with `store.setOccupancy`, so a new thing lands beside the animals where they are, not where they were saved. |
 
 Events (all `CustomEvent`):
 
@@ -58,7 +60,7 @@ Events (all `CustomEvent`):
 
 ### World (`play/world.js`)
 
-`createWorld(things, {rng, presets, mode, reduceMotion})`, `syncWorld(world, things, rng, {drop})`, `setMode`, `react`, `dropActor`, `sleepAll`, `step(world, dt, {fingerDown}, rng)`, `isIdle`, `nextWakeMs`, `hitTargets`, `actorFor`, `spreadActors`, `takeSpreadMoves` and `isSettling` (edit-mode spread, below), and for the edit drag `holdActor` (still, settled wiggle), `placeActor(world, id, x, y)` and `settleActor` (the drop point becomes home; the actor's outline moves with it so taps hit it before the store catches up; returns `[dx, dy]`), and for the edit resize `footPivot(world, id)` (the bottom centre of the actor's outline where it is), `scaleActor(world, id, k, x0, y0, px, py)` (actor `scale = k`, anchor scaled about the pivot from `(x0, y0)`) and `settleResize` (the scaled actor is home, its outline scaled so taps hit the new size; returns `{s, dx, dy}`). `scale` (1 by default) is read by the renderer: it draws the cached sprite, legs, eyes and shadow scaled about the anchor. `fitThing` resets it to 1 when the farm has a new outline for the thing, so the preview ends exactly when the resized drawing arrives; its extents stay the old ones until then, so `syncWorld` sees the size change and spreads again. Constants: `TICK = 1/60`, `GROUND_TOP = 0.55`, `GLIDE_S = 0.3`.
+`createWorld(things, {rng, presets, mode, reduceMotion})`, `syncWorld(world, things, rng, {drop})`, `setMode`, `react`, `dropActor`, `sleepAll`, `step(world, dt, {fingerDown}, rng)`, `isIdle`, `nextWakeMs`, `hitTargets`, `actorFor`, `spreadActors`, `takeSpreadMoves` and `isSettling` (edit-mode spread, below), `standingBoxes(world)` (each actor's spread box where it stands, or where it glides to), and for the edit drag `holdActor` (still, settled wiggle), `placeActor(world, id, x, y)` and `settleActor` (the drop point becomes home; the actor's outline moves with it so taps hit it before the store catches up; returns `[dx, dy]`), and for the edit resize `footPivot(world, id)` (the bottom centre of the actor's outline where it is), `scaleActor(world, id, k, x0, y0, px, py)` (actor `scale = k`, anchor scaled about the pivot from `(x0, y0)`) and `settleResize` (the scaled actor is home, its outline scaled so taps hit the new size; returns `{s, dx, dy}`). `scale` (1 by default) is read by the renderer: it draws the cached sprite, legs, eyes and shadow scaled about the anchor. `fitThing` resets it to 1 when the farm has a new outline for the thing, so the preview ends exactly when the resized drawing arrives; its extents stay the old ones until then, so `syncWorld` sees the size change and spreads again. Constants: `TICK = 1/60`, `GROUND_TOP = 0.55`, `GLIDE_S = 0.3`.
 
 Actor states:
 
@@ -86,10 +88,19 @@ idle ──rest timer──▶ moving ──arrived──▶ idle
 Owner request after meeting 2: in edit mode no two things overlap, so each one and its pencil and cross can be reached.
 
 - When: entering edit mode (`setMode('edit')`), and when `syncWorld` in edit mode adds things (a new thing, an undone delete, a place switched to) or a thing's extents change (the resize handle, Redraw). Never in play or scene mode. A thing a parent drops onto another stays there: the parent chose the spot; the next edit session spreads it.
-- `spreadBoxes(boxes, {gap, padTop, minHalfWidth, margin, obstacles})` works in board widths on both axes. A box that overlaps nothing (boxes or obstacles) keeps its exact position. The others are placed one by one in drawing order: each keeps its spot if free, else takes the nearest free spot flush beside a placed box or obstacle (or a board edge), clamped onto the board; if nothing is free, the spot with the least overlap. Greedy placement instead of pairwise pushes, because pushes jam when a row is wider than the board. Deterministic; about n³ candidate checks for n ≤ 12, once per spread.
-- World settings (`SPREAD` in `world.js`): gap 0.015, `padTop` 0.03 (the 52 px badges sit centred on each thing's top edge), `minHalfWidth` 0.055 (pencil and cross sit at most 70 px each side of the top centre), margin 0.01, and the edit bar as an obstacle (x 0.24 to 0.76, y from 0.9). A thing with legs counts `farm/legs.js` `LEG_MAX` below its outline. A moved box never goes further past an edge than it already was.
+- `spreadBoxes(boxes, {gap, padTop, minHalfWidth, margin, obstacles})` works in board widths on both axes. A box may carry a `floor`, the highest its anchor may be moved to: the world gives each walker (travel mode `ground` or `hop`) `GROUND_TOP - ext.bottom`, so a spread never lifts its feet out of the ground band (a box already above it may stay, as at an edge). `crowding(box, others, opts)` is the overlap of one box where it stands, 0 exactly when the spread leaves it there. A box that overlaps nothing (boxes or obstacles) keeps its exact position. The others are placed one by one in drawing order: each keeps its spot if free, else takes the nearest free spot flush beside a placed box or obstacle (or a board edge), clamped onto the board; if nothing is free, the spot with the least overlap. Greedy placement instead of pairwise pushes, because pushes jam when a row is wider than the board. Deterministic; about n³ candidate checks for n ≤ 12, once per spread.
+- Settings (`EDIT_SPREAD` in `spread.js`, used by the world and by placement): gap 0.015, `padTop` 0.03 (the 52 px badges sit centred on each thing's top edge), `minHalfWidth` 0.055 (pencil and cross sit at most 70 px each side of the top centre), margin 0.01, and the edit bar as an obstacle (x 0.24 to 0.76, y from 0.9). A thing with legs counts `farm/legs.js` `LEG_MAX` below its outline. A moved box never goes further past an edge than it already was.
 - Each moved actor glides over `GLIDE_S` (smoothstep, `glideT`, from `gx, gy` to `tx, ty`) and is marked `spreadPending`. `isIdle` is false while gliding. Picking a thing up (`holdActor`, `placeActor`) stops its glide under the finger and drops its pending move (its drop saves it); leaving edit mode finishes a glide at once.
 - Saved, so it sticks: `PlayEngine` calls `takeSpreadMoves` a microtask later and sends the `spread` event. Like `settleActor`, the glide target becomes the actor's home and its outline moves with it. When the store catches up (new home = glide target) `syncWorld` lets the glide carry on; any other store change finishes it first and keeps the offset.
+
+### Placing a new thing (`play/placement.js`)
+
+One rule for a library copy (`copyThing`), the animals seeding a new scene (`createPlace` with `seed`) and an animal drawn in guided add (`addThing` with `spot: "free"`). QA round 3 review: each used the farm's saved positions while the animals had wandered, so the edit-mode spread pushed the newcomer into the sky.
+
+- `placeThing(thing, occupied, place)` returns `{dx, dy}` (3 decimals). `occupied` is where the scene's things stand: `PlayEngine.occupied(placeId)` (live actors via `standingBoxes`, legs included) for the place on the board, which `FarmStore` asks through `setOccupancy`; else `thingBoxes(s, placeId)`, the saved positions.
+- Candidates: 13 columns (nearest the middle first) by 15 rows. Rows put the outline's bottom from 0.05 below the backdrop's `GROUND_AT` (meadow 0.6, sea 0.55, room 0.68, blank 0.82; never above `GROUND_TOP`) down to where the legs' tips reach the board's margin. A spot counts only if `crowding` with `EDIT_SPREAD` (plus 0.002 for rounding) is 0, so the spread leaves it there. The free spot farthest from the others wins; ties to the middle, then the lowest.
+- A walker (`isWalker`: every motion but `float` and `swim`) stays on the walking ground: the band first, then rows up to feet at `GROUND_TOP`; when all of it is full it takes the ground spot that overlaps least, and the spread's `floor` keeps it there. A floater tries the same rows, then rows above them.
+- `thingBox(thing)`: the thing's spread box where it is saved (centroid anchor, extents, `LEG_MAX` below when it has legs, a `floor` for walkers), as the world boxes an actor.
 
 ## Idle rules (0 fps)
 
@@ -131,7 +142,9 @@ Owner request after meeting 2: in edit mode no two things overlap, so each one a
 
 ## Tests
 
-- `web/js/play/world.test.js`: centroids, unknown presets, speed cap, ground band, edges, rests, finger pause, react, drop, wiggle, sleep, idle and `nextWakeMs`, frame-rate independence.
+- `web/js/play/world.test.js`: centroids, unknown presets, speed cap, ground band, edges, rests, finger pause, react, drop, wiggle, sleep, idle and `nextWakeMs`, frame-rate independence, the edit-mode spread keeping walkers in the ground band.
+- `web/js/play/spread.test.js` and `placement.test.js`: the spread (with `floor`, `crowding`), and where a new thing lands: on the ground, clear of the live boxes, never moved by the spread, a floater up only when the ground is full.
+- `tests/unit/play-engine.test.js` "a library copy lands beside the animals where they stand now": a wandered animal on the saved free spot; the copy lands elsewhere and nothing glides.
 - `web/js/play/hit.test.js`, `mash.test.js`, `sleep.test.js`, `find.test.js`: each pure module, with fixed rng.
 - `tests/unit/play-engine.test.js`: the engine with a fake audio and a MemoryRepo-backed store. Taps, sounds, confetti, 1.3x hit target, catch-up after idle.
 - `web/js/play/ask.test.js`: question plans and their fallbacks.

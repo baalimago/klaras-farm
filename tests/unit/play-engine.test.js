@@ -407,6 +407,45 @@ test("edit mode: a thing that drops in (scene switch) keeps `settling` true unti
   assert.equal(engine.settling, false);
 });
 
+// QA round 3 review: an added Fox ended up over the sun. The copy was placed against the farm's
+// saved positions, a wandered animal stood there, and the edit-mode spread pushed the Fox away.
+test("a library copy lands beside the animals where they stand now, and the spread leaves it there", async () => {
+  const { placeThing, thingBoxes } = await import("../../web/js/play/placement.js");
+  const { store, engine, advance } = await setup();
+  const spreads = [];
+  engine.addEventListener("spread", (e) => spreads.push(e.detail.moves));
+  const fox = aThing({ id: "example-fox", names: { en: "Fox" }, outline: square(0.5, 0.3, 0.06), legs: [{ x: 0.48, y: 0.35 }] }).build().thing;
+  // where the saved positions would put it, and the pig has wandered right there
+  const saved = placeThing(fox, thingBoxes(store.snapshot, "farm"), store.currentPlace);
+  const pig = actor(engine, "pig");
+  pig.x = 0.5 + saved.dx;
+  pig.y = 0.3 + saved.dy;
+  engine.setMode("edit");
+  advance(0.5);
+  await flush();
+  spreads.length = 0;
+  await store.copyThing({ placeId: "farm", thing: fox });
+  const added = store.thingsIn("farm").at(-1);
+  const a = actor(engine, added.id);
+  await flush();
+  assert.deepEqual(spreads, [], "nothing glides apart");
+  assert.equal(a.glideT, -1);
+  assert.ok(Math.max(...added.outline.map((p) => p[1])) >= 0.65, "on the ground");
+  assert.ok(Math.abs(a.x - pig.x) > 0.1 || Math.abs(a.y - pig.y) > 0.15, "not on the pig");
+  engine.dispose();
+  assert.equal(store.occupancy, null, "dispose lets go of the store");
+});
+
+test("occupied: the live boxes of the place on the board, null for another place", async () => {
+  const { engine } = await setup();
+  const pig = actor(engine, "pig");
+  pig.x += 0.1;
+  const boxes = engine.occupied("farm");
+  assert.equal(boxes.length, 2);
+  assert.ok(Math.abs(boxes[0].x - pig.x) < 1e-9, "where it stands, not where it is saved");
+  assert.equal(engine.occupied("sea"), null);
+});
+
 test("a spread queued just before dispose sends nothing", async () => {
   const { store, engine } = await setup();
   const spreads = [];

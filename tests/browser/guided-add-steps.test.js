@@ -202,6 +202,30 @@ test("ask: a recorded question is kept when another language is picked and back"
   await page.getByRole("button", { name: "Play question 1" }).waitFor();
 });
 
+// QA round 3 review: Back to Ask, another language tab, Next showed an empty Sound and Finish saved two sounds.
+test("sound: one sound whichever language tab is open, and Finish stands the new thing on the ground", async () => {
+  const page = await atStep(SOUND, { languages: ["en", "sv"] });
+  const take = () => page.locator('kf-recorder[data-kind="sound"] [data-stub="take"]').click();
+  const shown = () => page.evaluate(() => document.querySelector('kf-recorder[data-kind="sound"]').existing?.blobSha256 ?? null);
+  await take();
+  const first = await page.evaluate(() => window.__f1.recorded.at(-1).sha);
+  await page.getByRole("button", { name: "‹ Back" }).click();
+  await page.getByRole("tab", { name: "Swedish" }).click();
+  await page.getByRole("button", { name: "Skip for now" }).click(); // no question recorded: the Ask step says Skip
+  assert.equal(await step(page), "sound");
+  assert.equal(await shown(), first, "the sound shows on the Swedish tab too");
+  await take();
+  const second = await page.evaluate(() => window.__f1.recorded.at(-1).sha);
+  assert.deepEqual(await page.evaluate(() => window.__el.draft.clips.filter((c) => c.kind === "sound").map((c) => c.blobSha256)), [second], "the new take replaced it in the draft");
+  await page.getByRole("button", { name: "Finish", exact: true }).click();
+  await page.waitForFunction(() => window.__t.store.snapshot.things.length === 1);
+  const sounds = await page.evaluate(() => window.__t.store.snapshot.clips.filter((c) => c.kind === "sound").map((c) => c.blobSha256));
+  assert.deepEqual(sounds, [second], "one sound");
+  const bottom = await page.evaluate(() => Math.max(...window.__t.store.snapshot.things[0].outline.map((p) => p[1])));
+  assert.ok(bottom >= 0.75, `stands low on the ground: ${bottom}`);
+  assert.deepEqual(page.errors, []);
+});
+
 test("finish closes the sheet and chimes right after the tap, before the store has saved", async () => {
   const page = await atStep(SOUND);
   await page.waitForFunction(() => window.__t.store.listDrafts().then((d) => d.length === 1));

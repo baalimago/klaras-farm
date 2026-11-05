@@ -24,6 +24,31 @@ export class FarmStore extends EventTarget {
     this._pendingBlobs = new Map();
     this._replacing = 0;
     this._epoch = 0; // bumped by a failed write: intents applied before it are dropped
+    this._occupancy = null;
+  }
+
+  /**
+   * Where a place's things stand now, for placing a new thing beside them (play/placement.js):
+   * `fn(placeId)` returns spread boxes, or null when it does not know that place. The play engine
+   * sets it (its actors have wandered from where the farm saved them); null clears it.
+   * @param {((placeId: string) => import('./play/spread.js').SpreadBox[] | null) | null} fn
+   */
+  setOccupancy(fn) {
+    this._occupancy = fn;
+  }
+
+  get occupancy() { return this._occupancy; }
+
+  /** args with `occupied` filled in from the occupancy, unless the caller gave it. */
+  _withOccupied(args) {
+    if (Array.isArray(args?.occupied) || !this._occupancy) return args;
+    let occupied = null;
+    try {
+      occupied = this._occupancy(args.placeId);
+    } catch (e) {
+      console.warn("FarmStore: occupancy", e); // the saved positions still place it
+    }
+    return Array.isArray(occupied) ? { ...args, occupied } : args;
   }
 
   /** Loads from the repository. Returns {fresh:true} when there was no data yet. */
@@ -80,8 +105,8 @@ export class FarmStore extends EventTarget {
   addPiece(args) { return this._run(I.addPiece, args); }
   updatePiece(args) { return this._run(I.updatePiece, args); }
   removePiece(args) { return this._run(I.removePiece, args); }
-  addThing(args) { return this._run(I.addThing, args); }
-  copyThing(args) { return this._run(I.copyThing, args); }
+  addThing(args) { return this._run(I.addThing, args?.spot === "free" ? this._withOccupied(args) : args); }
+  copyThing(args) { return this._run(I.copyThing, this._withOccupied(args)); }
   updateThing(args) { return this._run(I.updateThing, args); }
   deleteThing(args) { return this._run(I.deleteThing, args); }
   restoreThing(args) { return this._run(I.restoreThing, args); }

@@ -268,6 +268,35 @@ test("an old farm with a sound in two languages plays the newest one, whatever t
   assert.equal(I.soundClip(s, t).id, "new");
   assert.equal(I.tapClips(s, t, "en")[0].id, "new");
   assert.equal(I.soundClip(s, "nobody"), null);
+  // the newest wins wherever it is in the list (IndexedDB returns clips in random id order)
+  const flipped = { ...s, clips: [...s.clips].reverse() };
+  assert.equal(I.soundClip(flipped, t).id, "new");
+});
+
+test("soundClip breaks a createdAt tie the same way whatever the clip order and ids", () => {
+  const at = "2026-11-04T12:00:00.000Z";
+  const a = aClip({ id: "z-1", kind: "sound", language: "sv", blobSha256: "a".repeat(64), createdAt: at });
+  const b = aClip({ id: "a-2", kind: "sound", language: "en", blobSha256: "b".repeat(64), createdAt: at });
+  const s = aSnapshot().withPlace(aPlace().withThing(aThing().withClip(a).withClip(b))).build();
+  const t = s.things[0].id;
+  const pick = I.soundClip(s, t).blobSha256;
+  assert.equal(I.soundClip({ ...s, clips: [...s.clips].reverse() }, t).blobSha256, pick, "order does not matter");
+  // a copy (new ids, same blobs and dates) plays the same recording
+  const renamed = s.clips.map((c) => ({ ...c, id: c.id === "z-1" ? "a-9" : "z-9" }));
+  assert.equal(I.soundClip({ ...s, clips: renamed }, t).blobSha256, pick, "ids do not matter");
+});
+
+test("saving a sound replaces only that thing's sounds, every language of them", () => {
+  const s = aSnapshot().withPlace(aPlace()
+    .withThing(aThing().withClip(aClip({ id: "pig-en", kind: "sound", language: "en" })).withClip(aClip({ id: "pig-sv", kind: "sound", language: "sv" })))
+    .withThing(aThing({ names: { en: "Cow" } }).withClip(aClip({ id: "cow-sv", kind: "sound", language: "sv" })))).build();
+  const [pig, cow] = s.things.map((t) => t.id);
+  const { id, createdAt, ...fresh } = aClip({ thingId: pig, kind: "sound", language: "sv" }).build();
+  const r = I.saveClip(s, { clip: fresh }, env());
+  valid(r.snapshot);
+  assert.deepEqual(r.writes.filter((w) => w.op === "delete").map((w) => w.key).sort(), ["pig-en", "pig-sv"], "both old pig sounds deleted");
+  assert.deepEqual(I.clipsFor(r.snapshot, cow, { kind: "sound" }).map((c) => c.id), ["cow-sv"], "the cow keeps its sound");
+  assert.equal(I.clipsFor(r.snapshot, pig, { kind: "sound" }).length, 1);
 });
 
 test("playLanguageFor: fixed language, or a random pick among recorded languages when mixing", () => {
@@ -288,6 +317,41 @@ test("adding a second language turns on Mix languages unless a language was chos
   assert.equal(I.updateSettings(s, { patch: { languages: ["en", "sv"], playLanguage: "sv" } }, env).snapshot.settings.playLanguage, "sv");
   const two = I.updateSettings(s, { patch: { languages: ["en", "sv"], playLanguage: "en" } }, env).snapshot;
   assert.equal(I.updateSettings(two, { patch: { languages: ["en", "sv", "de"] } }, env).snapshot.settings.playLanguage, "en", "a chosen language stays");
+});
+
+test("addThing with spot 'free' lands a drawn thing on the ground beside where the others stand; without it, where drawn", async () => {
+  const { thingBox } = await import("../play/placement.js");
+  const { crowding, EDIT_SPREAD } = await import("../play/spread.js");
+  const s = aSnapshot().withPlace(aPlace().withThing(aThing({ outline: square(0.5, 0.8, 0.08) }))).build();
+  const placeId = s.places[0].id;
+  // drawn high up, as a cow drawn at the top of the pad
+  const args = { placeId, outline: square(0.5, 0.15, 0.1), color: "red", eyes: [{ x: 0.52, y: 0.12 }], legs: [{ x: 0.45, y: 0.22 }] };
+  const stays = I.addThing(s, args, env()).snapshot.things.at(-1);
+  assert.deepEqual(stays.outline, [[0.4, 0.05], [0.6, 0.05], [0.6, 0.25], [0.4, 0.25]]);
+  const live = [{ x: 0.3, y: 0.8, left: 0.08, right: 0.08, top: 0.08, bottom: 0.08 }]; // the other one has wandered
+  const r = I.addThing(s, { ...args, spot: "free", occupied: live }, env());
+  valid(r.snapshot);
+  const t = r.snapshot.things.at(-1);
+  const box = thingBox(t);
+  assert.ok(Math.max(...t.outline.map((p) => p[1])) >= 0.65, "on the ground");
+  assert.equal(crowding(box, live, EDIT_SPREAD), 0, "clear of where the other one stands");
+  const dx = t.outline[0][0] - 0.4, dy = t.outline[0][1] - 0.05;
+  assert.ok(Math.abs(t.eyes[0].x - (0.52 + dx)) < 2e-3 && Math.abs(t.legs[0].y - (0.22 + dy)) < 2e-3, "eyes and legs move with it");
+  // without live boxes, the saved positions count
+  const saved = I.addThing(s, { ...args, spot: "free" }, env()).snapshot.things.at(-1);
+  assert.equal(crowding(thingBox(saved), [thingBox(s.things[0])], EDIT_SPREAD), 0);
+});
+
+test("addThing keeps one sound: of two handed in (an older draft), the last", () => {
+  const s = aSnapshot().withPlace(aPlace()).build();
+  const strip = (c) => { const { id, thingId, createdAt, ...rest } = c.build(); return rest; };
+  const clips = [strip(aClip({ kind: "sound", language: "en" })), strip(aClip({ kind: "name" })), strip(aClip({ kind: "sound", language: "sv" }))];
+  const r = I.addThing(s, { placeId: s.places[0].id, outline: square(), color: "red", clips }, env());
+  valid(r.snapshot);
+  const t = r.snapshot.things[0].id;
+  assert.deepEqual(I.clipsFor(r.snapshot, t, { kind: "sound" }).map((c) => c.blobSha256), [clips[2].blobSha256]);
+  assert.equal(r.snapshot.clips.length, 2, "the name stays");
+  assert.equal(r.writes.filter((w) => w.store === "clips").length, 2);
 });
 
 test("addThing stores legs (rounded, at most 8) and defaults to none", () => {

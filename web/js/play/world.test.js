@@ -412,6 +412,19 @@ test("a store change mid-glide finishes the glide, then keeps the offset", () =>
   assert.equal(w.actors[1].glideT, -1);
 });
 
+test("the edit-mode spread keeps walkers' feet in the ground band; a floater may go up", () => {
+  const rng = seeded();
+  // two full rows on the ground and two more dropped onto them: the only room left is in the sky
+  const row = [0.1, 0.3, 0.5, 0.7, 0.9].flatMap((x, i) => [thing(`t${i}`, x, 0.8, { r: 0.09 }), thing(`u${i}`, x, 0.62, { r: 0.09 })]);
+  const w = createWorld([...row, thing("fox", 0.5, 0.8, { r: 0.09 }), thing("bird", 0.3, 0.8, { r: 0.09, preset: "float" })], { rng, presets, mode: "edit" });
+  setMode(w, "edit", rng);
+  const target = (a) => (a.glideT >= 0 ? a.ty : a.y);
+  for (const a of w.actors.filter((x) => x.motion.travel?.mode === "ground"))
+    assert.ok(target(a) + a.ext.bottom >= GROUND_TOP - 1e-9, `${a.thingId} feet at ${target(a) + a.ext.bottom}`);
+  const bird = w.actors.find((a) => a.thingId === "bird");
+  assert.ok(target(bird) + bird.ext.bottom < GROUND_TOP, "the floater found room above");
+});
+
 test("play and scene modes never spread", () => {
   const rng = seeded();
   for (const mode of ["scene", "play"]) {
