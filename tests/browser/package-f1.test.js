@@ -119,8 +119,12 @@ test("add a thing end to end: draw, felt, eyes, legs, moves, name, one question,
   assert.equal(await page.locator('.kf-swatch[data-color="pink"]').getAttribute("aria-pressed"), "true");
   await page.getByRole("button", { name: "Next" }).click();
 
-  // Eyes: full screen, no buttons but the grown-up's Done and Cancel; snapping; third tap moves the oldest.
+  // Eyes: the panel first (playtest 3: no dead end), with Back and ✕; then Klara's full-screen stamping,
+  // no buttons but the grown-up's Done and Cancel; snapping; third tap moves the oldest.
   assert.equal(await step(page), "eyes");
+  assert.equal(await page.locator('[data-testid="eye-stamping"]').count(), 0, "stamping waits for the parent");
+  await page.getByRole("button", { name: "‹ Back" }).waitFor();
+  await page.getByRole("button", { name: "Let Klara stamp" }).click();
   await page.locator('[data-testid="eye-stamping"]').waitFor();
   assert.equal(await page.locator(".kf-eyes button").count(), 2, "only the grown-up's Done and Cancel");
   const o = await thingOutlineInfo(page);
@@ -241,6 +245,7 @@ test("✕ → Keep draft, reopen resumes at the same step with data intact", asy
   await page.getByRole("button", { name: "Next" }).click();
   await page.locator('.kf-swatch[data-color="blue"]').click();
   await page.getByRole("button", { name: "Next" }).click();
+  await page.getByRole("button", { name: "Let Klara stamp" }).click();
   const o = await thingOutlineInfo(page);
   await tapBoard(page, o.cx - 0.03, o.cy);
   await tapBoard(page, o.cx + 0.03, o.cy);
@@ -267,14 +272,14 @@ test("✕ → Keep draft, reopen resumes at the same step with data intact", asy
   assert.deepEqual(page.errors, []);
 });
 
-test("✕ → Discard removes the draft; reopening starts fresh", async () => {
+test("✕ → Stop adding removes the draft; reopening starts fresh", async () => {
   const page = await farmPage();
   await mount(page, "kf-guided-add");
   await draw(page);
   await page.getByRole("button", { name: "Next" }).click();
   await page.waitForFunction(async () => (await window.__t.store.listDrafts()).length === 1);
   await page.getByRole("button", { name: "Close" }).click();
-  await page.getByRole("button", { name: "Discard" }).click();
+  await page.getByRole("button", { name: "Stop adding" }).click();
   await page.waitForFunction(() => window.__closed === 1);
   assert.equal(await page.evaluate(async () => (await window.__t.store.listDrafts()).length), 0);
   await mount(page, "kf-guided-add");

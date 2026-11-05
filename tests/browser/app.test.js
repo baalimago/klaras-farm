@@ -159,7 +159,8 @@ test("a parent adds a thing with a recorded name, and it survives a reload", asy
   await page.getByRole("button", { name: "Next" }).click();
   await page.locator('.kf-swatch[data-color="blue"]').click();
   await page.getByRole("button", { name: "Next" }).click();
-  // Eyes: Klara taps twice, then the grown-up holds the strip to take over.
+  // Eyes: the grown-up opens stamping, Klara taps twice, then the grown-up holds the strip to take over.
+  await page.getByRole("button", { name: "Let Klara stamp" }).click();
   await page.locator('[data-testid="eye-stamping"]').waitFor();
   const e1 = await page.locator('[data-testid="eye-stamping"]').boundingBox();
   await page.mouse.click(e1.x + e1.width * 0.45, e1.y + e1.height * 0.5);

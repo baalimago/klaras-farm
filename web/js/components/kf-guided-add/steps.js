@@ -16,8 +16,10 @@ export const MOTIONS = Object.freeze([
 ]);
 
 /**
- * Sizes the parent can pick (meeting 2: "some smaller, some bigger"). The size is baked into the
- * outline, eyes and legs, so it needs no field in the Thing. scale 1 fills THING_SIZE one way.
+ * Sizes (meeting 2: "some smaller, some bigger"). The size is baked into the outline, eyes and legs, so
+ * it needs no field in the Thing. scale 1 fills THING_SIZE one way. Playtest 3 took the Small / Medium /
+ * Big picker out of guided add (a new thing is drawn at THING_SIZE; resizing is the edit-mode scale
+ * tool); THING_SIZES, nearestSize, sizeBox, resizeThing and sizedFill stay for the thing card.
  */
 export const THING_SIZES = Object.freeze([
   { id: "small", label: "Small", scale: 0.7 },
@@ -91,16 +93,51 @@ export function newDraft(placeId, at) {
   return { id: null, placeId, step: 0, at, thing: { names: {}, cues: {}, eyes: [], legs: [], legTarget: null, outline: null, color: null, motion: null }, clips: [] };
 }
 
-/** Fills in fields a draft from an older build may lack. */
+/**
+ * Fills in fields a draft from an older build may lack, and never resumes past a step whose work is
+ * missing (playtest 3: a draft could open on Eyes with no body to put them on, a dead end). The step
+ * is clamped to furthestStep, so a resumed draft always shows something the parent can do.
+ */
 export function normalizeDraft(d, fallbackAt) {
   const t = d.thing ?? {};
+  const thing = { names: {}, cues: {}, eyes: [], legs: [], legTarget: null, outline: null, color: null, motion: null, ...t };
+  if (!validOutline(thing.outline)) thing.outline = null;
+  if (!Array.isArray(thing.eyes)) thing.eyes = [];
+  if (!Array.isArray(thing.legs)) thing.legs = [];
+  if (!thing.names || typeof thing.names !== "object") thing.names = {};
+  const step = Math.max(0, Math.min(STEPS.length - 1, Number.isInteger(d.step) ? d.step : 0));
   return {
     ...d,
-    step: Math.max(0, Math.min(STEPS.length - 1, Number.isInteger(d.step) ? d.step : 0)),
+    step: Math.min(step, furthestStep(thing)),
     at: d.at ?? fallbackAt,
-    thing: { names: {}, cues: {}, eyes: [], legs: [], legTarget: null, outline: null, color: null, motion: null, ...t },
+    thing,
     clips: Array.isArray(d.clips) ? d.clips : [],
   };
+}
+
+/** An outline a body can be shown and stamped on: at least 3 finite points with some area. */
+export function validOutline(outline) {
+  if (!Array.isArray(outline) || outline.length < 3) return false;
+  if (!outline.every((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))) return false;
+  let a = 0;
+  for (let i = 0, j = outline.length - 1; i < outline.length; j = i++) a += outline[j][0] * outline[i][1] - outline[i][0] * outline[j][1];
+  return Math.abs(a / 2) > 1e-6;
+}
+
+/** True when the thing has a name in some language (playtest 3: "It doesn't have a name"). */
+export function hasName(thing) {
+  return Object.keys(cleanNames(thing?.names ?? {})).length > 0;
+}
+
+/** Whether a step's work is done, so the steps after it can be shown. A name is needed past Name. */
+export function stepDone(step, thing) {
+  return step === "name" ? hasName(thing) : canAdvance(step, thing);
+}
+
+/** The last step a thing may be on: the first step whose work is not done yet. */
+export function furthestStep(thing) {
+  for (let i = 0; i < STEPS.length; i++) if (!stepDone(STEPS[i], thing)) return i;
+  return STEPS.length - 1;
 }
 
 /** Up to two eyes; a third tap moves the oldest eye (US-3.2). */
@@ -129,7 +166,7 @@ export function latestDraft(drafts, placeId) {
 }
 
 export function canAdvance(step, thing) {
-  if (step === "draw") return Array.isArray(thing.outline) && thing.outline.length >= 3;
+  if (step === "draw") return validOutline(thing.outline);
   if (step === "felt") return !!thing.color;
   if (step === "legs") return !Number.isInteger(thing.legTarget) || (thing.legs?.length ?? 0) >= thing.legTarget;
   if (step === "moves") return !!thing.motion;

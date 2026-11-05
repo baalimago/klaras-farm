@@ -2,8 +2,8 @@
 // Every shape stays visible as its own dashed stitch over the merged felt. Tap a shape to select it;
 // a selected shape can be dragged to move it, resized with the round corner handle (or a pinch),
 // drawn again (the next stroke takes its place) or deleted. Undo takes back the last change of any
-// kind; Start over clears the drawing (undoable too). An open stroke that starts and ends inside the
-// body joins it (ShapeDrawing.addOpen).
+// kind; Start over clears the drawing (undoable too). A stroke drawn over the body joins it, open or
+// closed (ShapeDrawing.place); a refused stroke says why in `warn` (WARN_TEXT).
 //
 // State: the editing mode is the pure state machine in shape-edit.js (`this.state`); the shapes and
 // their history are the ShapeDrawing. Every event dispatches, and `render()` then draws buttons,
@@ -31,6 +31,13 @@ const GRAB_PX = 28; // a selected shape can be grabbed this far outside its box
 const TAP_PX = 22; // a tap this close to a shape's edge selects it
 const LIFT_PX = 4; // movement before a drag starts (a tap is not a drag)
 
+/** What a refused stroke tells the parent (shape-edit.js `warn`). */
+export const WARN_TEXT = Object.freeze({
+  open: "Close the outline: end where you started. Draw it again.",
+  apart: "Draw it touching the body, so they join.",
+  full: "That's the most shapes. Tap one to change it, or Undo.",
+});
+
 export class ShapeEditor {
   /**
    * @param {{drawing: import('./drawing.js').ShapeDrawing, pad: HTMLElement, color?: string,
@@ -54,7 +61,7 @@ export class ShapeEditor {
     this.canvas = h("canvas", { class: "kf-se-outlines", "aria-hidden": "true" });
     this.handle = h("button", { class: "kf-se-handle", type: "button", "aria-label": "Make it bigger or smaller", "data-action": "resize-shape", hidden: true });
     this.layer = h("div", { class: "kf-se-layer" }, this.canvas, this.handle);
-    this.warn = h("p", { class: "kf-warning", role: "status", hidden: true, text: "Close the outline: end where you started, or end inside the body. Draw it again." });
+    this.warn = h("p", { class: "kf-warning", role: "status", hidden: true });
     this.undoBtn = h("button", { class: "kf-btn", type: "button", text: "Undo", "data-action": "undo-shape", onclick: () => this._commit(this.drawing.undo()) });
     this.restartBtn = h("button", { class: "kf-btn", type: "button", text: "Start over", "data-action": "start-over", onclick: () => this._commit(this.drawing.clear()) });
     this.redrawBtn = h("button", { class: "kf-btn", type: "button", text: "Draw it again", "data-action": "redraw-shape", onclick: () => this.dispatch({ type: "toggleRedraw" }) });
@@ -125,18 +132,21 @@ export class ShapeEditor {
 
   _stroke(points) {
     if (!Array.isArray(points) || points.length < 3) return;
-    const s = this.state;
-    const ok = s.mode === REDRAWING ? this.drawing.replace(s.index, points) : this.drawing.add(points);
-    if (!this._commit(ok)) this.dispatch({ type: "deselect" });
+    this._place(points, true);
   }
 
   _open(points) {
+    if (!Array.isArray(points)) return this.dispatch({ type: "reject", reason: "open" });
+    if (this._place(points, false)) this.pad.clear?.(); // the pad still shows the open stroke's ends
+  }
+
+  /** A stroke goes to the drawing (in place of the orange shape while redrawing); a refusal warns why. */
+  _place(points, closed) {
     const replace = this.state.mode === REDRAWING ? this.state.index : -1;
-    if (Array.isArray(points) && this._commit(this.drawing.addOpen(points, { replace }))) {
-      this.pad.clear?.(); // the pad still shows the open stroke's ends
-      return;
-    }
-    this.dispatch({ type: "rejectOpen" });
+    const r = this.drawing.place(points, { closed, replace });
+    if (r.ok) return this._commit(true);
+    this.dispatch({ type: "reject", reason: r.reason });
+    return false;
   }
 
   _tap(point) {
@@ -245,6 +255,7 @@ export class ShapeEditor {
     this.selectionRow.hidden = !isPicked(s);
     this.redrawBtn.setAttribute("aria-pressed", String(s.mode === REDRAWING));
     this.warn.hidden = !s.warn;
+    this.warn.textContent = s.warn ? WARN_TEXT[s.warn] : "";
     this.layer.dataset.mode = s.mode;
     this.layer.style.pointerEvents = s.mode === SELECTED || s.mode === DRAGGING ? "auto" : "none";
     this._paintOutlines();

@@ -58,10 +58,10 @@ kf-guided-add {
 .kf-ga-panel kf-recorder { display: block; margin: 12px 0; }
 .kf-ga-motion { min-height: 64px; font-size: 1.15rem; padding: 0 24px; }
 .kf-ga-motion[aria-pressed="true"] { background: var(--ink); color: #fff; }
-.kf-ga-sizes { margin-top: 12px; }
-.kf-ga-size-label { font-weight: 700; margin-right: 4px; }
-.kf-ga-size { min-height: 52px; padding: 0 20px; }
-.kf-ga-size[aria-pressed="true"] { background: var(--ink); color: #fff; }
+.kf-ga-name-form { margin: 0; }
+.kf-ga-name-needed { margin-top: 0; }
+/* Eyes step: the parent taps the body to put an eye on. */
+kf-guided-add[data-step="eyes"] .kf-ga-canvas { cursor: pointer; touch-action: none; }
 
 .kf-ga-dim {
   position: absolute;

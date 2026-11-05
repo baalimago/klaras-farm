@@ -7,7 +7,8 @@
 //   selected   shape `index` is selected: its handle shows; drag it, resize it, draw it again, delete it
 //   dragging   shape `index` is being moved, resized or pinched; `gesture` = {kind, t, lifted}
 //   redrawing  the next stroke takes the place of shape `index` ("Draw it again")
-// `warn` is true after an open stroke that could not be joined, until the next accepted change.
+// `warn` says why the last stroke was refused, until the next accepted change: null, "open" (an open
+// first stroke), "apart" (a shape that touches no other shape) or "full" (no more shapes fit).
 //
 // Events:
 //   {type: "tap", hit}                     a short tap on the pad; hit = shape index or -1
@@ -18,7 +19,8 @@
 //   {type: "release"}                       every finger up (the host commits gesture.t first)
 //   {type: "toggleRedraw"}                  "Draw it again" (pressed again: keep the shape)
 //   {type: "changed"}                       the drawing changed: a stroke, a join, delete, undo, start over
-//   {type: "rejectOpen"}                    an open stroke with an end outside every shape
+//   {type: "reject", reason}                a stroke ShapeDrawing.place refused ("open" | "apart" | "full";
+//                                           "invalid" is a scribble too small to matter: no warning)
 //   {type: "deselect"}
 import { BOARD_ASPECT } from "../../geometry/stroke.js";
 
@@ -29,9 +31,12 @@ export const REDRAWING = "redrawing";
 
 const NO_MOVE = Object.freeze({ dx: 0, dy: 0, k: 1 });
 
-/** @returns {{mode: string, index: number, warn: boolean, gesture: null | {kind: string, t: {dx: number, dy: number, k: number}, lifted: boolean}}} */
+/** Refusals the parent is told about (shape-editor.js has the words). */
+export const WARNINGS = Object.freeze(["open", "apart", "full"]);
+
+/** @returns {{mode: string, index: number, warn: null | string, gesture: null | {kind: string, t: {dx: number, dy: number, k: number}, lifted: boolean}}} */
 export function initialEdit() {
-  return { mode: IDLE, index: -1, warn: false, gesture: null };
+  return { mode: IDLE, index: -1, warn: null, gesture: null };
 }
 
 const idle = (s) => ({ ...s, mode: IDLE, index: -1, gesture: null });
@@ -63,9 +68,9 @@ export function editReducer(s, e) {
       if (s.mode === REDRAWING) return selected(s, s.index);
       return s;
     case "changed":
-      return { ...idle(s), warn: false };
-    case "rejectOpen":
-      return { ...s, warn: true };
+      return { ...idle(s), warn: null };
+    case "reject":
+      return { ...s, warn: WARNINGS.includes(e.reason) ? e.reason : null };
     case "deselect":
       return idle(s);
     default:

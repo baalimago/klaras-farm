@@ -9,7 +9,7 @@ import { ThingPreview, viewFor } from "./preview.js";
 import { stampEye } from "./steps.js";
 import { snapPoint } from "./geometry.js";
 
-const LABEL = "Grown-up: hold Done for 1 second when the eyes are on";
+const LABEL = "Grown-up: hold Done for 1 second when the eyes are on, or Cancel to go back";
 const HINT = "Keep holding for 1 second";
 const HINT_MS = 2500;
 
@@ -143,39 +143,51 @@ export class EyeStamper {
 }
 
 /**
- * Lets the parent drag an eye on a preview canvas (US-3.2 "drag an eye afterwards").
+ * Lets the parent drag an eye on a preview canvas (US-3.2 "drag an eye afterwards") and, with `onTap`,
+ * put one on with a tap anywhere else (playtest 3: the Eyes step must never wait on something only
+ * Klara's stamping screen can do). Taps snap inside the outline.
  * @param {ThingPreview} preview
  * @param {() => any} getThing
  * @param {(eyes:any[]) => void} onMove   live, while dragging
- * @param {(eyes:any[]) => void} onEnd    once, on release
+ * @param {(eyes:any[]) => void} onEnd    once, on release (a drag, or a tap that stamped)
+ * @param {{stamp?: boolean}} [opts]  stamp: a tap off every eye stamps one (stampEye)
+ * @returns {() => void} detach
  */
-export function attachEyeDrag(preview, geo, getThing, onMove, onEnd) {
+export function attachEyeDrag(preview, geo, getThing, onMove, onEnd, { stamp = false } = {}) {
   const canvas = preview.canvas;
   let drag = null;
-  canvas.addEventListener("pointerdown", (e) => {
+  const down = (e) => {
     const thing = getThing();
-    if (!e.isPrimary || !thing?.eyes?.length) return;
+    if (!e.isPrimary || !thing?.outline?.length) return;
     const [bx, by] = preview.toBoard(e.clientX, e.clientY);
     const r = preview.eyeRadius(thing) * 2.2;
-    const i = thing.eyes.findIndex((eye) => Math.hypot(eye.x - bx, (eye.y - by) * 0.75) <= r);
-    if (i < 0) return;
-    drag = { i, eyes: thing.eyes.map((x) => ({ ...x })) };
-    canvas.setPointerCapture?.(e.pointerId);
+    const eyes = thing.eyes ?? [];
+    const i = eyes.findIndex((eye) => Math.hypot(eye.x - bx, (eye.y - by) * 0.75) <= r);
+    if (i < 0) {
+      if (!stamp) return;
+      e.preventDefault();
+      const [x, y] = snapPoint(geo, [bx, by], thing.outline);
+      onEnd(stampEye(eyes.map((x) => ({ ...x })), { x, y }));
+      return;
+    }
+    drag = { i, eyes: eyes.map((x) => ({ ...x })) };
+    try { canvas.setPointerCapture?.(e.pointerId); } catch { /* capture is a nicety */ }
     e.preventDefault();
-  });
-  canvas.addEventListener("pointermove", (e) => {
+  };
+  const move = (e) => {
     if (!drag) return;
     const thing = getThing();
     const [x, y] = snapPoint(geo, preview.toBoard(e.clientX, e.clientY), thing.outline);
     drag.eyes[drag.i] = { x, y };
     onMove(drag.eyes.map((x) => ({ ...x })));
-  });
+  };
   const end = () => {
     if (!drag) return;
     const eyes = drag.eyes;
     drag = null;
     onEnd(eyes);
   };
-  canvas.addEventListener("pointerup", end);
-  canvas.addEventListener("pointercancel", end);
+  const handlers = { pointerdown: down, pointermove: move, pointerup: end, pointercancel: end };
+  for (const [type, fn] of Object.entries(handlers)) canvas.addEventListener(type, fn);
+  return () => { for (const [type, fn] of Object.entries(handlers)) canvas.removeEventListener(type, fn); };
 }

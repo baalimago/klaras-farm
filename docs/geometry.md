@@ -4,13 +4,13 @@ Keep this file current: update it in the same commit as any change to this domai
 
 ## Purpose
 
-The geometry domain is the pure math behind drawing and tapping: cleaning up finger strokes, closing a drawn outline, joining an open stroke onto the shapes its ends lie in, merging several drawn shapes into one outline, polygon measures, keeping eyes inside a shape, fitting the 4:3 board into the screen, and deciding which thing a tap hits. It knows nothing about the farm data model beyond `Point`.
+The geometry domain is the pure math behind drawing and tapping: cleaning up finger strokes, closing a drawn outline, joining a stroke onto the shapes it touches, merging several drawn shapes into one outline, polygon measures, keeping eyes inside a shape, fitting the 4:3 board into the screen, and deciding which thing a tap hits. It knows nothing about the farm data model beyond `Point`.
 
 ## Files
 
 - `web/js/geometry/stroke.js`: stroke and polygon helpers, board and screen conversion, `closeGap`, `BOARD_ASPECT`.
 - `web/js/geometry/union.js`: `unionOutlines`, the raster union of several drawn shapes into one simple closed outline.
-- `web/js/geometry/join.js`: `joinOpenStroke`, closing an open stroke whose ends lie inside drawn shapes, so it joins them.
+- `web/js/geometry/join.js`: `touches`, whether a stroke or shape touches a drawn shape, and `joinOpenStroke`, closing an open stroke that touches drawn shapes, so it joins them.
 - `web/js/geometry/hit.js`: `hitTest`, tap hit testing over things in drawing order.
 - `web/js/geometry/transform.js`: moving and resizing drawings: `translationBetween`, `clampDelta`, `translatePoints`, `scaleAbout`, `clampScale`, `movedThingPatch`, `MIN_SIDE`.
 
@@ -50,7 +50,8 @@ The geometry domain is the pure math behind drawing and tapping: cleaning up fin
 `join.js`
 - `JOIN_TOL = 0.04`: how far outside a shape (board units) a stroke end may stop and still count as inside.
 - `shapeAt(pt, shapes, tol = JOIN_TOL)`: index of the smallest shape holding the point or within `tol` of its edge, or -1. Shapes with fewer than 3 points are skipped.
-- `joinOpenStroke(points, shapes, {tol})` returns `{points, from, to}` or `null`. When both ends of an open stroke lie in shapes (`from`, `to`: their indexes, the same or different), the stroke is closed by the straight segment back to its start; that polygon, unioned with the shapes, adds an ear or a head drawn from inside the body, or bridges two shapes. A stroke with almost no area (closed area under 2% of its length squared, such as a straight neck) is returned as a band instead (`thickenStroke`, half-width 6% of its length, at least 0.012). `null` when an end is outside every shape, the stroke has fewer than 2 points, or there are no shapes.
+- `touches(points, shape, {tol = JOIN_TOL, closed = false})`: true when a point of `points` is inside `shape` or within `tol` of its edge, one of its segments crosses an edge of `shape`, or (`closed`) `points` holds the shape. A bounding box test rejects far shapes first. `touchedShapes(points, shapes, opts)` lists the indexes touched (null entries skipped).
+- `joinOpenStroke(points, shapes, {tol})` returns `{points, from, to}` or `null`. An open stroke that touches any shape (playtest 3: not only one that starts and ends inside) is closed by the straight segment back to its start; that polygon, unioned with the shapes, adds an ear, a horn or a head drawn over the body, or bridges two shapes. `from` and `to` are the shapes the ends lie in (`shapeAt`), -1 for an end outside every shape. A stroke with almost no area (closed area under 2% of its length squared, such as a straight neck or horn) is returned as a band instead (`thickenStroke`, half-width 6% of its length, at least 0.012). `null` when the stroke touches no shape, has fewer than 2 points, or there are no shapes.
 - `thickenStroke(points, w)`: a closed band of half-width `w` around a polyline (left side out, right side back; normals averaged at each point). `[]` when it has no length.
 `transform.js`
 - `translationBetween(a, b, eps = 0.0015)`: `[dx, dy]` when `b` is `a` moved by one offset (within `eps`, which absorbs the store's 3-decimal rounding), else `null`. The renderer uses it to keep a moved drawing's felt sprite.
@@ -70,7 +71,7 @@ The geometry domain is the pure math behind drawing and tapping: cleaning up fin
 
 - `geometry/` is a pure domain. It imports only other pure domains and `types.js` (today it imports nothing but itself). No DOM, browser globals, time, randomness, timers or `fetch`. `tests/unit/boundaries.test.js` enforces this.
 - Callers:
-  - `components/kf-guided-add/drawing.js` (`ShapeDrawing`): merges the shapes with `unionOutlines(shapes, {aspect: BOARD_ASPECT})` (the host then uses `fitOutline` to thing size), joins open strokes with `joinOpenStroke`, hit tests shapes with `shapeAt`, and uses `bbox` for moving and resizing a shape.
+  - `components/kf-guided-add/drawing.js` (`ShapeDrawing`): merges the shapes with `unionOutlines(shapes, {aspect: BOARD_ASPECT})` (the host then uses `fitOutline` to thing size), joins open strokes with `joinOpenStroke`, refuses a closed shape that `touchedShapes` finds touching nothing, hit tests shapes with `shapeAt`, and uses `bbox` for moving and resizing a shape.
   - `components/kf-guided-add/shape-editor.js`: `toBoard`, `fromBoard`, `fitRect`, `bbox`, `BOARD_ASPECT`.
   - `components/kf-draw-pad/KfDrawPadElement.js`: `simplify`, `smooth`, `closeGap`, `pathLength`, `toBoard`, `fromBoard`, `fitRect`.
   - `components/kf-board/KfBoardElement.js`: `toBoard`, `fromBoard` for tap and drag coordinates.
@@ -93,7 +94,7 @@ The geometry domain is the pure math behind drawing and tapping: cleaning up fin
 
 - `web/js/geometry/stroke.test.js`: `simplify`, `smooth`, `pathLength`, `closeGap` (including property tests on random gaps, overshoot, scribbles), area and centroid, `pointInPolygon` on concave shapes, `snapInside` properties, `fitOutline`, `toBoard`/`fromBoard`, `fitRect` letterboxing.
 - `web/js/geometry/union.test.js`: single shape passthrough, overlap area, touching and disjoint shapes become one piece, nested shapes, filled rings, self-intersecting scribbles, aspect, determinism, validity in a snapshot, speed, and a property test on random wobbly shapes.
-- `web/js/geometry/join.test.js`: `shapeAt` (tolerance, smallest wins, degenerate shapes), an ear drawn from inside the body joins it, a neck between two shapes is thickened and joins them, ends outside are refused, a stroke inside the body changes nothing, `thickenStroke`.
+- `web/js/geometry/join.test.js`: `shapeAt` (tolerance, smallest wins, degenerate shapes), an ear drawn from inside the body joins it, a neck between two shapes is thickened and joins them, a horn starting outside and a stroke crossing the body join it, a stroke touching nothing is refused, `touches` (inside, near, crossing, holding, apart), a stroke inside the body changes nothing, `thickenStroke`.
 - `web/js/geometry/transform.test.js`: moves within rounding, reshapes refused, clamping to the board, scale limits, thing patches.
 - `web/js/geometry/hit.test.js`: inside hits, misses, the 1.3 times area, `minRadius` with aspect, topmost wins, nearest centre in overlapping margins, and a property test.
-- `tests/browser/shapes.test.js`: two shapes drawn with the pad save as one outline and reload; redraw on the thing card glues a shape on; an open stroke from inside the body joins it.
+- `tests/browser/shapes.test.js`: two shapes drawn with the pad save as one outline and reload; redraw on the thing card glues a shape on; a stroke drawn over the body joins it wherever it starts and ends; a shape drawn apart warns.

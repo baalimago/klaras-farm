@@ -1,16 +1,21 @@
 // <kf-guided-add>: add a thing in eight steps (flow 1; US-3.1–3.5, 3.10, 4.1, 4.2, 4.8).
-// Body (draw one or more shapes, glued into one outline, each editable) → Felt → Eyes → Legs → Moves → Name → Ask → Sound, with a step bar, Back and ✕ (Keep draft / Discard)
-// on every step. Ask shows the same 1–6 free-text questions as the thing card (kf-thing-card/questions.js),
-// kept in the draft until Finish (draft-questions.js). Finish closes at once and saves after.
-// The draft is saved after every step and every kept recording, and an open draft for
-// the place is resumed. Props: `services`, `params = {placeId?, at?: [x, y], holdMs?}`.
+// Body (draw one or more shapes, glued into one outline, each editable) → Felt → Eyes → Legs → Moves → Name → Ask → Sound, with a step bar.
+// Always a way out (playtest 3): ‹ Back steps back on every step (on Body it asks to stop), and ✕ asks
+// "Stop adding this animal?" (Keep going / Keep draft / Stop adding, which throws the draft away).
+// What covers a step (Klara's eye stamping, that dialog, the name prompt) is the pure machine in
+// flow.js. Ask shows the same 1–6 free-text questions as the thing card (kf-thing-card/questions.js),
+// kept in the draft until Finish (draft-questions.js). Nothing is added without a name. Enter in a
+// text field commits it and closes the keyboard; on Name it also goes on. Finish closes at once and
+// saves after. The draft is saved after every step and every kept recording, and an open draft for
+// the place is resumed (never past a step whose work is missing, steps.js normalizeDraft).
+// Props: `services`, `params = {placeId?, at?: [x, y], holdMs?}`.
 // Events: `kf-close` when done (bubbles), `kf-added {thingId}` after a thing was added.
 import { h, ensureElement, languageName } from "./dom.js";
 import {
   STEPS, STEP_LABELS, THING_SIZE, MOTIONS, newDraft, normalizeDraft, upsertClip, findClip, stripClip,
-  latestDraft, canAdvance, freeSpot, cleanNames, cleanCues, refitEyes,
-  THING_SIZES, nearestSize, sizeScale, sizeBox, resizeThing, sizedFill,
+  latestDraft, canAdvance, freeSpot, cleanNames, cleanCues, refitEyes, validOutline, hasName,
 } from "./steps.js";
+import { initialFlow, flowReducer, backAction, nextAction, finishAction, emptyDraft, STAMP, LEAVE } from "./flow.js";
 import { loadGeometry, snapPoint } from "./geometry.js";
 import { ThingPreview, viewFor, FULL_VIEW } from "./preview.js";
 import { EyeStamper, attachEyeDrag } from "./eyes.js";
@@ -27,6 +32,9 @@ import { clipSlot } from "../kf-thing-card/clip-slot.js";
 
 const DEFAULT_MOTION = Object.freeze({ kind: "preset", preset: "walk", params: {} });
 const DRAW_FELT = "tan";
+
+/** Enter from a hardware keyboard or the iPad's done / go key, not while an IME is composing. */
+const isEnter = (e) => e.key === "Enter" && !e.isComposing && e.keyCode !== 229;
 
 /** The Legs step's way on, by phase: Skip before a count, Spread the rest while legs are missing, else Next. */
 function legsButton(phase, { skip, spread, next }) {
@@ -48,8 +56,8 @@ export class GuidedAddElement extends HTMLElement {
     this.draft = null;
     this._saving = Promise.resolve();
     this._stamper = null;
-    this._stamping = false;
-    this._leaving = false;
+    /** What covers the step: flow.js ({overlay, prompt}). */
+    this.flow = initialFlow();
     /** The question being recorded on the Ask step: {language, take}, or null. */
     this._recording = null;
   }
@@ -61,6 +69,13 @@ export class GuidedAddElement extends HTMLElement {
   disconnectedCallback() {
     this._stamper?.unmount();
     this._editor?.detach();
+    this._legs?.detach();
+  }
+
+  /** Runs a flow event and renders the result. */
+  _dispatch(event) {
+    this.flow = flowReducer(this.flow, event);
+    this._render();
   }
 
   get step() { return STEPS[this.draft?.step ?? 0]; }
@@ -120,7 +135,8 @@ export class GuidedAddElement extends HTMLElement {
     this.append(this.stage, this._topBar(), panel);
     this[`_step_${step}`](panel);
     panel.append(this.errorBox);
-    if (this._leaving) this.append(this._leaveDialog());
+    this._enterCloses(panel);
+    if (this.flow.overlay === LEAVE) this.append(this._leaveDialog());
     this._redraw();
   }
 
@@ -129,11 +145,9 @@ export class GuidedAddElement extends HTMLElement {
     const portrait = this.clientHeight > this.clientWidth;
     let view = FULL_VIEW;
     if (step !== "draw" && this.thing.outline?.length) {
-      // on the Felt step the preview shows the picked size (Big fills it, Small looks small)
-      const k = step === "felt" ? (f) => sizedFill(this.thing.outline, f) : (f) => f;
       view = portrait
-        ? viewFor(this.thing.outline, { fill: k(0.4), centerX: 0.5, centerY: 0.3, geo: this.geo })
-        : viewFor(this.thing.outline, { fill: k(0.5), centerX: 0.28, geo: this.geo });
+        ? viewFor(this.thing.outline, { fill: 0.4, centerX: 0.5, centerY: 0.3, geo: this.geo })
+        : viewFor(this.thing.outline, { fill: 0.5, centerX: 0.28, geo: this.geo });
     }
     this.preview.setView(view);
     const motion = step === "moves" ? this.thing.motion?.preset : null;
@@ -148,17 +162,17 @@ export class GuidedAddElement extends HTMLElement {
     return h(
       "div",
       { class: "kf-ga-top" },
-      h("button", { class: "kf-btn", type: "button", text: "‹ Back", disabled: i === 0, onclick: () => this._go(i - 1) }),
+      h("button", { class: "kf-btn", type: "button", text: "‹ Back", "data-action": "back", onclick: () => this._back() }),
       h(
         "div",
         { class: "kf-steps kf-ga-steps", role: "list", "aria-label": "Steps" },
         STEP_LABELS.map((s, k) => h("span", { role: "listitem", class: k === i ? "on" : k < i ? "done" : "", "aria-current": k === i ? "step" : null, text: s })),
       ),
-      h("button", { class: "kf-btn icon", type: "button", "aria-label": "Close", text: "✕", onclick: () => this._askLeave() }),
+      h("button", { class: "kf-btn icon", type: "button", "aria-label": "Close", text: "✕", "data-action": "close", onclick: () => this._askLeave() }),
     );
   }
 
-  _nextBtn(onclick = () => this._go(this.draft.step + 1), text = "Next") {
+  _nextBtn(onclick = () => this._next(), text = "Next") {
     return h("button", { class: "kf-btn primary", type: "button", text, disabled: !canAdvance(this.step, this.thing), onclick });
   }
 
@@ -194,7 +208,7 @@ export class GuidedAddElement extends HTMLElement {
     const pad = document.createElement("kf-draw-pad");
     pad.setAttribute("mode", "outline");
     pad.mode = "outline";
-    pad.color = this.thing.color ?? "dark";
+    pad.color = "dark"; // the pencil line is always ink; the felt (tan until picked) fills the shapes
     pad.services = this.services;
     pad.classList.add("kf-ga-pad");
     this.stage.append(pad);
@@ -205,7 +219,7 @@ export class GuidedAddElement extends HTMLElement {
       const n = drawing.count;
       note.textContent = editor.noteText() ?? (!n
         ? "Draw a big shape with a finger or a pencil. Small gaps close by themselves."
-        : "Add a head or ears that touch it, or start and end a line inside the body. Tap a shape to change it.");
+        : "Add a head, ears or horns: draw them over the body and they join it. Tap a shape to change it.");
       status.textContent = !n ? "" : drawing.full ? `${n} shapes: that's the most.` : n === 1 ? "1 shape" : `${n} shapes`;
       status.hidden = !n;
       next.disabled = !canAdvance("draw", this.thing);
@@ -244,8 +258,8 @@ export class GuidedAddElement extends HTMLElement {
       this.thing.outline = null;
     } else {
       const [cx, cy] = this.draft.at;
-      const box = sizeBox(old?.length ? sizeScale(old) : 1); // a picked size survives more shapes
-      const outline = this.geo.fitOutline(merged, { maxW: box.w, maxH: box.h, cx, cy }).map(([x, y]) => [x, y]);
+      // always the default size; resizing is the edit-mode scale tool (playtest 3)
+      const outline = this.geo.fitOutline(merged, { maxW: THING_SIZE.w, maxH: THING_SIZE.h, cx, cy }).map(([x, y]) => [x, y]);
       if (old?.length && this.thing.eyes.length) this.thing.eyes = refitEyes(this.thing.eyes, old, outline, (p, poly) => snapPoint(this.geo, p, poly));
       if (old?.length && this.thing.legs?.length) this.thing.legs = refitEyes(this.thing.legs, old, outline, (p, poly) => snapPoint(this.geo, p, poly));
       this.thing.outline = outline;
@@ -254,8 +268,11 @@ export class GuidedAddElement extends HTMLElement {
   }
 
   _step_felt(panel) {
+    // One felt for the whole animal (a Thing has one colour): the copy says so, so a pick never
+    // looks like it changed "a random part" (playtest 3). The preview repaints in the same tap.
     fill(panel,
       h("h2", { text: "Pick its felt" }),
+      h("p", { class: "kf-note", text: "The whole animal is made of this felt." }),
       h(
         "div",
         { class: "kf-swatches", role: "group", "aria-label": "Felt colour" },
@@ -263,55 +280,57 @@ export class GuidedAddElement extends HTMLElement {
           h("button", {
             class: "kf-swatch", type: "button", "aria-label": key, "data-color": key, "aria-pressed": String(this.thing.color === key),
             style: { background: hex(key) },
-            onclick: () => { this.thing.color = key; this._render(); },
+            onclick: () => { this.thing.color = key; this._render(); this._save(); },
           }),
         ),
       ),
-      this._sizeRow(),
       h("div", { class: "kf-row end" }, this._nextBtn()),
     );
   }
 
-  /** Small / Medium / Big: rescales the outline (and any eyes and legs) in place. */
-  _sizeRow() {
-    const cur = this.thing.outline?.length ? nearestSize(this.thing.outline) : "medium";
-    return h(
-      "div",
-      { class: "kf-row kf-ga-sizes", role: "group", "aria-label": "Size" },
-      h("span", { class: "kf-ga-size-label", text: "Size" }),
-      THING_SIZES.map((sz) =>
-        h("button", {
-          class: "kf-btn kf-ga-size", type: "button", "data-size": sz.id, "aria-pressed": String(cur === sz.id), text: sz.label,
-          disabled: !this.thing.outline?.length,
-          onclick: () => {
-            Object.assign(this.thing, resizeThing(this.thing, sz.scale));
-            this._save();
-            this._render();
-          },
-        }),
-      ),
-    );
-  }
-
   _step_eyes(panel) {
+    // Playtest 3 dead end: Eyes used to open Klara's full-screen stamping at once, where only 1 s holds
+    // do anything. Now the panel (with ‹ Back and ✕) always shows first: the parent taps the body to
+    // put an eye on, or opens stamping for Klara. Without a body there is nothing to stamp on, so the
+    // step says so and offers the way back to Body.
+    if (!validOutline(this.thing.outline)) {
+      fill(panel,
+        h("h2", { text: "Eyes" }),
+        h("p", { class: "kf-note", text: "Eyes go on the body, and there is no body yet. Draw it first." }),
+        h("div", { class: "kf-row end" }, h("button", { class: "kf-btn primary", type: "button", text: "Draw the body", "data-action": "draw-body", onclick: () => this._go(0) })),
+      );
+      return;
+    }
     const n = this.thing.eyes.length;
     fill(panel,
       h("h2", { text: "Eyes" }),
-      h("p", { class: "kf-note", text: n ? `${n === 1 ? "One eye" : "Two eyes"}. Drag an eye to move it.` : "No eyes yet. That's fine too." }),
+      h("p", { class: "kf-note", text: n ? `${n === 1 ? "One eye" : "Two eyes"}. Drag an eye to move it, or tap to move the oldest.` : "Tap the body where an eye goes, or let Klara stamp them. No eyes is fine too." }),
       h(
         "div",
         { class: "kf-row end" },
         h("button", { class: "kf-btn", type: "button", text: "Undo eye", disabled: !n, onclick: () => { this.thing.eyes = this.thing.eyes.slice(0, -1); this._save(); this._render(); } }),
-        h("button", { class: "kf-btn", type: "button", text: "Let Klara stamp", onclick: () => { this._stamping = true; this._render(); } }),
+        h("button", { class: "kf-btn", type: "button", text: "Let Klara stamp", "data-action": "stamp-eyes", onclick: () => this._dispatch({ type: "stamp", canStamp: validOutline(this.thing.outline) }) }),
         this._nextBtn(),
       ),
     );
+    const placed = (eyes) => {
+      const changed = eyes.length !== this.thing.eyes.length;
+      this.thing.eyes = eyes;
+      if (changed) {
+        this.services.audio?.chime?.("tap");
+        this._render(); // the note and Undo eye follow the count
+      } else {
+        this._redraw();
+      }
+      this._save();
+    };
     attachEyeDrag(
       this.preview, this.geo, () => this.thing,
       (eyes) => { this.thing.eyes = eyes; this._redraw(); },
-      (eyes) => { this.thing.eyes = eyes; this._save(); this._redraw(); },
+      placed,
+      { stamp: true },
     );
-    if (this._stamping) {
+    if (this.flow.overlay === STAMP) {
       this._stamper = new EyeStamper({
         geo: this.geo,
         thing: this.thing,
@@ -326,17 +345,16 @@ export class GuidedAddElement extends HTMLElement {
 
   /** Done keeps the stamped eyes, Cancel the ones from before; either way back to the Eyes panel. */
   _stampEnded(eyes) {
-    this._stamping = false;
     this._stamper = null;
     this.thing.eyes = eyes;
     this._save();
-    this._render();
+    this._dispatch({ type: "stampEnded" });
   }
 
   _step_legs(panel) {
     // Leaving never ends with fewer legs than chosen: while legs are missing the button spreads the
     // rest (the placed ones stay) and moves on; Skip leaves the count unpicked.
-    const next = () => this._go(this.draft.step + 1);
+    const next = () => this._next();
     const spreadAndNext = () => {
       this._legs?.spreadRest();
       next();
@@ -382,15 +400,36 @@ export class GuidedAddElement extends HTMLElement {
     const lang = this.lang;
     const label = () => `Record its name. Say just the word, slowly and clearly: “${(this.thing.names[lang] ?? "").trim() || "…"}”`;
     const rec = this._recorder({ kind: "name", take: 1, label: label() });
+    const prompt = h("p", { class: "kf-warning kf-ga-name-needed", role: "alert", text: "Give it a name first. Type it above, in any language.", hidden: this.flow.prompt !== "name" });
     const input = h("input", {
-      type: "text", name: "name", value: this.thing.names[lang] ?? "", autocomplete: "off", autocapitalize: "words", enterkeyhint: "done", spellcheck: "false",
-      oninput: (e) => { this.thing.names[lang] = e.target.value; rec.label = label(); },
+      type: "text", name: "name", value: this.thing.names[lang] ?? "", autocomplete: "off", autocapitalize: "words", enterkeyhint: "next", spellcheck: "false",
+      oninput: (e) => {
+        this.thing.names[lang] = e.target.value;
+        rec.label = label();
+        if (hasName(this.thing)) {
+          // the prompt goes as soon as there is a name; no rebuild, so the keyboard stays up
+          this.flow = flowReducer(this.flow, { type: "named" });
+          prompt.hidden = this.flow.prompt !== "name";
+        }
+      },
       onchange: () => this._save(),
     });
+    // Enter (hardware keyboard, or the iPad's next / go key) commits the name, closes the keyboard and
+    // goes on; with no name it closes the keyboard and asks for one (playtest 3).
+    const commit = (e) => {
+      e.preventDefault();
+      this.thing.names[lang] = input.value;
+      input.blur();
+      this._next({ focus: false });
+    };
+    input.addEventListener("keydown", (e) => { if (isEnter(e)) commit(e); });
+    const form = h("form", { class: "kf-ga-name-form", action: "", onsubmit: commit },
+      h("label", { class: "kf-field" }, h("span", { text: `Name in ${languageName(lang)}` }), input));
     fill(panel,
       h("h2", { text: "What is it called?" }),
       this._langTabs(),
-      h("label", { class: "kf-field" }, h("span", { text: `Name in ${languageName(lang)}` }), input),
+      form,
+      prompt,
       h("p", { class: "kf-note", text: "For you and the question scripts. Klara never sees text." }),
       rec,
       h("div", { class: "kf-row end" }, this._nextBtn()),
@@ -486,17 +525,40 @@ export class GuidedAddElement extends HTMLElement {
       h(
         "div",
         { class: "kf-row end" },
-        h("button", { class: "kf-btn ghost", type: "button", text: "Skip", onclick: () => this._finish() }),
-        h("button", { class: "kf-btn primary", type: "button", text: "Finish", onclick: () => this._finish() }),
+        h("button", { class: "kf-btn ghost", type: "button", text: "Skip", onclick: () => this._tryFinish() }),
+        h("button", { class: "kf-btn primary", type: "button", text: "Finish", onclick: () => this._tryFinish() }),
       ),
     );
   }
 
+  /**
+   * Enter in any other text field of a step (the Ask questions) commits it the way leaving the field
+   * does and closes the iPad keyboard. The Name field handles its own Enter (it also goes on).
+   */
+  _enterCloses(panel) {
+    for (const input of panel.querySelectorAll('input[type="text"]')) if (!input.enterKeyHint) input.enterKeyHint = "done";
+    panel.addEventListener("keydown", (e) => {
+      const t = e.target;
+      if (!isEnter(e) || e.defaultPrevented || !(t instanceof HTMLInputElement) || t.name === "name") return;
+      e.preventDefault();
+      t.blur();
+    });
+  }
+
   // ---------- leaving ----------
 
+  /** ‹ Back: the step before; on the first step, the same question as ✕. */
+  _back() {
+    const a = backAction(this.draft.step);
+    if (a.type === "go") return this._go(a.step);
+    return this._askLeave();
+  }
+
+  /** ✕: asks whether to stop; with nothing drawn, named or recorded there is nothing to ask about. */
   _askLeave() {
-    this._leaving = true;
-    this._render();
+    if (emptyDraft(this.draft)) return this._discard();
+    document.activeElement?.blur?.(); // the keyboard goes down so the whole dialog shows
+    this._dispatch({ type: "close" });
     this.querySelector(".kf-ga-leave [data-default]")?.focus();
   }
 
@@ -507,14 +569,14 @@ export class GuidedAddElement extends HTMLElement {
       h(
         "section",
         { class: "kf-sheet center kf-ga-leave", role: "alertdialog", "aria-modal": "true", "aria-labelledby": "kf-ga-leave-title" },
-        h("h2", { id: "kf-ga-leave-title", text: "Stop adding this thing?" }),
-        h("p", { text: "Keep it as a draft to finish later, or throw it away." }),
+        h("h2", { id: "kf-ga-leave-title", text: "Stop adding this animal?" }),
+        h("p", { text: "Stop adding throws it away. Keep draft saves it, so you can finish it later with + Add." }),
         h(
           "div",
           { class: "kf-row end" },
-          h("button", { class: "kf-btn ghost", type: "button", text: "Keep going", onclick: () => { this._leaving = false; this._render(); } }),
-          h("button", { class: "kf-btn danger", type: "button", text: "Discard", onclick: () => this._discard() }),
-          h("button", { class: "kf-btn primary", type: "button", text: "Keep draft", "data-default": true, onclick: () => this._keepDraft() }),
+          h("button", { class: "kf-btn ghost", type: "button", text: "Keep going", "data-action": "keep-going", onclick: () => this._dispatch({ type: "stay" }) }),
+          h("button", { class: "kf-btn", type: "button", text: "Keep draft", "data-action": "keep-draft", "data-default": true, onclick: () => this._keepDraft() }),
+          h("button", { class: "kf-btn danger", type: "button", text: "Stop adding", "data-action": "stop-adding", onclick: () => this._discard() }),
         ),
       ),
     );
@@ -545,16 +607,33 @@ export class GuidedAddElement extends HTMLElement {
 
   // ---------- data ----------
 
-  _go(index) {
+  _go(index, { prompt = null } = {}) {
     if (index < 0 || index >= STEPS.length) return;
     const forward = index > this.draft.step;
     if (index !== this.draft.step) editSound(this.services, forward ? "next" : "back");
     this.draft.step = index;
     this._recording = null;
-    this._stamping = forward && STEPS[index] === "eyes";
+    this.flow = flowReducer(this.flow, { type: "step" });
+    if (prompt) this.flow = flowReducer(this.flow, { type: prompt });
     this.services.session?.activity?.();
     this._save();
     this._render();
+  }
+
+  /** Next: the next step, or, past Name with no name, the prompt (the field gets the focus after a tap). */
+  _next({ focus = true } = {}) {
+    const a = nextAction(this.draft.step, this.thing);
+    if (a.type === "go") return this._go(a.step);
+    this._go(a.step, { prompt: "needName" });
+    if (focus) this.querySelector('input[name="name"]')?.focus();
+  }
+
+  /** Finish (or Skip on Sound): nothing is added without a name; the parent is sent to Name and asked. */
+  _tryFinish() {
+    const a = finishAction(this.thing);
+    if (a.type === "finish") return this._finish();
+    this._go(a.step, { prompt: "needName" });
+    this.querySelector('input[name="name"]')?.focus();
   }
 
   /** Saves the draft; saves run one after another. Resolves after this save has committed. */

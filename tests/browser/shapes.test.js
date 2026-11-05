@@ -94,8 +94,8 @@ test("guided add: two overlapping shapes drawn with the pad become one outline t
   assert.equal(await next.isDisabled(), false);
   const one = await page.evaluate(() => window.__el.thing.outline);
 
-  // a stray third shape, undone
-  await drag(page, loop(0.2, 0.25, 0.05));
+  // a stray shape on the body's edge, undone
+  await drag(page, loop(0.3, 0.7, 0.05));
   assert.equal(await shapesStatus(page), "2 shapes");
   await undo.click();
   assert.equal(await shapesStatus(page), "1 shape");
@@ -137,12 +137,7 @@ test("guided add: two overlapping shapes drawn with the pad become one outline t
   await next.click();
   await page.locator('.kf-swatch[data-color="blue"]').click();
   await page.getByRole("button", { name: "Next" }).click();
-  await page.locator('[data-testid="eye-stamping"]').waitFor();
-  const strip = await page.locator('[data-action="eyes-done"]').boundingBox();
-  await page.mouse.move(strip.x + strip.width / 2, strip.y + strip.height / 2);
-  await page.mouse.down();
-  await page.waitForTimeout(400);
-  await page.mouse.up();
+  await page.getByRole("heading", { name: "Eyes" }).waitFor(); // the Eyes panel; no eyes is fine
   await page.getByRole("button", { name: "Next" }).click();
   await page.getByRole("button", { name: "Skip", exact: true }).click(); // legs (tests/browser/legs.test.js places them)
   await page.locator('[data-motion="walk"]').click();
@@ -274,10 +269,10 @@ test("draw step: tap a shape to select it, then move, resize, delete and draw it
   assert.ok(Math.abs((await shapeBox(page, 0)).x - before.x) < 1e-6);
   assert.deepEqual(await page.evaluate(() => window.__el.thing.outline), outlineBefore, "the outline follows");
 
-  // a second shape (a head), then select it and delete it
-  await drag(page, loop(0.6, 0.35, 0.07));
+  // a second shape (a head, over the body's edge), then select it and delete it
+  await drag(page, loop(0.55, 0.38, 0.07));
   assert.equal(await status(), "2 shapes");
-  await tap(page, [0.6, 0.35]);
+  await tap(page, [0.55, 0.38]);
   await row.waitFor();
   assert.equal(await page.evaluate(() => window.__el._editor.selected), 1, "the head, not the body");
   await page.locator('[data-action="delete-shape"]').click();
@@ -298,10 +293,10 @@ test("draw step: tap a shape to select it, then move, resize, delete and draw it
   await page.locator('[data-action="redraw-shape"]').click();
   assert.equal(await page.locator('[data-action="redraw-shape"]').getAttribute("aria-pressed"), "true");
   await page.getByText("It takes the place of the orange one").waitFor();
-  await drag(page, loop(0.3, 0.6, 0.08));
+  await drag(page, loop(0.45, 0.55, 0.08)); // it must still touch the head
   assert.equal(await status(), "2 shapes", "replaced, not added");
   const redrawn = await shapeBox(page, 0);
-  assert.ok(Math.abs(redrawn.x + redrawn.w / 2 - 0.3) < 0.02 && redrawn.w < before.w, `redrawn: ${JSON.stringify(redrawn)}`);
+  assert.ok(Math.abs(redrawn.x + redrawn.w / 2 - 0.45) < 0.02 && redrawn.w < before.w, `redrawn: ${JSON.stringify(redrawn)}`);
 
   // start over, then undo it
   await page.locator('[data-action="start-over"]').click();
@@ -311,7 +306,7 @@ test("draw step: tap a shape to select it, then move, resize, delete and draw it
   assert.deepEqual(page.errors, []);
 });
 
-test("draw step: an open stroke that starts and ends inside the body joins it; one that ends outside warns", async () => {
+test("draw step: a stroke drawn over the body joins it wherever it starts and ends; a shape apart warns", async () => {
   const page = await farmPage();
   await mount(page, "kf-guided-add", { holdMs: 150 });
   await drag(page, loop(0.45, 0.6, 0.15));
@@ -333,10 +328,24 @@ test("draw step: an open stroke that starts and ends inside the body joins it; o
   const highlighted = await page.evaluate(() => !![...document.querySelectorAll("kf-draw-pad")].at(-1)._gap);
   assert.equal(highlighted, false);
 
-  // a stroke that leaves the body and stops outside: warn, nothing added
-  await drag(page, [[0.45, 0.6], [0.6, 0.4], [0.8, 0.2], [0.9, 0.15]]);
-  await page.getByText("Close the outline").waitFor();
-  assert.equal(await shapesStatus(page), "2 shapes");
+  // playtest 3: a horn that starts outside, crosses into the body and stops inside joins too
+  await drag(page, [[0.62, 0.12], [0.6, 0.25], [0.58, 0.4], [0.55, 0.55]]);
+  assert.equal(await shapesStatus(page), "3 shapes");
+  assert.equal(await page.locator(".kf-ga-panel .kf-warning[role=status]").isHidden(), true);
+  // a shape drawn apart from the body is not glued on by surprise: it says to draw it touching
+  await drag(page, loop(0.88, 0.2, 0.04));
+  await page.getByText("Draw it touching the body, so they join.").waitFor();
+  assert.equal(await shapesStatus(page), "3 shapes");
+  // an open stroke far from the body says the same
+  await drag(page, [[0.05, 0.9], [0.1, 0.8], [0.15, 0.9]]);
+  await page.getByText("Draw it touching the body, so they join.").waitFor();
+  assert.equal(await shapesStatus(page), "3 shapes");
+  // the guidance says how joining works
+  await page.getByText("draw them over the body and they join it").waitFor();
+  // the next accepted shape clears the warning
+  await drag(page, loop(0.6, 0.6, 0.06));
+  assert.equal(await shapesStatus(page), "4 shapes");
+  assert.equal(await page.locator(".kf-ga-panel .kf-warning[role=status]").isHidden(), true);
   assert.deepEqual(page.errors, []);
 });
 

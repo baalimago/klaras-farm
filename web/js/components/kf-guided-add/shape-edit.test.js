@@ -60,9 +60,12 @@ test("draw it again: toggles between selected and redrawing; a tap on nothing ke
   assert.deepEqual(editReducer(initialEdit(), { type: "toggleRedraw" }), initialEdit());
 });
 
-test("a change of the drawing ends any selection and clears the warning; a rejected open stroke warns", () => {
-  const warned = run([{ type: "tap", hit: 1 }, { type: "rejectOpen" }]);
-  assert.equal(warned.warn, true);
+test("a change of the drawing ends any selection and clears the warning; a refused stroke warns why", () => {
+  const warned = run([{ type: "tap", hit: 1 }, { type: "reject", reason: "open" }]);
+  assert.equal(warned.warn, "open");
+  assert.equal(editReducer(warned, { type: "reject", reason: "apart" }).warn, "apart", "the latest reason shows");
+  assert.equal(editReducer(warned, { type: "reject", reason: "full" }).warn, "full");
+  assert.equal(editReducer(warned, { type: "reject", reason: "invalid" }).warn, null, "a speck is not worth a warning");
   assert.equal(warned.mode, SELECTED, "the selection stays");
   assert.deepEqual(editReducer(warned, { type: "changed" }), initialEdit());
   assert.equal(editReducer(warned, { type: "deselect" }).mode, IDLE);

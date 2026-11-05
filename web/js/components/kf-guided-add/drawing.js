@@ -3,9 +3,12 @@
 // kept at drawing size in board coords and merged into ONE outline (geometry/union.js), so a Thing
 // still has a single outline and everything downstream is unchanged. Each shape stays editable
 // (playtest 2): move, resize, redraw or delete one, and Undo takes back the last change of any kind.
-// An open stroke whose ends lie in drawn shapes joins them (geometry/join.js). Unit tested in drawing.test.js.
+// Joining (playtest 3): every new shape must touch the shapes already there. A closed shape drawn over
+// or touching the body joins it; one drawn apart is refused ("apart"), so nothing is glued on by a
+// surprise bridge. An open stroke that touches a shape anywhere is closed through it and joins
+// (geometry/join.js). Unit tested in drawing.test.js.
 import { unionOutlines } from "../../geometry/union.js";
-import { joinOpenStroke, shapeAt } from "../../geometry/join.js";
+import { joinOpenStroke, shapeAt, touchedShapes } from "../../geometry/join.js";
 import { BOARD_ASPECT, fitOutline, bbox } from "../../geometry/stroke.js";
 
 export const MAX_SHAPES = 6;
@@ -62,27 +65,52 @@ export class ShapeDrawing {
   get full() { return this.shapes.length >= MAX_SHAPES; }
   get canUndo() { return this._history.length > 0; }
 
-  /** Adds a closed shape. False when there are already MAX_SHAPES or the shape is degenerate. */
-  add(points) {
-    if (this.full || !valid(points)) return false;
-    return this._commit([...this.shapes, copy(points)]);
-  }
-
   /**
-   * An open stroke: added (or put in place of shape `replace`) when both its ends lie in other drawn
-   * shapes, closed through them. False when an end is outside every shape.
+   * Places a drawn stroke: a new shape, or (with `replace`) in place of shape `replace`.
+   * Refused, with the reason, when:
+   *   "full"    there are already MAX_SHAPES (and nothing is replaced);
+   *   "invalid" a closed stroke with fewer than 3 points, or `replace` is not a shape;
+   *   "open"    an open stroke with no other shape to close it on;
+   *   "apart"   it does not touch any other shape (the first shape always fits).
+   * @param {import('../../types.js').Point[]} points
+   * @param {{closed?: boolean, replace?: number}} [opts]
+   * @returns {{ok: true} | {ok: false, reason: "full" | "invalid" | "open" | "apart"}}
    */
-  addOpen(points, { replace = -1 } = {}) {
+  place(points, { closed = true, replace = -1 } = {}) {
+    const no = (reason) => ({ ok: false, reason });
+    if (replace >= 0 ? !this.shapes[replace] : this.full) return no(replace >= 0 ? "invalid" : "full");
     const others = this.shapes.map((s, i) => (i === replace ? null : s));
-    const joined = joinOpenStroke(points, others);
-    if (!joined) return false;
-    return replace >= 0 ? this.replace(replace, joined.points) : this.add(joined.points);
+    const any = others.some(Boolean);
+    let shape = points;
+    if (!closed) {
+      if (!any) return no("open");
+      const joined = joinOpenStroke(points, others);
+      if (!joined) return no("apart");
+      shape = joined.points;
+    } else if (!valid(points)) {
+      return no("invalid");
+    } else if (any && !touchedShapes(points, others, { closed: true }).length) {
+      return no("apart");
+    }
+    if (!valid(shape)) return no("invalid");
+    const next = replace >= 0 ? this.shapes.map((s, k) => (k === replace ? copy(shape) : s)) : [...this.shapes, copy(shape)];
+    this._commit(next);
+    return { ok: true };
   }
 
-  /** Puts a newly drawn shape in place of shape i ("Draw it again"). */
+  /** Adds a closed shape (see place). */
+  add(points) {
+    return this.place(points).ok;
+  }
+
+  /** An open stroke, closed through the shapes it touches, as a new shape or in place of shape `replace` (see place). */
+  addOpen(points, { replace = -1 } = {}) {
+    return this.place(points, { closed: false, replace }).ok;
+  }
+
+  /** Puts a newly drawn shape in place of shape i ("Draw it again"; see place). */
   replace(i, points) {
-    if (!this.shapes[i] || !valid(points)) return false;
-    return this._commit(this.shapes.map((s, k) => (k === i ? copy(points) : s)));
+    return this.place(points, { replace: i }).ok;
   }
 
   remove(i) {
