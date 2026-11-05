@@ -52,6 +52,13 @@ test("cards point at the real controls in edit mode, and say how to get there in
   assert.match(tourCard("edit", play).body, /hold the scene for 1\.5 s/);
   assert.match(tourCard("edit", { mode: "play", holdMs: 2000 }).body, /for 2 s/, "the real hold time");
   assert.deepEqual(tourCard("edit", edit).target, { kind: "selector", selector: PENCIL });
+  // Both say how editing an animal works: a first tap selects, the ring's round handle resizes, a second tap (or the pencil) opens its card.
+  for (const card of [tourCard("edit", play), tourCard("edit", edit)]) {
+    assert.match(card.body, /tap an animal to select it/i);
+    assert.match(card.body, /round handle on its ring/);
+    assert.match(card.body, /bigger or smaller|resizes it/);
+    assert.match(card.body, /(again|second tap).*✎ pencil/);
+  }
   assert.equal(tourCard("scenes", play).target, null);
   assert.match(tourCard("scenes", play).body, /In edit mode, tap Scenes/);
   assert.deepEqual(tourCard("scenes", edit).target, { kind: "selector", selector: SCENES_BUTTON });
@@ -65,4 +72,8 @@ test("the card never covers its target: top when the target is low or missing, e
   assert.equal(cardPlacement(null, 820), "top");
   assert.equal(cardPlacement({ top: 600, height: 100 }, 820), "top");
   assert.equal(cardPlacement({ top: 100, height: 100 }, 820), "bottom");
+  // Its middle decides, not its top: a tall target starting above the half line but centred below it.
+  assert.equal(cardPlacement({ top: 350, height: 200 }, 820), "top");
+  assert.equal(cardPlacement({ top: 200, height: 300 }, 820), "bottom", "centred above the half line, though it reaches below");
+  assert.equal(cardPlacement({ top: 360, height: 100 }, 820), "bottom", "exactly on the half line: bottom");
 });

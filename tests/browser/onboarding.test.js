@@ -187,7 +187,7 @@ test("tour alone in edit mode: the cards point at the pencil and the Scenes butt
   const pencil = await box(page.locator(".kf-badge.pencil"));
   let ring = await ringBox(page);
   assert.ok(ring.x <= pencil.x && ring.x + ring.width >= pencil.x + pencil.width, "around the pencil");
-  assert.match(await page.locator(".kf-tour-card").textContent(), /Tap an animal's ✎ pencil/);
+  assert.match(await page.locator(".kf-tour-card").textContent(), /Tap an animal to select it, then drag the round handle on its ring.*✎ pencil/);
   await page.getByRole("button", { name: "Next" }).tap();
   const scenes = await box(page.locator('[data-action="scenes"]'));
   ring = await ringBox(page);

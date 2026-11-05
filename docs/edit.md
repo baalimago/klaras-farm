@@ -11,6 +11,7 @@ Edit is how a grown-up gets from the toddler's play board into edit mode and bac
 - `web/js/edit/session.js`: pure session state machine (`nextSession`).
 - `web/js/edit/leg-flow.js`: pure state machine for adding and changing a thing's legs (used by `kf-guided-add/legs.js`).
 - `web/js/edit/scene-tools.js`: pure state machine of the scene tools UI (`nextSceneTools`), templates.
+- `web/js/edit/selection.js`: pure state machine of the edit-mode selection and resize of things (`nextSelection`), and the resize gesture's scale for the board.
 - `web/js/session.js`: `Session`, the state owner. Wraps the reducers with a clock, timers, window listeners, the hold ring and chimes.
 - Tests: `web/js/edit/*.test.js`, `web/js/session.test.js`.
 
@@ -43,6 +44,23 @@ edit|scene ──tick, 60 s no activity, no panel──▶ play, grace for 5 min
 - Events: `tool {tool}` (Sky/Ground open their sheet; Colour with a selection opens the piece sheet; the selection stays), `open-sheet {sheet}`, `close-sheet`, `tap-piece {id}` (Move, Colour, Delete), `tap-empty` (changes nothing: tap-away keeps the selection), `deselect`, `drag-start {mode, id}` (Move only, no sheet; resize only on the selected piece), `drag-end`, `drag-cancel`, `draw-colour {key}`, `drop` (a drag that moved ends; its piece stays `lifted`), `lift-done`, `pieces {ids}` (the store changed: the lift ends; a gone piece's selection, sheet and drag end), `edited {placeId, before}` (push an entry; the oldest goes past 50), `edit-failed {seq}` (that edit's write failed: its entry goes from `undo` or `undoing`), `undo` (the newest entry moves to `undoing`), `undo-saved {seq}` (gone for good), `undo-failed {seq}` (back on top of `undo`).
 - Undo follows FarmStore's contract (docs/farm.md): an intent shows at once and its write commits later in call order; a failed write rolls the store back to its last committed snapshot and fails every write queued after it. So each failure drops exactly the entries whose edits the store no longer has, and an Undo whose write fails puts its entry back only if the edit itself was saved (a failed edit's `edit-failed` arrives first and removes it).
 - Nothing happens under an open sheet: taps and drags are ignored while paused.
+
+### Selection and resize of things (`edit/selection.js`)
+
+`<kf-edit-layer>` keeps one of these and renders the selection ring, its resize handle and the badges from it after every event; `<kf-board>` keeps a resize gesture for the scale.
+
+```
+none ──tap | grab | pencil {id}──▶ selected(id) ──handle-down {id, pointerId, pivot, corner}──▶ resizing(id)
+selected(id) ──tap {id}──▶ selected(id)   (tapAction: 'open-card')       tap-empty: unchanged
+resizing ──handle-move {pointerId, k}──▶ resizing (k)
+resizing ──handle-up | handle-cancel | lost-capture {pointerId}──▶ selected(id)
+any ──things {ids} without the id──▶ none            any ──leave──▶ none
+```
+
+- States: `{phase: 'none', id: null}` (`NO_SELECTION`), `{phase: 'selected', id}`, `{phase: 'resizing', id, pointerId, pivot, corner, k}`. `pivot` is the thing's feet and `corner` where the handle was placed, both client px; `k` is the scale shown now (already clamped by the board). Unchanged events return the same object.
+- `initialSelection()`, `nextSelection(state, event)`, `selectedId(state)`, `isResizing(state)`, `ownsPointer(state, pointerId)`, `tapAction(state, id)` (`select`, `open-card` for the selected thing, `ignore` while resizing or without an id), `handleOffset(state)` (`[dx, dy]` of the handle: the corner scaled by `k` about the pivot), `resizeOutcome(prev, next, event)` (`commit` when `handle-up` ends a resize, `cancel` when anything else does, else null).
+- Resizing ignores `tap`, `grab`, `pencil` and a second `handle-down`; move and end events of another pointer are ignored. `handle-down` needs the thing selected and a pivot and corner (the board could start). `things` and `leave` from `resizing` cancel the resize.
+- The board's half: `resizeGesture(id, thing, pivot, at)` and `resizeGestureTo(gesture, at)`: the scale `s` is the finger's distance from the pivot over the distance at the start (1 when the press was within 1 px of the feet), clamped by `geometry/transform.js` `clampThingScale`.
 
 ### Hold (`edit/hold.js`)
 
