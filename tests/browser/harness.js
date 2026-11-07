@@ -49,6 +49,9 @@ export async function startServer({ env = {} } = {}) {
   };
 }
 
+/** An iPad (iPadOS, Safari) user agent, for tests of the device-specific wording in io/device.js. */
+export const IPAD_UA = "Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
+
 /** One browser + server for a test file. Use `newPage()` per test. */
 export async function setup({ fakeMedia = false, serverEnv } = {}) {
   const server = await startServer({ env: serverEnv });
@@ -58,9 +61,12 @@ export async function setup({ fakeMedia = false, serverEnv } = {}) {
   return {
     server,
     browser,
-    /** A fresh context (empty storage) with an iPad-landscape viewport and touch. `init`: a script run before the app (e.g. a speech stub). */
-    async newPage({ viewport = { width: 1180, height: 820 }, waitReady = true, permissions = [], init = null } = {}) {
-      const context = await browser.newContext({ viewport, hasTouch: true, deviceScaleFactor: 1, permissions });
+    /**
+     * A fresh context (empty storage) with an iPad-landscape viewport and touch. `init`: a script run before the app (e.g. a speech stub).
+     * Chromium's own user agent makes io/device.js answer "other" (neutral words); pass `userAgent: IPAD_UA` for the iPad wording.
+     */
+    async newPage({ viewport = { width: 1180, height: 820 }, waitReady = true, permissions = [], init = null, userAgent } = {}) {
+      const context = await browser.newContext({ viewport, hasTouch: true, deviceScaleFactor: 1, permissions, userAgent });
       contexts.push(context);
       if (init) await context.addInitScript(init);
       const page = await context.newPage();
@@ -75,8 +81,8 @@ export async function setup({ fakeMedia = false, serverEnv } = {}) {
      * A same-origin page with <base href="/v/<hash>/"> and the app CSS, but without booting the app.
      * Use it to test one module or element: `await page.evaluate(() => import('./js/geometry/hit.js'))`.
      */
-    async modulePage(html = "", { viewport = { width: 1180, height: 820 }, permissions = [] } = {}) {
-      const context = await browser.newContext({ viewport, hasTouch: true, deviceScaleFactor: 1, permissions });
+    async modulePage(html = "", { viewport = { width: 1180, height: 820 }, permissions = [], userAgent } = {}) {
+      const context = await browser.newContext({ viewport, hasTouch: true, deviceScaleFactor: 1, permissions, userAgent });
       contexts.push(context);
       const page = await context.newPage();
       page.errors = [];

@@ -1,6 +1,6 @@
 // <kf-recorder>: one recording slot (flows 5 and 6; US-4.1, 4.3, 4.4, 4.7).
 // States (data-state): ready → starting → recording → processing → saved;
-// errors: denied (iPad Settings steps), error (data-error = too-short | silent | failed | unsupported).
+// errors: denied (the Settings steps on iPad and iPhone, the browser's site settings elsewhere), error (data-error = too-short | silent | failed | unsupported).
 // Every take that passes the checks is handed over: the recorder dispatches 'kf-recorded' {clip, blob}
 // as soon as it finishes, then shows "Saved ✓" with ▶ Play and Re-record. It never writes to the
 // store, so an existing clip stays until the parent panel saves the new one over it (one take per
@@ -10,9 +10,11 @@
 // Props: services ({audio, recorder, env?, engine?}), label (cue text), clipRef
 // {thingId|null, language, kind, take}, existing (Clip|null).
 
+import { device } from "../../io/device.js";
+
 const ERRORS = {
   "too-short": "That was too short. Say the word a little more slowly, then try again.",
-  silent: "We couldn't hear anything. Hold the iPad a little closer and speak up.",
+  silent: `We couldn't hear anything. Hold the ${device().name} a little closer and speak up.`,
   failed: "Something went wrong with that recording.",
   unsupported: "This browser can't record sound. You can add the recording later on another device.",
 };
@@ -264,12 +266,17 @@ export class KfRecorderElement extends HTMLElement {
       case "denied": {
         const box = document.createElement("div");
         box.className = "kf-warning kf-rec-denied";
+        // Static markup only; the device name is one of three fixed words from io/device.js.
+        const { ios, name } = device();
         box.innerHTML =
           "<p><strong>The microphone is turned off for Klara's Farm.</strong> To turn it on:</p>" +
           "<ol>" +
-          "<li>Open the <b>Settings</b> app on the iPad.</li>" +
-          "<li>Tap <b>Apps</b>, then <b>Safari</b> (on older iPads, scroll down to <b>Safari</b>).</li>" +
-          "<li>Tap <b>Microphone</b> and choose <b>Allow</b> (or <b>Ask</b>).</li>" +
+          (ios
+            ? `<li>Open the <b>Settings</b> app on the ${name}.</li>` +
+              `<li>Tap <b>Apps</b>, then <b>Safari</b> (on older ${name}s, scroll down to <b>Safari</b>).</li>` +
+              "<li>Tap <b>Microphone</b> and choose <b>Allow</b> (or <b>Ask</b>).</li>"
+            : "<li>Open this site's settings in your browser (often the icon beside the address).</li>" +
+              "<li>Set <b>Microphone</b> to <b>Allow</b>.</li>") +
           "<li>Come back here and tap <b>Try again</b>.</li>" +
           "</ol>" +
           '<p class="kf-note">You can keep going without a recording and add it later from the thing\'s card.</p>';

@@ -34,6 +34,7 @@ import { editSound } from "../kf-dialog/feedback.js";
 import { failMessage, reportFailure } from "../kf-dialog/dom.js";
 import { questionsSection } from "../kf-thing-card/questions.js";
 import { clipSlot } from "../kf-thing-card/clip-slot.js";
+import { device } from "../../io/device.js";
 
 const DEFAULT_MOTION = Object.freeze({ kind: "preset", preset: "walk", params: {} });
 const DRAW_FELT = "tan";
@@ -801,7 +802,7 @@ export class GuidedAddElement extends HTMLElement {
   }
 
   _error(e) {
-    const msg = e?.code === "quota" ? "The iPad is out of space, so this couldn't be saved." : "Something went wrong saving this. Try again.";
+    const msg = e?.code === "quota" ? `This ${device().name} is out of space, so this couldn't be saved.` : "Something went wrong saving this. Try again.";
     if (this.errorBox) {
       this.errorBox.textContent = msg;
       this.errorBox.hidden = false;

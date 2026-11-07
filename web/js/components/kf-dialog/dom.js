@@ -1,6 +1,7 @@
 // Tiny DOM helpers shared by the parent panels of package F2 (scenes, scene tools, settings,
 // welcome, dialog). User text only ever goes in through `text`/children (text nodes).
 import { hex } from "../../farm/palette.js";
+import { device } from "../../io/device.js";
 
 /**
  * h('button', {class: 'kf-btn', text: 'Save', onclick: fn, 'aria-label': 'Save'}, [children])
@@ -67,7 +68,7 @@ export function swatches(label, keys, selected, onPick) {
 
 /** Parent-facing message for a failed store intent (FarmError codes from farm/intents.js). */
 export function failMessage(e) {
-  if (e?.code === "quota") return "The iPad is out of space. Nothing was changed.";
+  if (e?.code === "quota") return `This ${device().name} is out of space. Nothing was changed.`;
   if (e?.code === "place-full") return "This scene is full. Delete a thing, or allow more in Settings.";
   return "That didn't save. Nothing was changed.";
 }

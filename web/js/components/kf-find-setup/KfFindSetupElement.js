@@ -21,6 +21,7 @@ import { initialSetup, nextSetup, isRecording, askSlots, colorMissing, missingTe
 import { SIMPLE_COLORS, hex } from "../../farm/palette.js";
 import { colorGroup, groupHex } from "../../play/colors.js";
 import { colorQuestionText, colorWord } from "../../farm/scripts.js";
+import { capital, device } from "../../io/device.js";
 
 export class KfFindSetupElement extends HTMLElement {
   constructor() {
@@ -102,7 +103,7 @@ export class KfFindSetupElement extends HTMLElement {
         h("p", { class: "kf-note kf-fs-intro", text: color
           ? "When Klara taps the colour button, she hears your question and a colour, then taps any animal of that colour. Record the question once, then each colour word."
           : "When Klara taps 🔍, she hears one of these questions (picked at random), then the animal's sound, and taps that animal." }),
-        this.state.error ? h("p", { class: "kf-warning kf-fs-error", role: "alert", text: this.state.error === "quota" ? "The iPad is out of space, so this couldn't be saved." : "Something went wrong saving this. Try again." }) : null,
+        this.state.error ? h("p", { class: "kf-warning kf-fs-error", role: "alert", text: this.state.error === "quota" ? `This ${device().name} is out of space, so this couldn't be saved.` : "Something went wrong saving this. Try again." }) : null,
         this._tabs(),
         h("div", { class: "kf-fs-body" }, color ? this._colorGame() : this._animalGame()),
         h("div", { class: "kf-row kf-fs-foot" },
@@ -164,7 +165,7 @@ export class KfFindSetupElement extends HTMLElement {
         h("h3", { text: "1. The question" }),
         h("p", { class: "kf-note", text: `Say it so a colour can follow, for example “${said}”` }),
         !takes.length && this.canSpeak
-          ? h("p", { class: "kf-invite", "data-testid": "color-invite", text: "The iPad voice asks this for now. Record your own: Klara knows your voice best." })
+          ? h("p", { class: "kf-invite", "data-testid": "color-invite", text: `The ${device().voice} asks this for now. Record your own: Klara knows your voice best.` })
           : null,
         Array.from({ length: slots }, (_, i) => this._slot({ kind: "color-question", take: i + 1 }, said, `colour question ${i + 1}`, this._askVoice(takes, i + 1, words))),
         h("button", { class: "kf-btn", type: "button", "data-action": "add-ask", text: "+ Another way to ask", disabled: slots >= 6, onclick: () => this.dispatch({ type: "add-ask", shown: slots }) })),
@@ -210,9 +211,9 @@ export class KfFindSetupElement extends HTMLElement {
     const own = takes.includes(take);
     if (v.source === "partial") {
       const rest = v.missing.map((c) => this._colorName(c)).join(", ");
-      return { source: v.source, text: `Plays with each colour's word: ${v.recorded} of ${v.total} recorded (${rest}: ${this.canSpeak ? "iPad voice for now" : "not asked yet"})` };
+      return { source: v.source, text: `Plays with each colour's word: ${v.recorded} of ${v.total} recorded (${rest}: ${this.canSpeak ? `${device().voice} for now` : "not asked yet"})` };
     }
-    if (own && v.source === "voice") return { source: v.source, text: "iPad voice until a colour word is recorded" };
+    if (own && v.source === "voice") return { source: v.source, text: `${capital(device().voice)} until a colour word is recorded` };
     if (own && v.source === "none") return { source: v.source, text: "Not heard until a colour word is recorded" };
     return lineVoiceText(v.source);
   }

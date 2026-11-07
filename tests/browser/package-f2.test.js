@@ -4,7 +4,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
-import { setup } from "./harness.js";
+import { setup, IPAD_UA } from "./harness.js";
 import { aSnapshot, aPlace, aThing, aClip, square } from "../builders.js";
 
 const STUBS = join(import.meta.dirname, "stubs/f2-stubs.js");
@@ -28,8 +28,8 @@ function farmAndSea() {
     .build();
 }
 
-async function open(tag, { snapshot = farmAndSea(), params = {}, opts = {} } = {}) {
-  const page = await h.modulePage('<div id="parent-layer" class="parent-layer"></div>');
+async function open(tag, { snapshot = farmAndSea(), params = {}, opts = {}, userAgent } = {}) {
+  const page = await h.modulePage('<div id="parent-layer" class="parent-layer"></div>', { userAgent });
   await page.addScriptTag({ path: STUBS });
   await page.evaluate(async ({ snapshot, opts }) => { await window.F2.boot(snapshot, opts); }, { snapshot, opts });
   if (tag) await page.evaluate(async ({ tag, params }) => { await window.F2.mount(tag, params); }, { tag, params });
@@ -298,13 +298,33 @@ test("settings: Update ready only when services.updateReady", async () => {
   await until(ready, () => window.F2.calls.some((c) => c[0] === "storage.applyUpdate"));
 });
 
-test("settings: privacy statement and Guided Access guide are there", async () => {
-  const page = await open("kf-settings");
+test("settings on an iPad: privacy says this iPad, and the Guided Access guide is there", async () => {
+  const page = await open("kf-settings", { userAgent: IPAD_UA });
   const s = page.locator("kf-settings");
   await s.getByText("Privacy", { exact: true }).click();
   await s.getByText(/stays on this iPad/).waitFor();
-  await s.getByText(/Guided Access/).first().click();
+  await s.getByText(/Lock the iPad to this app/).click();
   await s.getByText(/triple-click/i).first().waitFor();
+});
+
+test("settings elsewhere: neutral words, no iPad, and no Guided Access guide", async () => {
+  const page = await open("kf-settings");
+  const s = page.locator("kf-settings");
+  await s.getByText("Privacy", { exact: true }).click();
+  await s.getByText(/stays on this device/).waitFor();
+  assert.equal(await s.getByText(/Guided Access/).count(), 0, "Guided Access exists only on iPad and iPhone");
+  assert.doesNotMatch(await s.textContent(), /iPad/);
+});
+
+test("welcome on an iPad says this iPad; elsewhere this device", async () => {
+  const snapshot = farmAndSea();
+  snapshot.settings.welcomed = false;
+  const ipad = await open("kf-welcome", { snapshot, userAgent: IPAD_UA });
+  await ipad.locator("kf-welcome").getByText("Everything stays on this iPad.").waitFor();
+  assert.match(await ipad.locator("kf-welcome").textContent(), /Add it to your Home Screen/, "Safari on iPad gets the nudge");
+  const other = await open("kf-welcome", { snapshot });
+  await other.locator("kf-welcome").getByText("Everything stays on this device.").waitFor();
+  assert.doesNotMatch(await other.locator("kf-welcome").textContent(), /iPad|Home Screen/);
 });
 
 // ---------------------------------------------------------------- kf-welcome

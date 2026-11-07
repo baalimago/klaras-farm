@@ -1,15 +1,15 @@
 // Package D in Chromium: AudioEngine, Recorder (fake mic: a beep every 500 ms), <kf-recorder>.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { setup } from "./harness.js";
+import { setup, IPAD_UA } from "./harness.js";
 
 let h;
 before(async () => { h = await setup({ fakeMedia: true }); });
 after(async () => { await h?.teardown(); });
 
 /** A page with helpers on window: a WAV clip generator and a stub blob store. */
-async function audioPage(html = "") {
-  const page = await h.modulePage(html);
+async function audioPage(html = "", { userAgent } = {}) {
+  const page = await h.modulePage(html, { userAgent });
   await page.evaluate(async () => {
     const { encodeWav } = await import("./js/dsp/wav.js");
     const blobs = new Map();
@@ -366,18 +366,32 @@ test("<kf-recorder>: a failed or cancelled re-record saves nothing and keeps the
   assert.deepEqual(page.errors, []);
 });
 
-test("<kf-recorder>: a denied microphone shows the iPad Settings steps", async () => {
-  const page = await audioPage(RECORDER_PAGE);
+test("<kf-recorder>: a denied microphone on an iPad shows the iPad Settings steps", async () => {
+  const page = await audioPage(RECORDER_PAGE, { userAgent: IPAD_UA });
   await mountRecorder(page, { denied: true });
   await page.getByRole("button", { name: "Record" }).click();
   await page.waitForSelector('#rec[data-state="denied"]');
   const text = await page.locator("#rec").textContent();
-  assert.match(text, /Settings/);
+  assert.match(text, /Settings app on the iPad/);
+  assert.match(text, /Safari/);
   assert.match(text, /Microphone/);
   assert.match(text, /Allow/);
   assert.ok(await page.locator("#rec ol li").count() >= 3, "numbered steps");
   assert.ok(await page.getByRole("button", { name: "Try again" }).isVisible());
   assert.equal(await page.evaluate(() => window.__recorded.length), 0);
+});
+
+test("<kf-recorder>: a denied microphone elsewhere points to the browser's site settings, not the iPad", async () => {
+  const page = await audioPage(RECORDER_PAGE);
+  await mountRecorder(page, { denied: true });
+  await page.getByRole("button", { name: "Record" }).click();
+  await page.waitForSelector('#rec[data-state="denied"]');
+  const text = await page.locator("#rec").textContent();
+  assert.match(text, /site's settings in your browser/);
+  assert.match(text, /Microphone/);
+  assert.doesNotMatch(text, /iPad|Safari/);
+  assert.ok(await page.locator("#rec ol li").count() >= 3, "numbered steps");
+  assert.ok(await page.getByRole("button", { name: "Try again" }).isVisible());
 });
 
 test("<kf-recorder>: too short and silent takes say Try again; nothing is saved", async () => {

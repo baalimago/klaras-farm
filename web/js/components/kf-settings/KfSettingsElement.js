@@ -6,6 +6,7 @@
 // (closes Settings, then services.shell.tour()). Props: services, params. Dispatches kf-close.
 import { h, newId, plural, joinAnd, languageName, reportFailure } from "../kf-dialog/dom.js";
 import { editSound } from "../kf-dialog/feedback.js";
+import { capital, device } from "../../io/device.js";
 
 const SLEEP_OPTIONS = [
   [0, "Off"],
@@ -216,7 +217,7 @@ export class KfSettingsElement extends HTMLElement {
           `Two round buttons in the bottom corners: 🔍 asks "Where is the …?" (then plays its sound), the coloured dots ask "Tap on an animal that is yellow!". ` +
           `Hold a button for a second to record its questions in your voice. ` +
           `${recorded} of ${things.length} things here have your recorded questions` +
-          (recorded < things.length ? "; the others are asked in the iPad's voice until you record them." : "."),
+          (recorded < things.length ? `; the others are asked in the ${device().voice} until you record them.` : "."),
       }),
     ]);
   }
@@ -258,7 +259,7 @@ export class KfSettingsElement extends HTMLElement {
     const input = h("input", { type: "checkbox", id, "data-key": "recording-tips", checked: prefs.recordingTips !== false, onchange: (e) => { editSound(this.services, "toggle"); prefs.recordingTips = e.target.checked; } });
     return h("div", { class: "kf-find-it" }, [
       h("div", { class: "kf-row" }, [input, h("label", { htmlFor: id, text: "Show recording tips" })]),
-      h("p", { class: "kf-note", text: "When a game question plays in the iPad's voice, a small note beside its button says how to record your own." }),
+      h("p", { class: "kf-note", text: `When a game question plays in the ${device().voice}, a small note beside its button says how to record your own.` }),
     ]);
   }
 
@@ -304,10 +305,10 @@ export class KfSettingsElement extends HTMLElement {
 
   dataSection() {
     const status = [];
-    if (this._persist === true) status.push(h("p", { text: "Your farm is kept safely on this iPad (persistent storage is on)." }));
+    if (this._persist === true) status.push(h("p", { text: `Your farm is kept safely on this ${device().name} (persistent storage is on).` }));
     if (this._persist === false)
-      status.push(h("p", { class: "kf-warning", text: "Safari may clear the farm's drawings and recordings if the iPad runs low on space. Export a copy now and then, and add the app to the Home Screen." }));
-    if (this._estimate?.usage != null) status.push(h("p", { class: "kf-note", text: `Using ${formatBytes(this._estimate.usage)} on this iPad.` }));
+      status.push(h("p", { class: "kf-warning", text: `The browser may clear the farm's drawings and recordings if this ${device().name} runs low on space. Export a copy now and then, and add the app to the Home Screen.` }));
+    if (this._estimate?.usage != null) status.push(h("p", { class: "kf-note", text: `Using ${formatBytes(this._estimate.usage)} on this ${device().name}.` }));
 
     const fileInput = h("input", { type: "file", accept: ".zip,.klarasfarm,application/zip", hidden: true, "aria-label": "Import from a file" });
     fileInput.addEventListener("change", () => {
@@ -323,7 +324,7 @@ export class KfSettingsElement extends HTMLElement {
         h("button", { type: "button", class: "kf-btn primary", "data-key": "export", text: "Export everything", onclick: () => this.exportNow() }),
         h("span", { class: "kf-note", text: ready ? `${countsText(ready.counts)} in one file.` : "Preparing the file…" }),
       ]),
-      h("p", { class: "kf-note", text: "Save the file to Files or send it to yourself. Importing it brings everything back, here or on another iPad." }),
+      h("p", { class: "kf-note", text: `Save the file somewhere safe or send it to yourself. Importing it brings everything back, here or on another ${device().name}.` }),
       h("div", { class: "kf-row" }, [
         h("button", { type: "button", class: "kf-btn", "data-key": "import", text: "Import from a file", onclick: () => fileInput.click() }),
         importedThisBoot ? h("button", { type: "button", class: "kf-btn", "data-key": "undo-import", text: "Undo import", onclick: () => this.undoImport() }) : null,
@@ -342,14 +343,15 @@ export class KfSettingsElement extends HTMLElement {
       ]),
       this.helpDetails("privacy", [
         h("summary", { text: "Privacy" }),
-        h("p", { text: "Everything stays on this iPad. Drawings, names and recordings are never uploaded." }),
+        h("p", { text: `Everything stays on this ${device().name}. Drawings, names and recordings are never uploaded.` }),
         h("p", { text: "The app never records during play. The microphone is on only while a parent is recording a clip, and Klara may be audible in the background of those clips." }),
         h("p", { text: "An export file contains your recordings: keep it somewhere private." }),
       ]),
-      this.helpDetails("guided-access", [
-        h("summary", { text: "Lock the iPad to this app (Guided Access)" }),
+      // Guided Access exists only on iPad and iPhone; elsewhere the steps would mislead.
+      device().ios && this.helpDetails("guided-access", [
+        h("summary", { text: `Lock the ${device().name} to this app (Guided Access)` }),
         h("ol", {}, [
-          h("li", { text: "Open the iPad's Settings app, then Accessibility, then Guided Access, and turn it on." }),
+          h("li", { text: `Open the ${device().name}'s Settings app, then Accessibility, then Guided Access, and turn it on.` }),
           h("li", { text: "Tap Passcode Settings and set a Guided Access passcode." }),
           h("li", { text: "Open Klara's Farm (from the Home Screen icon if you added it)." }),
           h("li", { text: "Triple-click the top button (or the Home button), then tap Start." }),
@@ -463,7 +465,7 @@ export class KfSettingsElement extends HTMLElement {
     const ok = await this.services.shell.confirm({
       title: "Replace everything?",
       body: [
-        `This replaces everything on this iPad. ${countsText(countsOf(this.store.snapshot))} will be lost.`,
+        `This replaces everything on this ${device().name}. ${countsText(countsOf(this.store.snapshot))} will be lost.`,
         `The file has ${countsText(countsOf(incoming?.snapshot))}.`,
       ],
       confirmLabel: "Replace everything",
@@ -497,7 +499,7 @@ export class KfSettingsElement extends HTMLElement {
     const ok = await this.services.shell.confirm({
       title: "Delete all data?",
       body: [
-        `This deletes ${countsText(countsOf(this.store.snapshot))} from this iPad, and the app's offline copy.`,
+        `This deletes ${countsText(countsOf(this.store.snapshot))} from this ${device().name}, and the app's offline copy.`,
         "Export first if you want to keep them. This can't be undone.",
       ],
       confirmLabel: "Delete everything",

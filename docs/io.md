@@ -20,6 +20,7 @@ Keep this file current: update it in the same commit as any change to this domai
 - `starter.js`: turns `web/data/starter.json` into a fresh Snapshot.
 - `wake.js`: `WakeLock`, keeps the screen on while playing (US-1.4).
 - `prefs.js`: `Prefs`, the grown-up's device preferences outside the farm (like the music switch): `recordingTips` ("Show recording tips", on unless `localStorage` key `kf.recordingTips` is `off`). Setting it saves at once and fires `change`; a blocked `localStorage` keeps the choice for this page only. Not in the snapshot, so not in exports, and no data format change.
+- `device.js`: which device the app runs on and the words the parent UI uses for it. `detectKind(nav)` is `ipad` (also iPadOS reporting itself as a Mac, told apart by `maxTouchPoints > 1`), `iphone` or `other`; `isSafari(nav)` is Safari or any iOS browser; `deviceFor(nav)` gives `{kind, name, voice, ios, safari}` with name iPad / iPhone / device and voice iPad voice / iPhone voice / built-in voice; `device()` reads the real navigator once per page; `capital(s)` for sentence starts. The iPad is the main target, but no copy names it unless this says so.
 - `sha.js`: `sha256Hex(data)` with `crypto.subtle`.
 - `report.js`: sends uncaught errors to `POST /api/client-log`. Installed by `web/js/report-boot.js`.
 

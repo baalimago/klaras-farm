@@ -6,6 +6,7 @@
 // settings.welcomed and dispatches kf-close. It never asks for the microphone.
 import { h, newId } from "../kf-dialog/dom.js";
 import { bunting, leaf, meadow, PAINT } from "./art.js";
+import { device } from "../../io/device.js";
 
 // Each leaf: where it lands (% from the left, px above the bottom), shape, colour, and when it
 // starts and how long it falls. One fall each, so the card is still once they have landed.
@@ -23,12 +24,6 @@ function fallingLeaves() {
     h("span", { class: "kf-welcome-leaf", style: `left:${l.x}%;bottom:${l.y}px;--delay:${l.delay}s;--secs:${l.secs}s;--spin:${l.spin}deg` }, [
       h("span", { class: "kf-welcome-sway" }, [leaf(l.shape, l.color)]),
     ])));
-}
-
-function isSafari() {
-  const ua = navigator.userAgent;
-  const iPadOS = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
-  return (/Safari\//.test(ua) && !/Chrome|Chromium|CriOS|FxiOS|EdgiOS|Edg\/|OPR\//.test(ua)) || /iP(ad|hone|od)/.test(ua) || iPadOS;
 }
 
 export class KfWelcomeElement extends HTMLElement {
@@ -49,7 +44,7 @@ export class KfWelcomeElement extends HTMLElement {
       h("p", { class: "kf-welcome-tip" }, [h("strong", { text: "Play together:" }), " tap, listen and say the names with Klara."]),
       h("p", { class: "kf-welcome-tip" }, [h("strong", { text: "Grown-ups:" }), " hold the scene for 1.5 s to draw and record."]),
     ];
-    if (!standalone && isSafari()) {
+    if (!standalone && device().safari) {
       tips.push(h("p", { class: "kf-welcome-tip kf-welcome-home" }, [h("strong", { text: "Add it to your Home Screen: " }), "tap Share, then Add to Home Screen. It opens full screen and keeps your recordings safer."]));
     }
     const start = h("button", { type: "button", class: "kf-btn primary kf-welcome-start", text: "Start playing", onclick: () => this.dismiss() });
@@ -67,7 +62,7 @@ export class KfWelcomeElement extends HTMLElement {
           h("div", { class: "kf-welcome-tips" }, tips),
           h("div", { class: "kf-welcome-go" }, [start]),
         ]),
-        h("p", { class: "kf-welcome-private", text: "Everything stays on this iPad." }),
+        h("p", { class: "kf-welcome-private", text: `Everything stays on this ${device().name}.` }),
       ]),
     );
     start.focus({ preventScroll: true });
