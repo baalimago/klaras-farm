@@ -324,6 +324,19 @@ test("welcome: hold-to-edit tip, persistence request on dismiss, welcomed set, n
   assert.match(await card.textContent(), /together/i);
   await assertAccessible(page, "kf-welcome");
   assert.ok(!(await calls(page)).includes("storage.requestPersist"), "asks only on dismiss");
+  assert.equal(await card.getByRole("heading", { name: "Welcome to Klara's Farm!" }).count(), 1);
+  // The splash pictures are decoration only, and every animation on the card ends by itself,
+  // so the card goes back to 0 fps once the leaves have landed.
+  const art = await page.evaluate(() => {
+    const el = document.querySelector("kf-welcome");
+    const svgs = [...el.querySelectorAll("svg")];
+    const leaves = el.querySelectorAll(".kf-welcome-leaf").length;
+    const anims = el.getAnimations({ subtree: true }).map((a) => a.effect.getComputedTiming().iterations);
+    return { svgs: svgs.length, hidden: svgs.every((s) => s.closest("[aria-hidden=true]")), leaves, anims };
+  });
+  assert.ok(art.svgs >= 3 && art.hidden, "bunting, meadow and leaves are aria-hidden pictures");
+  assert.ok(art.leaves >= 4, "leaves fall onto the meadow");
+  assert.ok(art.anims.length > 0 && art.anims.every(Number.isFinite), `finite animations only: ${art.anims}`);
 
   await card.getByRole("button", { name: "Start playing" }).click();
   await until(page, () => window.services.store.settings.welcomed === true);

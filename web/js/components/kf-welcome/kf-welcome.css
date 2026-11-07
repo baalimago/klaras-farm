@@ -1,8 +1,109 @@
-/* <kf-welcome>: the one-time first-run card. */
+/* <kf-welcome>: the one-time first-run splash, a watercolour card in the style of Klara's
+   birthday card. Pictures are in art.js; every animation here runs a fixed number of times. */
 kf-welcome { position: absolute; inset: 0; display: block; z-index: 20; }
-.kf-welcome-scrim { position: absolute; inset: 0; background: rgb(74 51 38 / 0.3); }
-.kf-welcome h2 { font-size: 1.6rem; }
-.kf-welcome-tips { margin: 0 0 14px; padding: 0; list-style: none; display: grid; gap: 10px; }
-.kf-welcome-tips li { padding: 10px 14px; background: var(--cream); border-radius: var(--radius-sm); line-height: 1.4; }
-.kf-welcome-tips .kf-welcome-home { background: #e3f0ff; }
-.kf-welcome-start { min-width: 180px; }
+.kf-welcome-scrim { position: absolute; inset: 0; background: rgb(74 51 38 / 0.32); }
+
+.kf-sheet.kf-welcome {
+  padding: 0;
+  min-height: 440px;
+  background:
+    radial-gradient(circle at 18% 34%, rgb(240 200 110 / 0.16), transparent 42%),
+    radial-gradient(circle at 84% 46%, rgb(228 137 147 / 0.13), transparent 40%),
+    radial-gradient(circle at 50% 8%, rgb(157 181 138 / 0.12), transparent 36%),
+    #fdf9f1;
+  animation: kf-welcome-in 460ms cubic-bezier(0.2, 1.3, 0.4, 1) both;
+}
+/* The stitched felt edge, inside the paper. */
+.kf-sheet.kf-welcome::after {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border: 2px dashed var(--stitch);
+  border-radius: calc(var(--radius) - 6px);
+  pointer-events: none;
+  z-index: 4;
+}
+@keyframes kf-welcome-in {
+  from { opacity: 0; transform: translate(-50%, -46%) scale(0.94); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
+}
+
+.kf-welcome-bunting, .kf-welcome-meadow { position: absolute; left: 0; width: 100%; height: auto; pointer-events: none; }
+.kf-welcome-bunting { top: 0; z-index: 0; }
+.kf-welcome-meadow { bottom: 0; z-index: 1; }
+.kf-welcome-sheep, .kf-welcome-pig { transform-box: fill-box; transform-origin: 50% 100%; animation: kf-welcome-hop 520ms ease-out 2 both; }
+.kf-welcome-sheep { animation-delay: 500ms; }
+.kf-welcome-pig { animation-delay: 760ms; }
+@keyframes kf-welcome-hop {
+  0%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-7px) scaleY(1.03); }
+}
+
+/* Leaves fall once from above the card and come to rest on the grass. */
+.kf-welcome-leaves { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 2; border-radius: inherit; }
+.kf-welcome-leaf {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  margin-left: -15px;
+  will-change: transform;
+  animation: kf-welcome-fall var(--secs) var(--delay) cubic-bezier(0.3, 0.1, 0.6, 1) 1 both;
+}
+.kf-welcome-sway { display: block; width: 100%; height: 100%; animation: kf-welcome-sway calc(var(--secs) / 4) var(--delay) ease-in-out 4 alternate both; }
+.kf-welcome-leaf-art { display: block; width: 100%; height: 100%; }
+@keyframes kf-welcome-fall {
+  from { transform: translateY(-480px) rotate(0deg); }
+  to { transform: translateY(0) rotate(var(--spin)); }
+}
+@keyframes kf-welcome-sway {
+  from { transform: translateX(-16px); }
+  to { transform: translateX(16px); }
+}
+
+.kf-welcome-body { position: relative; z-index: 3; padding: 68px 28px 136px; text-align: center; }
+.kf-sheet .kf-welcome-title { margin: 0 0 14px; line-height: 1.05; font-weight: 800; letter-spacing: 0.02em; }
+.kf-welcome-hello, .kf-welcome-name { display: block; font-family: ui-rounded, "SF Pro Rounded", "Arial Rounded MT Bold", var(--font); }
+/* Bubbly painted letters: a light fill ringed by a darker outline, like the card's lettering. */
+.kf-welcome-hello {
+  font-size: 1.6rem;
+  color: #dfc19f;
+  -webkit-text-stroke: 4px #8b5e3c;
+  paint-order: stroke fill;
+}
+.kf-welcome-name {
+  margin-top: 4px;
+  font-size: 2.9rem;
+  color: #f4b0ba;
+  -webkit-text-stroke: 6px #b84a5c;
+  paint-order: stroke fill;
+  text-shadow: 0 4px 0 rgb(184 74 92 / 0.22);
+}
+.kf-welcome-tips { display: grid; gap: 4px; justify-items: center; }
+.kf-sheet .kf-welcome-tip { margin: 0; max-width: 430px; color: var(--ink); font-size: 1rem; line-height: 1.35; }
+.kf-welcome-tip strong { color: #a2465a; }
+.kf-sheet .kf-welcome-home { margin-top: 6px; padding: 6px 12px; background: rgb(255 255 255 / 0.7); border: 1.5px dashed #c9b6a2; border-radius: var(--radius-sm); font-size: 0.92rem; }
+
+/* The Start button sits above the sheep and the pig, who look at each other on the grass. */
+.kf-welcome-go { margin-top: 18px; }
+.kf-welcome-start.kf-btn.primary {
+  position: relative;
+  min-height: 56px;
+  padding: 0 24px;
+  background: #c95d6b;
+  color: #fff;
+  font-size: 1.2rem;
+  font-weight: 800;
+  white-space: nowrap;
+  box-shadow: 0 4px 0 #9e4250, 0 8px 16px rgb(74 51 38 / 0.25);
+}
+.kf-welcome-start::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border: 2px dashed rgb(255 255 255 / 0.65);
+  border-radius: inherit;
+  pointer-events: none;
+}
+.kf-welcome-start:focus-visible { outline: 3px solid #e7a0aa; outline-offset: 3px; }
+.kf-welcome-start:active { transform: translateY(3px); box-shadow: 0 1px 0 #9e4250, 0 4px 10px rgb(74 51 38 / 0.25); }
+.kf-sheet .kf-welcome-private { position: absolute; z-index: 3; left: 0; right: 0; bottom: 14px; margin: 0; text-align: center; font-size: 0.85rem; color: #7a5a3c; }
