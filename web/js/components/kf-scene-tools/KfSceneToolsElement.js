@@ -1,7 +1,8 @@
 // <kf-scene-tools>: draw and arrange the scene (flow 3, US-2.2). Mounted by the Shell in session mode 'scene'.
 // The landscape is the place's sky and ground colours, its backdrop template, and felt pieces
 // (shapes and yarn lines) the parent draws anywhere, then moves, resizes, recolours, sends to the
-// back or deletes. No data format change: it all lives in Place {backdrop, skyColor, groundColor, pieces}.
+// back or deletes. It all lives in Place {backdrop, skyColor, groundColor, pieces}; sky and ground take
+// a preset or any colour from the native picker (format 5).
 //
 // UI state is the pure state machine in edit/scene-tools.js; this element keeps one state, sends it
 // events and renders from it (and from the store) after every event. Tool bar: Shape, Line, Move,
@@ -10,6 +11,11 @@
 // Foreground rule: the tool bar, panel and colour sheet sit above the drawing canvas (z-index over
 // kf-draw-pad's overlay), and while a sheet is open the stage underneath is inert: no stroke can
 // start behind the picker.
+//
+// The Sky and Ground sheets end in a native colour picker (kf-dialog/dom.js sceneColors). While its
+// sheet stays open the chooser is updated in place, never rebuilt, so the iPad's picker popover stays
+// open while the scene repaints behind it. Its moves are live edits (a few a second, LIVE_PICK_MS)
+// that fold into one undo entry; its commit seals that entry and plays the colour sound once.
 //
 // No lag: a piece being dragged or resized is drawn by the board's renderer from its cached sprite
 // (services.board.setLift), with the board rect read once per drag. Nothing is written to the store
@@ -22,9 +28,9 @@
 // drops that undo entry and says so (the store has already rolled back and emitted 'reverted').
 // Undo: the entries in state.undo, each the place's previous {pieces, skyColor, groundColor, backdrop}.
 // Pointer handlers run each step guarded, so one failure never eats the tap (AGENTS rule 5).
-import { h, swatches, reportFailure, colorName } from "../kf-dialog/dom.js";
+import { h, swatches, sceneColors, reportFailure, colorName } from "../kf-dialog/dom.js";
 import { editSound } from "../kf-dialog/feedback.js";
-import { THING_COLORS, SKY_COLORS, GROUND_COLORS, hex } from "../../farm/palette.js";
+import { THING_COLORS, SKY_COLORS, GROUND_COLORS, hex, isCustomColor } from "../../farm/palette.js";
 import { initialSceneTools, nextSceneTools, isPaused, isDrawTool, templatePatch, placeBefore, undoTop, canUndo, TEMPLATES } from "../../edit/scene-tools.js";
 import { clampDelta } from "../../geometry/transform.js";
 import { pickPiece, moveStroke, pathData, strokeBox, resizeScale, scaleStroke, sendToBack } from "./pieces.js";
@@ -53,6 +59,7 @@ export class KfSceneToolsElement extends HTMLElement {
     this._lifting = false; // the board was last given a lift (device mirror, so render clears it once)
     this._note = ""; // a one-off hint ("Close the shape…") until the next event
     this._stageTool = null;
+    this._colours = null; // {sheet, el}: the open Sky or Ground chooser, updated in place
     this._raf = 0;
     this._onChange = () => this._storeChanged();
     this._onResize = () => this.layout();
@@ -236,8 +243,8 @@ export class KfSceneToolsElement extends HTMLElement {
       case "line": return "Draw a line: a fence, a path, grass, waves.";
       case "move": return s.selected ? "Drag it to move it. Pull the round handle to resize." : "Tap a piece, then drag it.";
       case "colour": return s.selected ? "Pick a colour for it." : "Tap a piece to colour it.";
-      case "sky": return "Pick a sky colour.";
-      case "ground": return "Pick a ground colour.";
+      case "sky": return "Pick a sky colour, or tap the rainbow for any colour.";
+      case "ground": return "Pick a ground colour, or tap the rainbow for any colour.";
       default: return "Tap a piece to delete it.";
     }
   }
@@ -271,11 +278,21 @@ export class KfSceneToolsElement extends HTMLElement {
 
   renderSheet(s, place) {
     this.sheet.hidden = !s.sheet || !place;
+    const sceneSheet = !this.sheet.hidden && (s.sheet === "sky" || s.sheet === "ground");
+    if (!sceneSheet) this._colours = null;
     if (this.sheet.hidden) return void this.sheet.replaceChildren();
-    const close = h("button", { type: "button", class: "kf-btn", text: "Close", onclick: () => this.closeSheet() });
     let title = "";
     let body = [];
-    if (s.sheet === "start") {
+    if (sceneSheet) {
+      const current = s.sheet === "sky" ? place.skyColor : place.groundColor;
+      if (this._colours?.sheet === s.sheet) return void this._colours.el.update(current); // keeps an open picker open
+      title = s.sheet === "sky" ? "Sky colour" : "Ground colour";
+      const keys = s.sheet === "sky" ? SKY_COLORS : GROUND_COLORS;
+      const sheet = s.sheet; // a pick is for this sheet only, even if it lands after the sheet changed
+      const el = sceneColors("Colour", keys, current, (value, { live }) => this.pickSceneColour(sheet, value, live));
+      this._colours = { sheet: s.sheet, el };
+      body = [el];
+    } else if (s.sheet === "start") {
       title = "Start from";
       body = [h("div", { class: "kf-row kf-st-templates", role: "group", "aria-label": "Start from" },
         Object.keys(TEMPLATES).map((k) => h("button", {
@@ -283,14 +300,12 @@ export class KfSceneToolsElement extends HTMLElement {
           onclick: () => this.startFrom(k),
         })))];
     } else {
-      let keys = THING_COLORS;
       let current = null;
-      if (s.sheet === "sky") (title = "Sky colour"), (keys = SKY_COLORS), (current = place.skyColor);
-      else if (s.sheet === "ground") (title = "Ground colour"), (keys = GROUND_COLORS), (current = place.groundColor);
-      else if (s.sheet === "draw") (title = s.tool === "line" ? "Line colour" : "Shape colour"), (current = s.colors[s.tool]);
+      if (s.sheet === "draw") (title = s.tool === "line" ? "Line colour" : "Shape colour"), (current = s.colors[s.tool]);
       else (title = "Piece colour"), (current = place.pieces.find((p) => p.id === s.selected)?.color ?? null);
-      body = [swatches("Colour", keys, current, (key) => this.pickColour(key))];
+      body = [swatches("Colour", THING_COLORS, current, (key) => this.pickColour(key))];
     }
+    const close = h("button", { type: "button", class: "kf-btn", text: "Close", onclick: () => this.closeSheet() });
     this.sheet.setAttribute("aria-label", title);
     this.sheet.replaceChildren(h("div", { class: "kf-st-sheet-head" }, [h("h2", { text: title }), close]), ...body);
   }
@@ -490,19 +505,34 @@ export class KfSceneToolsElement extends HTMLElement {
     this.edit((place) => this.store.addPiece({ placeId: place.id, piece: { kind, stroke: points, color } }));
   }
 
+  /** A colour from the open draw or piece sheet (sky and ground go through pickSceneColour). */
   pickColour(key) {
     const s = this.state;
+    if (s.sheet !== "draw" && s.sheet !== "piece") return;
     editSound(this.services, "colour");
     if (s.sheet === "draw") {
       this.send({ type: "draw-colour", key });
       this.send({ type: "close-sheet" }); // picked: back to drawing
       return;
     }
-    this.edit((place) => {
-      if (s.sheet === "sky") return this.store.updatePlace({ placeId: place.id, patch: { skyColor: key } });
-      if (s.sheet === "ground") return this.store.updatePlace({ placeId: place.id, patch: { groundColor: key } });
-      return this.store.updatePiece({ placeId: place.id, pieceId: s.selected, patch: { color: key } });
-    });
+    this.edit((place) => this.store.updatePiece({ placeId: place.id, pieceId: s.selected, patch: { color: key } }));
+  }
+
+  /**
+   * Sky or ground: a swatch (one edit) or the picker (a run of live edits without a sound, folded
+   * into one undo entry and sealed on commit). Ignored unless that sheet is still open.
+   */
+  pickSceneColour(sheet, value, live) {
+    if (this.state.sheet !== sheet) return;
+    const field = sheet === "sky" ? "skyColor" : "groundColor";
+    const custom = isCustomColor(value);
+    if (!live) editSound(this.services, "colour");
+    if (this.place?.[field] === value) {
+      if (!live) this.send({ type: "seal" }); // the picker committed what is already shown
+      return;
+    }
+    const run = custom ? { merge: sheet, seal: !live } : {};
+    this.edit((place) => this.store.updatePlace({ placeId: place.id, patch: { [field]: value } }), run);
   }
 
   toBack(pieceId) {
@@ -548,7 +578,7 @@ export class KfSceneToolsElement extends HTMLElement {
    * 'change' synchronously and returns the write's promise (or null when there is nothing to change).
    * The undo entry is pushed in the same task; a failed write drops it again. True when applied.
    */
-  edit(change) {
+  edit(change, { merge = null, seal = false } = {}) {
     const place = this.place;
     if (!place) return false;
     const before = placeBefore(place);
@@ -560,7 +590,7 @@ export class KfSceneToolsElement extends HTMLElement {
       return false;
     }
     if (!saving) return false; // nothing to change
-    this.send({ type: "edited", placeId: place.id, before });
+    this.send({ type: "edited", placeId: place.id, before, merge, seal });
     const seq = this.state.seq;
     Promise.resolve(saving).catch((e) => {
       this.send({ type: "edit-failed", seq });

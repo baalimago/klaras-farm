@@ -65,7 +65,7 @@ export function aSnapshot(fields = {}) {
     build() {
       const built = places.map((b) => b.build());
       return {
-        formatVersion: 4, minReaderFormat: 4, appVersion: "test", exportedAt: T0, deviceId: "device-test",
+        formatVersion: 5, minReaderFormat: 5, appVersion: "test", exportedAt: T0, deviceId: "device-test",
         settings: { languages: ["en"], playLanguage: "en", sleepMinutes: 8, gateKind: "keypad", reduceMotion: false, maxThings: 8, currentPlaceId: built[0]?.place.id ?? null, welcomed: true, updatedAt: T0 },
         places: built.map((x) => x.place),
         things: built.flatMap((x) => x.things),

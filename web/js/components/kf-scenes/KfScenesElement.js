@@ -4,7 +4,7 @@
 // few random animals from the repertoire (QA round 3): the library's examples are loaded when the
 // form opens and handed to createPlace, which picks and places them in the same change.
 // Props: services, params (unused). Dispatches kf-close when finished.
-import { h, newId, plural, swatches, reportFailure } from "../kf-dialog/dom.js";
+import { h, newId, plural, sceneColors, reportFailure } from "../kf-dialog/dom.js";
 import { SKY_COLORS, GROUND_COLORS } from "../../farm/palette.js";
 import { BACKDROPS } from "../../farm/snapshot.js";
 import { paintThumbnail } from "./thumbnail.js";
@@ -207,11 +207,12 @@ export class KfScenesElement extends HTMLElement {
     const repaint = () => paintThumbnail(preview, { backdrop: d.backdrop, skyColor: d.skyColor, groundColor: d.groundColor, pieces: [] }).catch(() => {});
 
     const backdrops = h("div", { class: "kf-backdrops", role: "group", "aria-label": "Backdrop" });
-    const skyHolder = h("div");
-    const groundHolder = h("div");
+    // Built once and updated in place, so the colour picker stays open while the preview repaints.
+    const skyHolder = sceneColors("Sky colour", SKY_COLORS, d.skyColor, (k) => ((d.skyColor = k), drawSwatches(), repaint()));
+    const groundHolder = sceneColors("Ground colour", GROUND_COLORS, d.groundColor, (k) => ((d.groundColor = k), drawSwatches(), repaint()));
     const drawSwatches = () => {
-      skyHolder.replaceChildren(swatches("Sky colour", SKY_COLORS, d.skyColor, (k) => ((d.skyColor = k), drawSwatches(), repaint())));
-      groundHolder.replaceChildren(swatches("Ground colour", GROUND_COLORS, d.groundColor, (k) => ((d.groundColor = k), drawSwatches(), repaint())));
+      skyHolder.update(d.skyColor);
+      groundHolder.update(d.groundColor);
     };
     const drawBackdrops = () => {
       backdrops.replaceChildren(
@@ -244,7 +245,8 @@ export class KfScenesElement extends HTMLElement {
       h("div", { class: "kf-field" }, [h("label", { htmlFor: inputId, text: "Scene name" }), input]),
       h("p", { class: "kf-note", id: noteId, text: "The name is for you; Klara never sees text. A few animals move in to start with." }),
       h("div", { class: "kf-scene-new-grid" }, [
-        h("div", {}, [h("h3", { text: "Backdrop" }), backdrops, h("h3", { text: "Sky" }), skyHolder, h("h3", { text: "Ground" }), groundHolder]),
+        h("div", {}, [h("h3", { text: "Backdrop" }), backdrops, h("h3", { text: "Sky" }), skyHolder, h("h3", { text: "Ground" }), groundHolder,
+          h("p", { class: "kf-note", text: "Tap the rainbow to pick any colour." })]),
         h("div", { class: "kf-scene-preview-wrap" }, [preview]),
       ]),
       h("div", { class: "kf-row end kf-scene-actions" }, [

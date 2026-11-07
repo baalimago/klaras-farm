@@ -231,3 +231,75 @@ test("undo after a template Start gives back the drawn pieces and the old backdr
   assert.deepEqual(u.undoing, []);
   assert.equal(u.selected, null, "undo brings the pieces back, not the selection");
 });
+
+// ---------------------------------------------------------------- colour picker runs
+
+const pick = (s, p, merge, seal = false) => run(s, { type: "edited", placeId: p.id, before: placeBefore(p), merge, seal });
+
+test("edited with merge: a run of picker moves is one entry that keeps the first before", () => {
+  const first = place({ skyColor: "sky" });
+  let s = pick(start({ tool: "sky", sheet: "sky" }), first, "sky");
+  s = pick(s, place({ skyColor: "#111111" }), "sky");
+  s = pick(s, place({ skyColor: "#222222" }), "sky");
+  assert.equal(s.undo.length, 1);
+  assert.equal(undoTop(s).before.skyColor, "sky", "Undo goes back to before the picker opened");
+  assert.equal(undoTop(s).seq, 3, "the entry carries the newest edit's seq");
+  assert.equal(s.seq, 3);
+  assert.equal(undoTop(s).merge, "sky");
+});
+
+test("edited with seal: the commit folds in and closes the run; the next pick is a new entry", () => {
+  let s = pick(start(), place(), "ground");
+  s = pick(s, place({ groundColor: "#333333" }), "ground", true);
+  assert.equal(s.undo.length, 1);
+  assert.equal("merge" in undoTop(s), false);
+  s = pick(s, place({ groundColor: "#444444" }), "ground");
+  assert.equal(s.undo.length, 2);
+  assert.equal(undoTop(s).before.groundColor, "#444444");
+  const sealedAtOnce = pick(start(), place(), "ground", true);
+  assert.equal("merge" in undoTop(sealedAtOnce), false, "a single committed pick is a plain entry");
+});
+
+test("a run never swallows another kind of edit, another field or another place", () => {
+  let s = pick(start(), place(), "sky");
+  s = pick(s, place(), "ground");
+  assert.equal(s.undo.length, 2, "ground after sky");
+  s = pick(s, place({ id: "sea" }), "ground");
+  assert.equal(s.undo.length, 3, "another place");
+  s = edit(s);
+  s = pick(s, place(), "ground");
+  assert.equal(s.undo.length, 5, "a plain edit in between ends the run");
+});
+
+test("seal, close-sheet, tool and undo close an open run", () => {
+  const open = pick(start({ tool: "sky", sheet: "sky" }), place(), "sky");
+  for (const e of [{ type: "seal" }, { type: "close-sheet" }, { type: "tool", tool: "move" }]) {
+    const s = run(open, e);
+    assert.equal("merge" in undoTop(s), false, e.type);
+    assert.equal(pick(s, place(), "sky").undo.length, 2, `${e.type}: the next pick is a new entry`);
+  }
+  const plain = edit(start());
+  assert.equal(run(plain, { type: "seal" }), plain, "nothing open: same state");
+  const back = run(open, { type: "undo" }, { type: "undo-failed", seq: 1 });
+  assert.equal("merge" in undoTop(back), false, "an entry back from a failed Undo is not a run");
+});
+
+test("edit-failed on a run keeps its entry, sealed: the store still has an earlier pick or before", () => {
+  const s = pick(pick(start(), place(), "sky"), place({ skyColor: "#101010" }), "sky");
+  const f = run(s, { type: "edit-failed", seq: 2 });
+  assert.equal(canUndo(f), true);
+  assert.equal(undoTop(f).before.skyColor, "sky");
+  assert.equal("merge" in undoTop(f), false, "sealed: the next pick is a new entry");
+  assert.equal(run(f, { type: "edit-failed", seq: 2 }), f, "a sealed run stays as it is");
+  assert.equal(run(s, { type: "edit-failed", seq: 1 }), s, "an earlier pick's seq is no entry");
+});
+
+test("a plain edit closes an open run, so a later pick never folds into an old entry", () => {
+  let s = pick(start(), place(), "sky");
+  s = edit(s, place({ skyColor: "#121212" })); // the commit landed on a preset: a plain edit
+  assert.equal("merge" in s.undo[0], false);
+  s = run(s, { type: "undo" }, { type: "undo-saved", seq: 2 });
+  s = pick(s, place({ skyColor: "#121212" }), "sky");
+  assert.equal(s.undo.length, 2, "a new entry, not folded into the first run");
+  assert.equal(undoTop(s).before.skyColor, "#121212");
+});

@@ -65,3 +65,22 @@
 .kf-tabs button { min-height: var(--tap); padding: 0 14px; border: 0; background: none; font: 600 1rem var(--font); color: var(--ink-soft); border-bottom: 3px solid transparent; }
 .kf-tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--blue); }
 .kf-warning { background: #fff0d6; border-left: 4px solid var(--orange); padding: 10px 12px; border-radius: 8px; }
+
+/* Any colour: a native colour picker drawn as a rainbow swatch; once a colour is picked it shows in
+   the middle. The input covers the swatch (invisible), so a tap opens the iPad's picker directly. */
+.kf-swatch-any {
+  position: relative; display: inline-block; overflow: hidden; box-sizing: border-box;
+  background: var(--rainbow);
+  /* the swatch's white edge as an inset ring, so the input under the finger covers all 48 px */
+  border: 0; box-shadow: inset 0 0 0 3px #fff, 0 0 0 2px #e6d7bf;
+}
+.kf-swatch-any[data-picked="true"]::after {
+  content: ""; position: absolute; inset: 11px; border-radius: 50%;
+  background: var(--picked); border: 2px solid #fff; pointer-events: none;
+}
+.kf-swatch-any[data-picked="true"] { box-shadow: inset 0 0 0 3px #fff, 0 0 0 4px var(--ink); }
+.kf-swatch-any:has(.kf-swatch-input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 2px; }
+.kf-swatch-input {
+  position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0;
+  opacity: 0; cursor: pointer;
+}

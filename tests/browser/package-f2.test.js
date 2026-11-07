@@ -374,3 +374,24 @@ test("welcome: hold-to-edit tip, persistence request on dismiss, welcomed set, n
   assert.ok(!all.includes("getUserMedia"));
   assert.deepEqual(page.errors, []);
 });
+
+test("scenes: a new scene can take any sky colour from the picker; the preview follows", async () => {
+  const page = await open("kf-scenes");
+  await page.getByRole("button", { name: "New scene" }).click();
+  await page.getByLabel("Scene name").fill("Night sea");
+  const sky = page.getByRole("group", { name: "Sky colour" });
+  assert.ok((await sky.locator("button.kf-swatch").count()) >= 10);
+  await page.evaluate(() => {
+    const input = document.querySelector('kf-scenes [aria-label="Sky colour"] input[type="color"]');
+    input.dataset.mark = "kept";
+    input.value = "#101840";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  assert.equal(await sky.getByLabel("Your own colour").getAttribute("data-mark"), "kept", "updated in place");
+  await page.getByRole("group", { name: "Ground colour" }).getByRole("button", { name: "Snow white" }).click();
+  await page.getByRole("button", { name: "Start drawing" }).click();
+  await until(page, () => window.F2.calls.some((c) => c[0] === "session.sceneTools"));
+  const made = (await snap(page)).places.find((p) => p.name === "Night sea");
+  assert.deepEqual([made.skyColor, made.groundColor], ["#101840", "snow"]);
+});

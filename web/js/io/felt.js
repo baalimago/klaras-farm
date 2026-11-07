@@ -1,7 +1,7 @@
 // Felt painter: everything slow (texture, shadows, dashed stitches, clipping) happens here, once,
 // into caches. The Renderer only blits the results. Look: design/sketches/final.html (Sunny).
 // Coordinates: callers pass a size {w, h} in canvas pixels; board points [x, y] map to [x*w, y*h].
-import { hex, INK, SUNNY } from "../farm/palette.js";
+import { hex, sceneHex, INK, SUNNY } from "../farm/palette.js";
 import { bbox, centroid, signedArea } from "../geometry/stroke.js";
 
 export const STITCH = "rgba(255,248,235,.75)";
@@ -213,8 +213,8 @@ const rect = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
 export function paintBackground(c, place, size, { scene = false, border = true, pieces = true } = {}) {
   const { w, h } = size;
   const U = h / 600;
-  const sky = hex(place?.skyColor ?? "sky");
-  const ground = hex(place?.groundColor ?? "grass");
+  const sky = sceneHex(place?.skyColor ?? "sky");
+  const ground = sceneHex(place?.groundColor ?? "grass");
   const r = mulberry(seedOf(place?.id ?? "place"));
   const base = { U, shadow: false, stitch: false, straight: true };
   c.save();

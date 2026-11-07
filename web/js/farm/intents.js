@@ -2,7 +2,7 @@
 // They never mutate their input. FarmStore applies `writes` in one transaction,
 // then swaps in `snapshot` and emits `change`.
 import { BACKDROPS, DEFAULT_MAX_THINGS, MAX_THINGS_LIMIT, MAX_QUESTIONS, THING_CLIP_KINDS, GAME_CLIP_KINDS, clipKey, roundPoints } from "./snapshot.js";
-import { isColorKey, SIMPLE_COLORS } from "./palette.js";
+import { isColorKey, sceneColor, SIMPLE_COLORS } from "./palette.js";
 import { cleanLegs, isLeg, MAX_LEGS } from "./legs.js";
 import { questionCount } from "./scripts.js";
 import { copyOf, libraryEntries, pickSeeds, seedCount } from "./library.js";
@@ -35,6 +35,12 @@ const replace = (list, item) => list.map((x) => (x.id === item.id ? item : x));
 function checkColor(key) {
   if (!isColorKey(key)) throw new FarmError("invalid", `colour ${key}`);
 }
+/** A sky or ground colour in stored form (a key, or "#rrggbb" lowercased); throws for anything else. */
+function sceneColorOf(v) {
+  const c = sceneColor(v);
+  if (c === null) throw new FarmError("invalid", `colour ${v}`);
+  return c;
+}
 function checkStroke(points, min) {
   if (!Array.isArray(points) || points.length < min) throw new FarmError("invalid", "stroke too short");
 }
@@ -52,8 +58,8 @@ function checkStroke(points, min) {
  */
 export function createPlace(s, { name, backdrop = "meadow", skyColor = "sky", groundColor = "grass", pieces = [], seed }, env) {
   if (!BACKDROPS.includes(backdrop)) throw new FarmError("invalid", `backdrop ${backdrop}`);
-  checkColor(skyColor);
-  checkColor(groundColor);
+  skyColor = sceneColorOf(skyColor);
+  groundColor = sceneColorOf(groundColor);
   const now = env.now();
   const place = {
     id: env.newId(),
@@ -109,8 +115,8 @@ export function renamePlace(s, { placeId, name }, env) {
 export function updatePlace(s, { placeId, patch }, env) {
   const old = findPlace(s, placeId);
   const allowed = {};
-  if ("skyColor" in patch) (checkColor(patch.skyColor), (allowed.skyColor = patch.skyColor));
-  if ("groundColor" in patch) (checkColor(patch.groundColor), (allowed.groundColor = patch.groundColor));
+  if ("skyColor" in patch) allowed.skyColor = sceneColorOf(patch.skyColor);
+  if ("groundColor" in patch) allowed.groundColor = sceneColorOf(patch.groundColor);
   if ("backdrop" in patch) {
     if (!BACKDROPS.includes(patch.backdrop)) throw new FarmError("invalid", "backdrop");
     allowed.backdrop = patch.backdrop;

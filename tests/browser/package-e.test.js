@@ -112,7 +112,7 @@ describe("IdbRepo specifics", () => {
       return { ...res, blobRejected };
     });
     assert.deepEqual(out, {
-      version: 2, // DB_VERSION 2 (format 4): no schema change, it stops a format 3 app with VersionError
+      version: 3, // DB_VERSION 2 (format 4) and 3 (format 5): no schema change, each stops the previous format's app with VersionError
       stores: ["blobs", "clips", "drafts", "meta", "places", "settings", "things", "usage"],
       thingIndexes: ["placeId"],
       clipIndexes: ["key", "thingId"],
@@ -147,6 +147,34 @@ describe("IdbRepo specifics", () => {
       return { changed, blocked, error };
     });
     assert.deepEqual(out, { changed: 1, blocked: 0, error: "VersionError" });
+  });
+
+  it("a version 2 database (format 4 app) opens at 3 with its records, and a format 4 app then stops with VersionError", async () => {
+    const out = await page.evaluate(async () => {
+      const { openIdbRepo } = await import("./js/io/idb-repo.js");
+      const old = await new Promise((ok, fail) => {
+        const r = indexedDB.open("from-v2", 2);
+        r.onupgradeneeded = () => r.result.createObjectStore("places", { keyPath: "id" }).put({ id: "farm", skyColor: "sky" });
+        r.onsuccess = () => ok(r.result);
+        r.onerror = () => fail(r.error);
+      });
+      old.close();
+      const repo = await openIdbRepo({ name: "from-v2" }).catch((e) => e);
+      const version = repo.db?.version ?? null;
+      const places = await new Promise((ok) => {
+        const tx = repo.db.transaction("places");
+        const r = tx.objectStore("places").getAll();
+        r.onsuccess = () => ok(r.result.map((p) => p.id));
+      });
+      repo.close();
+      const error = await new Promise((ok) => {
+        const r = indexedDB.open("from-v2", 2);
+        r.onsuccess = () => { r.result.close(); ok(null); };
+        r.onerror = () => ok(r.error.name);
+      });
+      return { version, places, error };
+    });
+    assert.deepEqual(out, { version: 3, places: ["farm"], error: "VersionError" });
   });
 });
 
@@ -253,7 +281,7 @@ describe("export and import (IndexedDB)", () => {
         garbage: new TextEncoder().encode("hello, not a zip").buffer,
         truncated: zip(good).slice(0, 2000),
         foreign: zip({ "manifest.json": fflate.strToU8('{"name":"x"}') }),
-        newer: zip({ ...good, "manifest.json": fflate.strToU8(JSON.stringify({ ...manifest, formatVersion: 6, minReaderFormat: 5 })) }),
+        newer: zip({ ...good, "manifest.json": fflate.strToU8(JSON.stringify({ ...manifest, formatVersion: 7, minReaderFormat: 6 })) }),
         tampered: zip(tampered),
         missing: zip(missing),
         dupClip: zip({ ...good, "manifest.json": fflate.strToU8(JSON.stringify(dupClip)) }),

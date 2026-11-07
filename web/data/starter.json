@@ -1,6 +1,6 @@
 {
- "formatVersion": 4,
- "minReaderFormat": 4,
+ "formatVersion": 5,
+ "minReaderFormat": 5,
  "appVersion": "starter",
  "exportedAt": "2026-01-01T00:00:00.000Z",
  "deviceId": "starter",

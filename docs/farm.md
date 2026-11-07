@@ -13,17 +13,17 @@ The farm domain is the family's data: places (scenes), the things in them, their
 - `web/js/farm/snapshot.js`: format constants, `emptySnapshot`, `defaultSettings`, `validateSnapshot`, `migrate` and its `STEPS`, `storedFormat`, canonical form, `clipKey`, `roundPoints`.
 - `web/js/farm/intents.js`: pure intents `(snapshot, args, env) => {snapshot, writes, change}`, `FarmError`, and read queries (`thingsIn`, `clipsFor`, `tapClips`, `playLanguageFor`).
 - `web/js/farm/legs.js`: leg (hip) geometry: `MAX_LEGS`, `LEG_COUNTS`, `spreadLegs`, `footY`, `legLength`, `legacyLegCount`, `cleanLegs`.
-- `web/js/farm/palette.js`: the Sunny felt palette (`SUNNY` key to hex), swatch lists, `isColorKey`, `hex`, `INK`.
+- `web/js/farm/palette.js`: the Sunny felt palette (`SUNNY` key to hex), swatch lists, `isColorKey`, `hex`, `INK`, and the sky and ground colour helpers `isCustomColor`, `isSceneColor`, `sceneColor`, `sceneHex`.
 - `web/js/farm/scripts.js`: cue lines (1 to 6 per thing and language, free text over script examples) and colour game text from `web/data/scripts/<lang>.json`, with language fallback.
 - `web/js/farm/library.js`: the animal library (QA round 3): `thingKey`, `libraryEntries`, `copyOf`, `pickSeeds`, `seedCount`, `SEED_MIN`/`SEED_MAX`. Where a copy, a seeded thing or a drawn thing lands is `play/placement.js` `placeThing` (docs/play.md).
 - `web/js/farm/import.js`: pure checks for an export zip's contents (`checkImport`, `ImportError`, zip naming helpers).
 
 ## Data model
 
-All coordinates are board coordinates: `[x, y]` with x and y in 0..1 of the 4:3 board (x left to right, y top to bottom). Stored points are rounded to 3 decimals (`roundPoints`, `cleanLegs`). Colours are always palette keys, never hex.
+All coordinates are board coordinates: `[x, y]` with x and y in 0..1 of the 4:3 board (x left to right, y top to bottom). Stored points are rounded to 3 decimals (`roundPoints`, `cleanLegs`). Colours are palette keys, never hex, with one exception: a place's `skyColor` and `groundColor` may hold a colour the parent picked freely, as lowercase `#rrggbb` (format 5).
 
-- `Snapshot`: `formatVersion` (4), `minReaderFormat` (4), `appVersion`, `exportedAt`, `deviceId`, `settings`, `places[]`, `things[]`, `clips[]`. It is also the export manifest (`manifest.json`).
-- `Place`: `id`, `name` (parent-only), `backdrop` (`meadow|sea|room|blank`), `skyColor`, `groundColor`, `pieces[]` (scene felt shapes and yarn, drawing order), `thingOrder[]` (thing ids, back to front), optional `findIt` (format 2), `createdAt`, `updatedAt`. `findIt` absent or `true` means the find buttons show; only `findIt === false` hides them.
+- `Snapshot`: `formatVersion` (5), `minReaderFormat` (5), `appVersion`, `exportedAt`, `deviceId`, `settings`, `places[]`, `things[]`, `clips[]`. It is also the export manifest (`manifest.json`).
+- `Place`: `id`, `name` (parent-only), `backdrop` (`meadow|sea|room|blank`), `skyColor`, `groundColor` (a palette key, or a picked `#rrggbb`, format 5), `pieces[]` (scene felt shapes and yarn, drawing order), `thingOrder[]` (thing ids, back to front), optional `findIt` (format 2), `createdAt`, `updatedAt`. `findIt` absent or `true` means the find buttons show; only `findIt === false` hides them.
 - `Piece`: `id`, `kind` (`shape` closed outline, at least 3 points; `yarn` open polyline, at least 2), `stroke`, `color`.
 - `Thing`: `id`, `placeId`, `names` (lang to typed name), `outline` (one closed polygon, at least 3 points), `color`, `eyes` (0 to 2 `{x, y}`), `legs` (0 to 8 hips `{x, y}`, format 3), `motion` (`{kind:'preset', preset, params}`), `cues` (lang to `{lines?, article?}`; `lines` are the parent's questions, 1 to 6 free-text strings, and their count is the number of questions; an empty or null line means the script example at that position; no `lines` means the 3 examples), dates.
 - `Clip`: `id`, `thingId`, `language`, `kind`, `take` (1 to 6), `blobSha256` (64 hex), `mime`, `durationMs`, `trimStartMs`, `trimEndMs`, `gainDb`, `createdAt`.
@@ -33,12 +33,12 @@ All coordinates are board coordinates: `[x, y]` with x and y in 0..1 of the 4:3 
 - `Draft`: guided add progress, stored in the `drafts` store, never exported.
 - `Env`: `now()` ISO string, `rng()`, `newId()`, `deviceId`. Injected so intents stay pure.
 
-Invariants checked by `validateSnapshot` (never throws, returns `{ok}` or `{ok:false, error}`): unique ids; every thing's place exists; `settings.maxThings` a whole number 1 to 12; at most `MAX_THINGS_LIMIT` (12) things per place (not `maxThings`: lowering the setting never removes things or makes stored data invalid); cues have at most 6 string lines; every `thingOrder` id exists; every thing clip's thing exists and has a thing kind; game clips have a game kind and colour words a simple colour; takes 1 to 6; no duplicate clip keys; known backdrops and colour keys; valid language tags; ISO dates; `minReaderFormat <= FORMAT_VERSION`. With `{blobShas}` it also requires every clip's blob.
+Invariants checked by `validateSnapshot` (never throws, returns `{ok}` or `{ok:false, error}`): unique ids; every thing's place exists; `settings.maxThings` a whole number 1 to 12; at most `MAX_THINGS_LIMIT` (12) things per place (not `maxThings`: lowering the setting never removes things or makes stored data invalid); cues have at most 6 string lines; every `thingOrder` id exists; every thing clip's thing exists and has a thing kind; game clips have a game kind and colour words a simple colour; takes 1 to 6; no duplicate clip keys; known backdrops and colour keys (a place's sky and ground also take lowercase `#rrggbb`; things and pieces only keys); valid language tags; ISO dates; `minReaderFormat <= FORMAT_VERSION`. With `{blobShas}` it also requires every clip's blob.
 
 ## Public API
 
 `farm/snapshot.js`
-- `FORMAT_VERSION = 4`, `MIN_READER_FORMAT = 4`, `MAX_THINGS_LIMIT = 12` (also exported as `MAX_THINGS_PER_PLACE`, the validation ceiling), `DEFAULT_MAX_THINGS = 8`, `MAX_QUESTIONS = 6`, `THING_CLIP_KINDS`, `GAME_CLIP_KINDS`, `CLIP_KINDS`, `BACKDROPS`, `MOTION_PRESETS`.
+- `FORMAT_VERSION = 5`, `MIN_READER_FORMAT = 5`, `MAX_THINGS_LIMIT = 12` (also exported as `MAX_THINGS_PER_PLACE`, the validation ceiling), `DEFAULT_MAX_THINGS = 8`, `MAX_QUESTIONS = 6`, `THING_CLIP_KINDS`, `GAME_CLIP_KINDS`, `CLIP_KINDS`, `BACKDROPS`, `MOTION_PRESETS`.
 - `isGameClip(clip)`, `withMaxThings(settings)` (the 3 to 4 step for settings).
 - `emptySnapshot(env, appVersion)`, `defaultSettings(env, lang = "en")`.
 - `migrate(s)`: steps `s` up one version at a time through `STEPS` until `FORMAT_VERSION`. A newer but readable file is returned unchanged, unknown fields kept.
@@ -76,7 +76,7 @@ Invariants checked by `validateSnapshot` (never throws, returns `{ok}` or `{ok:f
 - `copyOf(thing, clips, {placeId, dx, dy}, env)`: a deep copy with fresh ids and dates, moved; only clips whose `thingId` is the thing's, each with a fresh id and its own `createdAt`.
 - `pickSeeds(pool, n, rng)` (partial Fisher-Yates, input untouched), `seedCount(cap, poolSize, rng)`.
 
-`farm/palette.js`: `SUNNY`, `THING_COLORS`, `SKY_COLORS`, `GROUND_COLORS`, `SIMPLE_COLORS` (the 11 colour words the colour game uses; a one-way door, colour word clips store them; `play/colors.js` folds felt keys into them), `isColorKey(key)`, `hex(key)` (unknown keys fall back to grey).
+`farm/palette.js`: `SUNNY`, `THING_COLORS`, `SKY_COLORS`, `GROUND_COLORS`, `SIMPLE_COLORS` (the 11 colour words the colour game uses; a one-way door, colour word clips store them; `play/colors.js` folds felt keys into them), `isColorKey(key)`, `hex(key)` (unknown keys fall back to grey). `SKY_COLORS` (11) and `GROUND_COLORS` (12) are the preset swatches; format 5 added the keys `mint`, `peach`, `dusk`, `storm`, `night`, `moss`, `clay`, `mud` and `snow`. Sky and ground also take any colour: `isCustomColor(v)` (lowercase `#rrggbb`), `isSceneColor(v)` (a key or a custom colour), `sceneColor(v, presets)` (the stored form of a picker value: lowercased, and a preset's own hex becomes that key; null when invalid), `sceneHex(v)` (what to paint). `updatePlace` and `createPlace` store sky and ground through `sceneColor` and throw `invalid` otherwise.
 
 `farm/scripts.js`: `scriptFileFor(files, lang)` (exact tag, then base language, then English with `fallback: true`), `fillTemplate(t, {name, article})` (`{the}` dropped with its space when empty), `DEFAULT_QUESTIONS = 3`, `MAX_CUE_LINES = 6`, `questionCount(thing, lang)`, `cueLines(files, thing, lang)` returns `{lines, examples, fallback, articles}` (one line per question; an empty parent line is the example, templates going round), `colorLine(files, group, lang, n)` (the device voice's "Tap on an animal that is yellow!"), `colorQuestionText(files, lang)` (what to say when recording the colour question, the script's `colorQuestion`), `colorWord(files, group, lang)` (null without a script). Script files hold `templates`, `articles`, `colorQuestion`, `colorTemplates` (with `{color}`) and `colors` (the word as it fits after the question).
 
@@ -92,14 +92,14 @@ Invariants checked by `validateSnapshot` (never throws, returns `{ok}` or `{ok:f
 
 - Only `FarmStore` holds the live snapshot. Add new mutations as pure intents in `intents.js` plus a one-line method on `FarmStore`.
 - Intents run strictly one at a time (`_serial`), so each sees the previous result even when callers do not await.
-- Formats are additive. Format history: 1 first release; 2 optional `Place.findIt`; 3 `Thing.legs`; 4 `Settings.maxThings`, 1 to 6 questions and prompt takes, colour game clips (`thingId` null). `minReaderFormat` is 4: a format 3 app would call a format 4 file damaged (null `thingId`, takes over 3, more than 4 things), so it says "made by a newer version" instead. Files of formats 1 to 3 still import.
+- Formats are additive. Format history: 1 first release; 2 optional `Place.findIt`; 3 `Thing.legs`; 4 `Settings.maxThings`, 1 to 6 questions and prompt takes, colour game clips (`thingId` null); 5 new palette keys and custom sky and ground colours (`#rrggbb`), nothing to migrate. `minReaderFormat` is 5: a format 4 app would call a place with a new key or a custom colour damaged, so it says "made by a newer version" instead. Files of formats 1 to 4 still import.
 - Format bump procedure:
   1. Raise `FORMAT_VERSION` in `farm/snapshot.js` and add a comment line to its format history.
   2. Add a `STEPS[old]` entry that moves `formatVersion` up by one. Steps must be pure and safe on mixed data.
   3. Decide `MIN_READER_FORMAT`. Raise it only when older apps cannot read the new shape.
-  4. Update `storedFormat()` (in `farm/snapshot.js`, called by `FarmStore.hydrate`) if records read back from IndexedDB need detecting. Today it tells format 2 (things without legs) and 3 (settings without `maxThings`) from 4.
+  4. Update `storedFormat()` (in `farm/snapshot.js`, called by `FarmStore.hydrate`) if records read back from IndexedDB need detecting. Today it tells format 2 (things without legs) and 3 (settings without `maxThings`) from the rest; format 4 records are valid format 5 records, so there is nothing to tell.
   5. Update `validateSnapshot`, `types.js`, `tests/builders.js` (`aSnapshot` stamps `formatVersion`), and `snapshot.test.js` migration tests.
-  6. Never regenerate `tests/fixtures/exports/v1/basic.zip` or `v3/basic.zip` (written once by the format 3 build, with an edited cue line and a take 3 prompt). They must keep importing to their `basic.expected.json`; update an expected file only if the migration intentionally adds fields (format 4 added `settings.maxThings: 8`).
+  6. Never regenerate `tests/fixtures/exports/v1/basic.zip`, `v3/basic.zip` (written once by the format 3 build, with an edited cue line and a take 3 prompt) or `v4/basic.zip` (written once by the format 4 build: the v3 farm with a lilac sky and sand ground, exported again). They must keep importing to their `basic.expected.json`; update an expected file only if the migration intentionally adds fields (format 4 added `settings.maxThings: 8`).
   7. Regenerate the starter with `node tools/make-starter.mjs` (`--check` exits 1 when out of date; `web/js/io/starter.test.js` checks it).
 - Palette keys and clip key fields are one-way doors: never rename or remove them.
 - Blobs are content addressed: copies made by `copyThing` or seeding share their original's blobs through their own clip records. The orphan sweep keeps a blob while any clip uses it, so deleting the original never breaks a copy.
@@ -111,9 +111,9 @@ Invariants checked by `validateSnapshot` (never throws, returns `{ok}` or `{ok:f
 
 ## Tests
 
-- `web/js/farm/*.test.js`: snapshot validation, canonical form, migration 1 to 2 to 3 to 4, `storedFormat`, leg, `maxThings`, question and colour game clip validation; intents (purity, things-per-scene cap, clip replacement, colour game clips, questions add/edit/remove with take renumbering, cascades, undo, settings language rules, legs); legs geometry; scripts filling, question counts and fallback; import checks.
+- `web/js/farm/*.test.js`: snapshot validation, canonical form, migration 1 to 2 to 3 to 4 to 5, custom sky and ground colours, `storedFormat`, leg, `maxThings`, question and colour game clip validation; intents (purity, things-per-scene cap, clip replacement, colour game clips, questions add/edit/remove with take renumbering, cascades, undo, settings language rules, legs); legs geometry; scripts filling, question counts and fallback; import checks.
 - `tests/unit/farm-store.test.js`: hydrate, one synchronous change per intent before the commit, invalid input, failed writes (rollback, dropped later intents), pending blobs, call order, `replaceAll` (and intents during it), every intent wrapper surviving a reload.
-- `tests/unit/export-fixture.test.js`: the frozen v1 and v3 exports still import (to format 4).
+- `tests/unit/export-fixture.test.js`: the frozen v1, v3 and v4 exports still import (to format 5).
 - `tests/contracts/repository.contract.js`: also colour game clips (null `thingId`) and renumbered takes in one batch.
 - `web/js/farm/library.test.js` (keys, entries and folding, older starter things, copies keeping clip dates, seeds), `web/js/farm/copy-intents.test.js` (`copyThing` and seeded `createPlace`: ids, clip copies, limits, placement, rng), `tests/unit/library-store.test.js` (through `FarmStore` and `MemoryRepo`: shows at once, persists, a copy's blob survives deleting the original and the sweep; the occupancy is asked by copies and free-spot adds), `web/js/io/library-data.test.js` (the starter before Finnish names folds and never seeds twice).
 - `tests/unit/find-it.test.js`: `findIt` default on, off per place.

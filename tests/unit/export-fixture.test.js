@@ -37,14 +37,33 @@ test("the v3 fixture file never changes", () => {
   assert.equal(sha(readFileSync(`${DIR3}/basic.zip`)), ZIP3_SHA256);
 });
 
-test("the v3 fixture imports to format 4: maxThings 8, cue lines and prompt takes kept", async () => {
+test("the v3 fixture imports to format 5: maxThings 8, cue lines and prompt takes kept", async () => {
   const bytes = readFileSync(`${DIR3}/basic.zip`);
   const expected = JSON.parse(readFileSync(`${DIR3}/basic.expected.json`, "utf8"));
   const out = await readImport(new Uint8Array(bytes), { now: "2026-11-03T12:00:00.000Z" });
   assert.equal(canonicalJson(canonicalSnapshot(out.snapshot)), canonicalJson(expected.snapshot));
-  assert.equal(out.snapshot.formatVersion, 4);
+  assert.equal(out.snapshot.formatVersion, 5);
   assert.equal(out.snapshot.settings.maxThings, 8);
   assert.deepEqual(out.snapshot.things[0].cues.en.lines, ["Where is our hen?", "", ""]);
   assert.deepEqual(out.snapshot.clips.filter((c) => c.kind === "prompt").map((c) => c.take).sort(), [1, 3]);
+  assert.deepEqual(out.counts, { places: 1, things: 1, clips: 4 });
+});
+
+// Golden export of format 4, written once by the format 4 build (549d468): the v3 farm with a lilac
+// sky and sand ground, exported again. Never regenerate it. Format 5 only adds colours.
+const DIR4 = resolve(import.meta.dirname, "../fixtures/exports/v4");
+const ZIP4_SHA256 = "1ea1de5b77f197f69113cb46b53ca6984c143850f879e9b0ae9c4d77f39d7ccc";
+
+test("the v4 fixture file never changes", () => {
+  assert.equal(sha(readFileSync(`${DIR4}/basic.zip`)), ZIP4_SHA256);
+});
+
+test("the v4 fixture imports to format 5 with its sky and ground kept", async () => {
+  const bytes = readFileSync(`${DIR4}/basic.zip`);
+  const expected = JSON.parse(readFileSync(`${DIR4}/basic.expected.json`, "utf8"));
+  const out = await readImport(new Uint8Array(bytes), { now: "2026-11-03T12:00:00.000Z" });
+  assert.equal(canonicalJson(canonicalSnapshot(out.snapshot)), canonicalJson(expected.snapshot));
+  assert.equal(out.snapshot.formatVersion, 5);
+  assert.deepEqual([out.snapshot.places[0].skyColor, out.snapshot.places[0].groundColor], ["lilac", "sand"]);
   assert.deepEqual(out.counts, { places: 1, things: 1, clips: 4 });
 });

@@ -54,7 +54,7 @@ Rules that hold everywhere:
 
 - **No build step.** Vanilla ES modules served as-is. No frameworks, bundler or TypeScript; types are JSDoc in `web/js/types.js`. The only vendored library is `web/vendor/fflate.js`.
 - **Components:** one folder per tag, `web/js/components/<tag>/`, with `<Name>Element.js`, `define.js` (guards `customElements.get`) and `<tag>.css`. Light DOM, `services` injected by the Shell, `kf-close` to close a panel, DOM built with `h()` from `kf-dialog/dom.js` (never `innerHTML` with data). Editing controls always sit above the canvas.
-- **CSS:** tokens in `web/css/tokens.css`. Colours in data are palette keys from `farm/palette.js`, never hex. The felt look: stitched dashed edges, soft shadows, rounded shapes.
+- **CSS:** tokens in `web/css/tokens.css`. Colours in data are palette keys from `farm/palette.js`, never hex. The one exception: a place's sky and ground may hold a colour the parent picked with the colour picker, stored as lowercase `#rrggbb` (format 5). The felt look: stitched dashed edges, soft shadows, rounded shapes.
 - **Code:** named exports, short functions, early returns, plain loops over clever one-liners. Comments say why, not what.
 - **Python:** standard library, uvicorn and pg8000 only (ask before adding a framework); type hints on new code.
 - **Commits:** imperative subject under 72 characters, and a body that explains why. AI agents end the message with their attribution trailer.
