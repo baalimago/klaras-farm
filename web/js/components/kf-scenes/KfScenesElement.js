@@ -4,7 +4,7 @@
 // few random animals from the repertoire (QA round 3): the library's examples are loaded when the
 // form opens and handed to createPlace, which picks and places them in the same change.
 // Props: services, params (unused). Dispatches kf-close when finished.
-import { h, newId, plural, swatches, reportFailure } from "../kf-dialog/dom.js";
+import { h, newId, plural, sceneColors, reportFailure } from "../kf-dialog/dom.js";
 import { SKY_COLORS, GROUND_COLORS } from "../../farm/palette.js";
 import { BACKDROPS } from "../../farm/snapshot.js";
 import { paintThumbnail } from "./thumbnail.js";
@@ -207,11 +207,12 @@ export class KfScenesElement extends HTMLElement {
     const repaint = () => paintThumbnail(preview, { backdrop: d.backdrop, skyColor: d.skyColor, groundColor: d.groundColor, pieces: [] }).catch(() => {});
 
     const backdrops = h("div", { class: "kf-backdrops", role: "group", "aria-label": "Backdrop" });
-    const skyHolder = h("div");
-    const groundHolder = h("div");
+    // Built once and updated in place, so the colour picker stays open while the preview repaints.
+    const skyHolder = sceneColors("Sky colour", SKY_COLORS, d.skyColor, (k) => ((d.skyColor = k), drawSwatches(), repaint()));
+    const groundHolder = sceneColors("Ground colour", GROUND_COLORS, d.groundColor, (k) => ((d.groundColor = k), drawSwatches(), repaint()));
     const drawSwatches = () => {
-      skyHolder.replaceChildren(swatches("Sky colour", SKY_COLORS, d.skyColor, (k) => ((d.skyColor = k), drawSwatches(), repaint())));
-      groundHolder.replaceChildren(swatches("Ground colour", GROUND_COLORS, d.groundColor, (k) => ((d.groundColor = k), drawSwatches(), repaint())));
+      skyHolder.update(d.skyColor);
+      groundHolder.update(d.groundColor);
     };
     const drawBackdrops = () => {
       backdrops.replaceChildren(

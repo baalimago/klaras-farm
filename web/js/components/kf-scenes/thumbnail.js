@@ -1,6 +1,6 @@
 // Scene thumbnails for the shelf. Uses io/felt.js paintBackground (package A) when it loads;
 // otherwise, or if it throws, paints plain Sunny colours: sky, ground band and the pieces.
-import { hex } from "../../farm/palette.js";
+import { hex, sceneHex } from "../../farm/palette.js";
 
 let feltPromise = null;
 function loadFelt() {
@@ -39,10 +39,10 @@ export async function paintThumbnail(canvas, place) {
 
 export function paintPlain(ctx, place, w, hgt) {
   ctx.clearRect(0, 0, w, hgt);
-  ctx.fillStyle = hex(place.skyColor);
+  ctx.fillStyle = sceneHex(place.skyColor);
   ctx.fillRect(0, 0, w, hgt);
   const g = (GROUND_AT[place.backdrop] ?? 0.6) * hgt;
-  ctx.fillStyle = hex(place.groundColor);
+  ctx.fillStyle = sceneHex(place.groundColor);
   ctx.beginPath();
   if (place.backdrop === "sea") {
     ctx.moveTo(0, g);

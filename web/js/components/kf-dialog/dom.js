@@ -1,6 +1,6 @@
 // Tiny DOM helpers shared by the parent panels of package F2 (scenes, scene tools, settings,
 // welcome, dialog). User text only ever goes in through `text`/children (text nodes).
-import { hex } from "../../farm/palette.js";
+import { hex, isCustomColor, sceneColor, sceneHex } from "../../farm/palette.js";
 import { device } from "../../io/device.js";
 
 /**
@@ -43,6 +43,8 @@ const COLOR_NAMES = {
   sand: "Sand", cream: "Cream", lilac: "Lilac", pink: "Pink", red: "Red", orange: "Orange",
   yellow: "Yellow", blue: "Blue", brown: "Brown", tan: "Tan", white: "White", grey: "Grey", dark: "Dark brown",
   sun: "Sun yellow", cloud: "Cloud white", silver: "Silver",
+  mint: "Mint green", peach: "Peach", dusk: "Sunset orange", storm: "Storm grey", night: "Night blue",
+  moss: "Moss green", clay: "Clay red", mud: "Mud brown", snow: "Snow white",
 };
 export const colorName = (key) => COLOR_NAMES[key] ?? key.charAt(0).toUpperCase() + key.slice(1);
 
@@ -63,6 +65,49 @@ export function swatches(label, keys, selected, onPick) {
       }),
     );
   }
+  return group;
+}
+
+/**
+ * A sky or ground colour chooser: the preset swatches, then a native colour picker for any colour.
+ * Build it once and call `.update(selected)` after every change: it updates in place, because
+ * rebuilding would tear an open picker out of the page under the parent's finger.
+ * onPick(value, {live}) gets a palette key or "#rrggbb" (a picked colour equal to a preset becomes
+ * that key). The picker reports while it moves (live: true, at most once a frame) and when it
+ * commits its value (live: false); a swatch tap is live: false.
+ * @param {string} label @param {readonly string[]} keys @param {string} selected
+ * @param {(value: string, opts: {live: boolean}) => void} onPick
+ */
+export function sceneColors(label, keys, selected, onPick) {
+  const group = swatches(label, keys, selected, (key) => onPick(key, { live: false }));
+  group.classList.add("kf-scene-colors");
+  const input = h("input", { type: "color", class: "kf-swatch-input" });
+  const any = h("label", { class: "kf-swatch kf-swatch-any" }, [input]);
+  group.append(any);
+  let frame = 0;
+  const deliver = (live) => {
+    const value = sceneColor(input.value, keys);
+    if (value) onPick(value, { live });
+  };
+  input.addEventListener("input", () => {
+    if (frame) return;
+    frame = requestAnimationFrame(() => ((frame = 0), deliver(true)));
+  });
+  input.addEventListener("change", () => {
+    cancelAnimationFrame(frame);
+    frame = 0;
+    deliver(false);
+  });
+  group.update = (value) => {
+    for (const b of group.querySelectorAll("button.kf-swatch")) b.setAttribute("aria-pressed", String(b.dataset.color === value));
+    const picked = isCustomColor(value);
+    any.dataset.picked = String(picked);
+    any.style.setProperty("--picked", picked ? value : "#fff");
+    input.setAttribute("aria-label", picked ? "Any colour (picked)" : "Any colour");
+    const shown = sceneHex(value);
+    if (input.value !== shown) input.value = shown; // never reset a picker that already shows it
+  };
+  group.update(selected);
   return group;
 }
 

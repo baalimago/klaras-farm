@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { validateSnapshot, canonicalJson, canonicalSnapshot, emptySnapshot, clipKey, roundPoints } from "./snapshot.js";
+import { validateSnapshot, canonicalJson, canonicalSnapshot, emptySnapshot, clipKey, roundPoints, FORMAT_VERSION } from "./snapshot.js";
 import { aSnapshot, aPlace, aThing, aClip, fixedEnv } from "../../../tests/builders.js";
 
 const full = () => aSnapshot().withPlace(aPlace().withThing(aThing().withClip(aClip()).withClip(aClip({ kind: "prompt" })))).build();
@@ -11,13 +11,13 @@ test("a built snapshot and an empty one are valid", () => {
 });
 
 test("rejects files from a newer app that this one cannot read", () => {
-  const r = validateSnapshot({ ...full(), formatVersion: 6, minReaderFormat: 5 });
+  const r = validateSnapshot({ ...full(), formatVersion: FORMAT_VERSION + 1, minReaderFormat: FORMAT_VERSION + 1 });
   assert.equal(r.ok, false);
   assert.match(r.error, /newer/);
 });
 
 test("accepts a newer file that is still readable (additive change)", () => {
-  assert.equal(validateSnapshot({ ...full(), formatVersion: 5, minReaderFormat: 4 }).ok, true);
+  assert.equal(validateSnapshot({ ...full(), formatVersion: FORMAT_VERSION + 1, minReaderFormat: FORMAT_VERSION }).ok, true);
 });
 
 test("rejects duplicate clip keys, unknown references and bad colours", () => {
@@ -26,6 +26,29 @@ test("rejects duplicate clip keys, unknown references and bad colours", () => {
   assert.equal(validateSnapshot({ ...s, clips: [{ ...s.clips[0], thingId: "nope" }] }).ok, false);
   assert.equal(validateSnapshot({ ...s, things: [{ ...s.things[0], color: "#ff0000" }] }).ok, false);
   assert.equal(validateSnapshot({ ...s, settings: { ...s.settings, currentPlaceId: "nope" } }).ok, false);
+});
+
+// ---------- format 5: more sky and ground colours, and any colour from the picker ----------
+
+test("a place's sky and ground take a palette key or a lowercase #rrggbb; things and pieces do not", () => {
+  const s = full();
+  const withPlace = (over) => ({ ...s, places: [{ ...s.places[0], ...over }, ...s.places.slice(1)] });
+  assert.equal(validateSnapshot(withPlace({ skyColor: "night", groundColor: "snow" })).ok, true);
+  assert.equal(validateSnapshot(withPlace({ skyColor: "#12ab9f", groundColor: "#000000" })).ok, true);
+  for (const bad of ["#12AB9F", "#fff", "12ab9f", "#12ab9g", "rgb(1,2,3)", "", null, 7])
+    assert.equal(validateSnapshot(withPlace({ skyColor: bad })).ok, false, `sky ${bad}`);
+  assert.equal(validateSnapshot(withPlace({ groundColor: "#ABCDEF" })).ok, false);
+  const piece = { id: "pc", kind: "shape", stroke: [[0, 0], [1, 1]], color: "#ff0000" };
+  assert.equal(validateSnapshot(withPlace({ pieces: [piece] })).ok, false, "a piece colour stays a key");
+});
+
+test("migrate 4 → 5 only moves the version: format 4 colours are valid as they are", async () => {
+  const { migrate } = await import("./snapshot.js");
+  const v4 = { ...full(), formatVersion: 4, minReaderFormat: 4 };
+  const v5 = migrate(v4);
+  assert.equal(v5.formatVersion, 5);
+  assert.deepEqual({ ...v5, formatVersion: 4 }, v4);
+  assert.equal(validateSnapshot(v5).ok, true);
 });
 
 test("checks every clip's blob when blob shas are given", () => {
@@ -71,7 +94,7 @@ const v2Thing = (t) => { const { legs, ...rest } = t; return rest; };
 
 test("migrate 2 → 3 gives walkers the two legs the renderer drew, floaters none", async () => {
   const { migrate, FORMAT_VERSION } = await import("./snapshot.js");
-  assert.equal(FORMAT_VERSION, 4);
+  assert.equal(FORMAT_VERSION, 5);
   const s = aSnapshot().withPlace(aPlace()
     .withThing(aThing({ motion: { kind: "preset", preset: "walk", params: {} } }))
     .withThing(aThing({ motion: { kind: "preset", preset: "float", params: {} } }))
@@ -80,7 +103,7 @@ test("migrate 2 → 3 gives walkers the two legs the renderer drew, floaters non
   const v2 = { ...s, formatVersion: 2, things: s.things.map(v2Thing) };
   assert.equal(validateSnapshot(v2).ok, false, "a format 2 thing without legs is not valid as is");
   const v3 = migrate(v2);
-  assert.equal(v3.formatVersion, 4);
+  assert.equal(v3.formatVersion, FORMAT_VERSION);
   assert.deepEqual(validateSnapshot(v3), { ok: true });
   const [walk, float, scuttle, four] = v3.things;
   // square() outline: x 0.4…0.6, bottom 0.7; hips at 22 % and 78 % of the width, 3/600 above the bottom
@@ -97,7 +120,7 @@ test("migrate 1 → 3 runs both steps; things that already have legs keep them",
   const s = full();
   const v1 = { ...s, formatVersion: 1, things: s.things.map(v2Thing) };
   const v3 = migrate(v1);
-  assert.equal(v3.formatVersion, 4);
+  assert.equal(v3.formatVersion, FORMAT_VERSION);
   assert.equal(v3.things[0].legs.length, 2);
   const mine = { ...s.things[0], legs: [{ x: 0.5, y: 0.6 }] };
   assert.equal(withLegacyLegs(mine), mine);
@@ -105,8 +128,8 @@ test("migrate 1 → 3 runs both steps; things that already have legs keep them",
 
 test("storedFormat: records without legs come from a format 2 build", async () => {
   const { storedFormat } = await import("./snapshot.js");
-  assert.equal(storedFormat([]), 4);
-  assert.equal(storedFormat(full().things), 4);
+  assert.equal(storedFormat([]), FORMAT_VERSION);
+  assert.equal(storedFormat(full().things), FORMAT_VERSION);
   assert.equal(storedFormat(full().things.map(v2Thing)), 2);
 });
 
@@ -117,9 +140,9 @@ const v3Settings = (st) => { const { maxThings, ...rest } = st; return rest; };
 test("storedFormat: stored settings without maxThings come from a format 3 build; no settings says nothing", async () => {
   const { storedFormat } = await import("./snapshot.js");
   const s = full();
-  assert.equal(storedFormat(s.things, s.settings), 4);
+  assert.equal(storedFormat(s.things, s.settings), FORMAT_VERSION);
   assert.equal(storedFormat(s.things, v3Settings(s.settings)), 3);
-  assert.equal(storedFormat(s.things, null), 4);
+  assert.equal(storedFormat(s.things, null), FORMAT_VERSION);
   assert.equal(storedFormat(s.things.map(v2Thing), v3Settings(s.settings)), 2, "the oldest sign wins: every step runs");
 });
 
@@ -129,7 +152,7 @@ test("migrate 3 → 4 adds maxThings 8 and keeps cue lines and takes; mixed data
   const v3 = { ...s, formatVersion: 3, minReaderFormat: 1, settings: v3Settings(s.settings) };
   assert.equal(validateSnapshot(v3).ok, false, "a format 3 settings record lacks maxThings");
   const v4 = migrate(v3);
-  assert.equal(v4.formatVersion, 4);
+  assert.equal(v4.formatVersion, FORMAT_VERSION);
   assert.equal(v4.settings.maxThings, 8);
   assert.deepEqual(v4.things[0].cues, s.things[0].cues);
   assert.equal(v4.clips[0].take, 3);

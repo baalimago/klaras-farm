@@ -382,3 +382,22 @@ test("updateThing replaces legs and leaves them alone when not patched", () => {
   assert.deepEqual(none.snapshot.things[0].legs, []);
   assert.throws(() => I.updateThing(s, { thingId: id, patch: { legs: "four" } }, env()), { code: "invalid" });
 });
+
+test("updatePlace takes a preset or a picked colour for sky and ground, stored lowercase", () => {
+  const s = aSnapshot().withPlace(aPlace()).build();
+  const placeId = s.places[0].id;
+  const r = I.updatePlace(s, { placeId, patch: { skyColor: "#1A2B3C", groundColor: "moss" } }, env());
+  assert.deepEqual([r.snapshot.places[0].skyColor, r.snapshot.places[0].groundColor], ["#1a2b3c", "moss"]);
+  valid(r.snapshot);
+  const back = I.updatePlace(r.snapshot, { placeId, patch: { skyColor: "sky" } }, env());
+  assert.equal(back.snapshot.places[0].skyColor, "sky");
+  for (const bad of ["#123", "red-ish", "#gggggg", null])
+    assert.throws(() => I.updatePlace(s, { placeId, patch: { groundColor: bad } }, env()), { code: "invalid" });
+});
+
+test("createPlace takes a picked sky and ground colour", () => {
+  const r = I.createPlace(emptySnapshot(env()), { name: "Night", backdrop: "blank", skyColor: "#2E3A6E", groundColor: "#FFFFFF" }, env());
+  const place = r.snapshot.places[0];
+  assert.deepEqual([place.skyColor, place.groundColor], ["#2e3a6e", "#ffffff"]);
+  assert.throws(() => I.createPlace(emptySnapshot(env()), { name: "x", skyColor: "#nothex" }, env()), { code: "invalid" });
+});

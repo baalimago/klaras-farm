@@ -13,6 +13,8 @@ const GROUP_OF = Object.freeze({
   leaf: "green", water: "blue", deep: "blue", sand: "yellow", rock: "grey", orange: "orange", wall: "white",
   floor: "brown", window: "blue", pink: "pink", blue: "blue", yellow: "yellow", tan: "brown", brown: "brown",
   cream: "white", lilac: "purple", silver: "grey", grey: "grey", dark: "black",
+  mint: "green", peach: "orange", dusk: "orange", storm: "grey", night: "blue", moss: "green", clay: "orange",
+  mud: "brown", snow: "white",
 });
 
 /** The simple colour of a felt key, or null for an unknown key. */

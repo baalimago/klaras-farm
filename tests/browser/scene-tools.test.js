@@ -381,3 +381,66 @@ test("pointer steps are guarded: a failing capture or board rect never eats the 
   assert.deepEqual(await pressed(page), ["shape"]);
   assert.deepEqual(page.errors, []);
 });
+
+// The native picker is driven the way the iPad drives it: its value changes with `input` events while
+// the finger moves, and `change` when the colour is committed.
+async function movePicker(page, values, commit = true) {
+  await page.evaluate(async ({ values, commit }) => {
+    const input = document.querySelector('kf-scene-tools [role="dialog"] input[type="color"]');
+    const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    for (const v of values) {
+      input.value = v;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      await frame();
+    }
+    if (commit) input.dispatchEvent(new Event("change", { bubbles: true }));
+  }, { values, commit });
+}
+
+test("sky and ground: many presets, and any colour from the picker, live, as one Undo", async () => {
+  const page = await open();
+  const t = tools(page);
+  await t.getByRole("button", { name: "Sky", exact: true }).click();
+  const sheet = page.getByRole("dialog", { name: "Sky colour" });
+  assert.ok((await sheet.locator("button.kf-swatch").count()) >= 10, "plenty of skies");
+  await sheet.getByRole("button", { name: "Night blue" }).click();
+  await until(page, () => window.services.store.currentPlace.skyColor === "night");
+  assert.equal(await sheet.getByRole("button", { name: "Night blue" }).getAttribute("aria-pressed"), "true");
+  const picker = sheet.getByLabel("Any colour", { exact: true });
+  assert.equal(await picker.inputValue(), "#2e3a6e", "the picker starts on the colour shown");
+  await assertAccessible(page);
+
+  await page.evaluate(() => { document.querySelector('kf-scene-tools input[type="color"]').dataset.mark = "kept"; });
+  const chimesBefore = (await chimes(page)).length;
+  await movePicker(page, ["#ff0000", "#00ff00", "#123ABC"], false);
+  await until(page, () => window.services.store.currentPlace.skyColor === "#123abc");
+  assert.equal(await page.evaluate(() => document.querySelector('kf-scene-tools input[type="color"]')?.dataset.mark), "kept",
+    "the picker is updated in place while it moves, never rebuilt (an open popover would close)");
+  assert.equal((await chimes(page)).length, chimesBefore, "no sound per move");
+  await movePicker(page, ["#123abc"]); // the commit of what is already shown
+  assert.equal((await chimes(page)).length, chimesBefore + 1, "one sound for the commit");
+  assert.equal(await sheet.getByLabel("Any colour (picked)").count(), 1);
+  assert.equal(await sheet.locator('button.kf-swatch[aria-pressed="true"]').count(), 0, "no preset is marked");
+
+  const undo = t.getByRole("button", { name: "Undo", exact: true });
+  await undo.click();
+  await until(page, () => window.services.store.currentPlace.skyColor === "night");
+  assert.equal(await sheet.getByRole("button", { name: "Night blue" }).getAttribute("aria-pressed"), "true", "the sheet shows the undo at once");
+
+  await t.getByRole("button", { name: "Ground", exact: true }).click();
+  const ground = page.getByRole("dialog", { name: "Ground colour" });
+  assert.ok((await ground.locator("button.kf-swatch").count()) >= 10, "plenty of grounds");
+  await movePicker(page, ["#7CCC4F"]); // exactly Grass green: the swatch, not a custom colour
+  await until(page, () => window.services.store.currentPlace.groundColor === "grass");
+  await movePicker(page, ["#aa5500"]);
+  await until(page, () => window.services.store.currentPlace.groundColor === "#aa5500");
+  await page.waitForTimeout(50);
+  const persisted = await page.evaluate(() => window.services.store.snapshot.places.find((p) => p.id === "farm").groundColor);
+  assert.equal(persisted, "#aa5500");
+  await ground.getByRole("button", { name: "Close" }).click();
+  await undo.click();
+  await until(page, () => window.services.store.currentPlace.groundColor === "grass");
+  await undo.click();
+  await until(page, () => window.services.store.currentPlace.skyColor === "sky"); // the Night blue tap; Grass was no edit
+  await page.close();
+});

@@ -12,9 +12,10 @@
 //   lifted:   null | pieceId   a dropped piece the board still shows lifted, until the store's change
 //                              for it arrives (then the renderer draws it from the store itself)
 //   undo:     UndoEntry[]      the edits that can be taken back, newest last, at most UNDO_LIMIT.
-//                              UndoEntry = {seq, placeId, before}: `before` is the place's
+//                              UndoEntry = {seq, placeId, before, merge?}: `before` is the place's
 //                              {pieces, skyColor, groundColor, backdrop} as it was, so Undo is one
-//                              store.updatePlace with it.
+//                              store.updatePlace with it. `merge` ('sky' | 'ground') marks an open
+//                              run of colour-picker edits that later picks fold into (see `edited`).
 //   undoing:  UndoEntry[]      entries taken back whose Undo write has not committed yet
 //   seq:      number           the last entry's number (each edit gets the next one)
 //
@@ -26,8 +27,9 @@
 // Transitions (anything not listed leaves the state as it is, and returns the same object):
 //   tool {tool}          → that tool, sheet closed (Sky and Ground open their sheet), drag dropped;
 //                          the selection stays. Colour with a selection opens the piece sheet.
+//                          An open picker run is sealed.
 //   open-sheet {sheet}   → 'draw' in Shape/Line, 'piece' with a selection, 'start' always.
-//   close-sheet          → no sheet.
+//   close-sheet          → no sheet; an open picker run is sealed.
 //   tap-piece {id}       → selects it (Move, Colour, Delete). Colour opens the piece sheet.
 //   tap-empty            → unchanged.
 //   deselect             → no selection, piece sheet closed.
@@ -37,7 +39,12 @@
 //   drop                 → (a drag that moved) no drag; the piece stays lifted until `pieces` or `lift-done`.
 //   lift-done            → nothing lifted (the drop changed nothing in the store).
 //   pieces {ids}         → the store changed: the lift ends; a selection or drag of a gone piece ends.
-//   edited {placeId, before} → push an undo entry (the oldest goes past UNDO_LIMIT).
+//   edited {placeId, before, merge?, seal?} → push an undo entry (the oldest goes past UNDO_LIMIT).
+//                          With `merge`, while the newest entry is an open run with the same merge
+//                          and place, the edit folds into it instead: the entry keeps its `before`
+//                          and takes the new seq, so dragging through the colour picker is one Undo.
+//                          `seal` (the picker committed its value) closes the run after this edit.
+//   seal                 → the newest entry's run (if open) is closed: the next pick starts a new entry.
 //   edit-failed {seq}    → that edit's write failed: its entry goes (from undo or undoing).
 //   undo                 → the newest entry moves to undoing (read it first with undoTop).
 //   undo-saved {seq}     → the Undo committed: the entry is gone for good.
@@ -74,6 +81,14 @@ export function placeBefore(place) {
 }
 
 const withoutSeq = (list, seq) => list.filter((u) => u.seq !== seq);
+
+/** The state with the newest entry's picker run closed (the same object when none is open). */
+function sealed(s) {
+  const top = undoTop(s);
+  if (!top?.merge) return s;
+  const { merge, ...entry } = top;
+  return { ...s, undo: [...s.undo.slice(0, -1), entry] };
+}
 const capped = (list) => (list.length > UNDO_LIMIT ? list.slice(list.length - UNDO_LIMIT) : list);
 
 /** True while a sheet is open: the board underneath takes no input. */
@@ -101,7 +116,7 @@ export function nextSceneTools(s, e) {
       if (e.tool === "sky" || e.tool === "ground") sheet = e.tool;
       else if (e.tool === "colour" && s.selected) sheet = "piece";
       if (e.tool === s.tool && sheet === s.sheet && !s.drag) return s;
-      return { ...s, tool: e.tool, sheet, drag: null };
+      return { ...sealed(s), tool: e.tool, sheet, drag: null };
     }
     case "open-sheet": {
       if (s.drag) return s;
@@ -109,7 +124,9 @@ export function nextSceneTools(s, e) {
       return ok && s.sheet !== e.sheet ? { ...s, sheet: e.sheet } : s;
     }
     case "close-sheet":
-      return s.sheet ? { ...s, sheet: null } : s;
+      return s.sheet ? { ...sealed(s), sheet: null } : s;
+    case "seal":
+      return sealed(s);
     case "tap-piece": {
       if (!e.id || s.sheet || !["move", "colour", "delete"].includes(s.tool)) return s;
       const sheet = s.tool === "colour" ? "piece" : null;
@@ -153,7 +170,11 @@ export function nextSceneTools(s, e) {
     case "edited": {
       if (!e.placeId || !e.before) return s;
       const seq = s.seq + 1;
-      return { ...s, seq, undo: capped([...s.undo, { seq, placeId: e.placeId, before: e.before }]) };
+      const top = undoTop(s);
+      const run = e.merge && top?.merge === e.merge && top.placeId === e.placeId;
+      const entry = run ? { ...top, seq } : { seq, placeId: e.placeId, before: e.before, merge: e.merge || undefined };
+      if (e.seal || !entry.merge) delete entry.merge;
+      return { ...s, seq, undo: capped([...(run ? s.undo.slice(0, -1) : s.undo), entry]) };
     }
     case "edit-failed": {
       const undo = withoutSeq(s.undo, e.seq);
@@ -161,7 +182,7 @@ export function nextSceneTools(s, e) {
       return undo.length === s.undo.length && undoing.length === s.undoing.length ? s : { ...s, undo, undoing };
     }
     case "undo": {
-      const top = undoTop(s);
+      const top = undoTop(sealed(s)); // an entry that comes back after a failed Undo is a run no more
       return top ? { ...s, undo: s.undo.slice(0, -1), undoing: [...s.undoing, top] } : s;
     }
     case "undo-saved": {
