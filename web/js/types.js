@@ -5,6 +5,7 @@
 /** @typedef {[number, number]} Point */
 
 /** Palette keys from web/js/farm/palette.js, e.g. "red", "sky". Never hex in data. @typedef {string} ColorKey */
+/** A place's sky or ground: a ColorKey, or a colour the parent picked freely, "#rrggbb" lowercase (format 5). @typedef {string} SceneColor */
 
 /** BCP 47 language tag, e.g. "sv", "en", "de". @typedef {string} Lang */
 
@@ -21,8 +22,8 @@
  * @property {string} id
  * @property {string} name                 parent-only text
  * @property {'meadow'|'sea'|'room'|'blank'} backdrop
- * @property {ColorKey} skyColor
- * @property {ColorKey} groundColor
+ * @property {SceneColor} skyColor
+ * @property {SceneColor} groundColor
  * @property {Piece[]} pieces               drawing order
  * @property {string[]} thingOrder          thing ids, drawing order (back to front)
  * @property {string} createdAt             ISO 8601
@@ -110,7 +111,7 @@
  */
 
 /**
- * @typedef {Object} Snapshot   Format version FORMAT_VERSION (farm/snapshot.js, now 4). Also the export manifest.
+ * @typedef {Object} Snapshot   Format version FORMAT_VERSION (farm/snapshot.js, now 5). Also the export manifest.
  * @property {number} formatVersion
  * @property {number} minReaderFormat
  * @property {string} appVersion

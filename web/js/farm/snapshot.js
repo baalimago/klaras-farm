@@ -1,5 +1,5 @@
 // The snapshot as a whole: creation, validation, canonical form and migration.
-import { isColorKey, SIMPLE_COLORS } from "./palette.js";
+import { isColorKey, isSceneColor, SIMPLE_COLORS } from "./palette.js";
 import { MAX_LEGS, isLeg, legacyLegCount, spreadLegs } from "./legs.js";
 
 // Format history (additive only, ARCHITECTURE §9.5):
@@ -15,8 +15,12 @@ import { MAX_LEGS, isLeg, legacyLegCount, spreadLegs } from "./legs.js";
 //      'color-question', both with thingId null. minReaderFormat is 4: a format 3 app would call
 //      such a file damaged (thingId null, takes over 3, more than 4 things), so it says
 //      "made by a newer version" instead.
-export const FORMAT_VERSION = 4;
-export const MIN_READER_FORMAT = 4;
+//   5: more palette keys (mint, peach, dusk, storm, night, moss, clay, mud, snow), and a place's
+//      skyColor / groundColor may hold a freely picked colour, "#rrggbb" lowercase. Nothing to
+//      migrate. minReaderFormat is 5: a format 4 app would call a place with a new key or a custom
+//      colour damaged, so it says "made by a newer version" instead.
+export const FORMAT_VERSION = 5;
+export const MIN_READER_FORMAT = 5;
 /** Things per place: the family's cap is `settings.maxThings`, from 1 to MAX_THINGS_LIMIT. */
 export const MAX_THINGS_LIMIT = 12;
 export const DEFAULT_MAX_THINGS = 8;
@@ -93,7 +97,7 @@ export function validateSnapshot(s, opts = {}) {
     placeIds.add(p.id);
     if (!isStr(p.name)) return fail(`place ${p.id}: name`);
     if (!BACKDROPS.includes(p.backdrop)) return fail(`place ${p.id}: backdrop`);
-    if (!isColorKey(p.skyColor) || !isColorKey(p.groundColor)) return fail(`place ${p.id}: colours`);
+    if (!isSceneColor(p.skyColor) || !isSceneColor(p.groundColor)) return fail(`place ${p.id}: colours`);
     if (!Array.isArray(p.pieces) || !Array.isArray(p.thingOrder)) return fail(`place ${p.id}: pieces`);
     for (const piece of p.pieces) {
       if (!isStr(piece?.id) || !["shape", "yarn"].includes(piece.kind)) return fail(`place ${p.id}: piece kind`);
@@ -191,6 +195,8 @@ const STEPS = {
   // 3 → 4: the per-place cap becomes a setting (default 8). Cue lines and clips keep their meaning:
   // an empty line still means "the example question", and takes 1–3 stay where they were.
   3: (s) => ({ ...s, formatVersion: 4, settings: withMaxThings(s.settings) }),
+  // 4 → 5: new palette keys and custom sky/ground colours are additions; format 4 data is valid as is.
+  4: (s) => ({ ...s, formatVersion: 5 }),
 };
 
 /** Settings as format 4 has them: `maxThings` set (default 8) when it is missing or out of range. */

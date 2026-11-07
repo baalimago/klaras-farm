@@ -4,6 +4,7 @@
   --leaf: #3fb85f; --water: #3fb6e8; --sand: #ffd98a; --orange: #ff8c2b; --wall: #fff1c9; --pink: #ff8fb8;
   --blue: #3d8bff; --yellow: #ffd23c; --brown: #8c5a33; --cream: #fff6e0; --lilac: #b48cff; --dark: #3b2a22;
   --ink: #4a3326;
+  --rainbow: conic-gradient(var(--red), var(--yellow), var(--grass), var(--water), var(--blue), var(--lilac), var(--pink), var(--red)); /* the "any colour" swatch */
   --ink-soft: #7a6152;
   --stitch: #eadcc6;         /* the stitched felt edge of parent cards, dividers and chips */
   --paper: #fffaf0;

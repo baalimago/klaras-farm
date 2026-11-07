@@ -161,7 +161,7 @@ kf-scene-tools { position: absolute; inset: 0; display: block; touch-action: non
     align-content: start;
   }
   .kf-st-options { grid-column: 1; }
-  .kf-st-done { grid-column: 2; grid-row: 1; margin: 0; }
+  .kf-st-done { grid-column: 2; grid-row: 1; align-self: start; margin: 0; }
   .kf-st-actions { display: flex; flex-wrap: wrap; }
   .kf-st-templates { display: flex; flex-wrap: wrap; }
   .kf-st-colour { justify-self: start; }

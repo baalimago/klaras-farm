@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { checkImport, countsOf, ImportError, blobPath, exportName, MANIFEST } from "./import.js";
-import { canonicalJson } from "./snapshot.js";
+import { canonicalJson, FORMAT_VERSION } from "./snapshot.js";
 import { aSnapshot, aPlace, aThing, aClip } from "../../../tests/builders.js";
 
 const NOW = "2026-11-03T12:00:00.000Z";
@@ -58,12 +58,12 @@ describe("checkImport", () => {
   });
 
   it("rejects a file whose minReaderFormat is newer than this app reads", () => {
-    const s = { ...farm(), formatVersion: 7, minReaderFormat: 5 };
+    const s = { ...farm(), formatVersion: FORMAT_VERSION + 2, minReaderFormat: FORMAT_VERSION + 1 };
     rejects(() => checkImport(input(s), { createdAt: NOW }), "newer");
   });
 
   it("accepts a newer formatVersion that this app can still read, keeping unknown fields", () => {
-    const s = { ...farm(), formatVersion: 5, minReaderFormat: 4, futureField: { x: 1 } };
+    const s = { ...farm(), formatVersion: FORMAT_VERSION + 1, minReaderFormat: FORMAT_VERSION, futureField: { x: 1 } };
     const out = checkImport(input(s), { createdAt: NOW });
     assert.deepEqual(out.snapshot.futureField, { x: 1 });
   });
