@@ -90,7 +90,6 @@ test("a parent adds a thing with 4 legs through guided add; the legs survive a r
   await page.getByRole("button", { name: "Next" }).click();
   await page.locator('input[name="name"]').fill("Dog");
   await page.getByRole("button", { name: "Next" }).click();
-  await page.getByRole("button", { name: "Skip for now" }).click();
   await page.getByRole("button", { name: "Skip" }).click();
   await page.locator("kf-guided-add").waitFor({ state: "detached" });
 

@@ -2,16 +2,16 @@
 // as missing. The panel renders from this state and the store after every event.
 //
 //   state = {game:'animal'|'color', lang, recording:null|Slot, picked:null|colour, asks:0..6}
-//   asks: how many colour question slots the parent asked to see (0 = only what is recorded)
 //   error: null | 'quota' | 'failed', the last save that did not stick (shown until the next action)
-//   Slot  = {kind:'prompt', thingId, take} | {kind:'color-question', take} | {kind:'color-word', color}
+//   asks: how many question slots (find or colour) the parent asked to see (0 = only what is recorded)
+//   Slot  = {kind:'find-question', take} | {kind:'name', thingId} | {kind:'color-question', take} | {kind:'color-word', color}
 //
 //   lang(l)        another language tab: closes the recorder (a take belongs to one language)
 //   pick(colour)   the colour game: an animal or a swatch was tapped; its word slot shows
 //   record(slot)   opens the recorder on one slot (only one at a time)
 //   cancel | saved closes the recorder (saved: the take was stored)
 //   failed {code}  a save was refused or did not reach the disk (the store already rolled back)
-//   add-ask {shown} one more colour question slot than the `shown` ones (up to MAX_QUESTIONS)
+//   add-ask {shown} one more question slot than the `shown` ones (up to MAX_QUESTIONS)
 import { SIMPLE_COLORS } from "../../farm/palette.js";
 import { MAX_QUESTIONS } from "../../farm/snapshot.js";
 
@@ -48,7 +48,7 @@ export function isRecording(s, slot) {
   return (r.thingId ?? null) === (slot.thingId ?? null) && (r.take ?? 1) === (slot.take ?? 1) && (r.color ?? null) === (slot.color ?? null);
 }
 
-/** How many colour question slots show: up to the highest recorded take, or as many as the parent asked for, at least 1. */
+/** How many question slots show: up to the highest recorded take, or as many as the parent asked for, at least 1. */
 export function askSlots(s, questionTakes) {
   return Math.min(MAX_QUESTIONS, Math.max(1, s.asks, ...questionTakes));
 }
@@ -64,8 +64,18 @@ export function colorMissing({ needed, words, questions, lang }) {
   return { question: !questions.some((q) => q.language === lang), colors };
 }
 
+/**
+ * What the find game still needs in a language: the question, and the names of the scene's things.
+ * @param {{things: string[], names: {thingId:string, language:string}[], questions: {language:string}[], lang: string}} o
+ * @returns {{question: boolean, things: string[]}}  things: ids of the things whose name is missing
+ */
+export function nameMissing({ things, names, questions, lang }) {
+  const have = new Set(names.filter((n) => n.language === lang).map((n) => n.thingId));
+  return { question: !questions.some((q) => q.language === lang), things: things.filter((id) => !have.has(id)) };
+}
+
 /** Parent copy for what is missing ("Still to record: the question, red, pink."), or null when done. */
-export function missingText(missing, colorName = (c) => c) {
-  const parts = [...(missing.question ? ["the question"] : []), ...missing.colors.map(colorName)];
+export function missingText(missing, label = (c) => c) {
+  const parts = [...(missing.question ? ["the question"] : []), ...(missing.colors ?? missing.things ?? []).map(label)];
   return parts.length ? `Still to record: ${parts.join(", ")}.` : null;
 }

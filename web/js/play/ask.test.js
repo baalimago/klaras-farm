@@ -1,36 +1,41 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { planAnimalAsk, planColorAsk, colorAskLanguage, recordedColorLangs } from "./ask.js";
+import { planAnimalAsk, planColorAsk, askLanguage, recordedLangs } from "./ask.js";
 
-const clip = (id, language = "en", kind = "prompt") => ({ id, language, kind });
+const clip = (id, language = "en", kind = "find-question") => ({ id, language, kind });
 const kinds = (plan) => plan.ask.map((s) => s.kind);
-const base = { prompts: [], lang: "en", lines: ["Where is the hen?", "Can you find the hen?"], linesLang: "en", name: null, sound: null, canSpeak: true, rng: () => 0 };
+const base = { questions: [], names: [], lang: "en", lines: ["Where is the hen?", "Can you find the hen?"], linesLang: "en", sound: null, canSpeak: true, rng: () => 0 };
+const henEn = clip("n-en", "en", "name");
 
-test("animal: the recorded question first, then the device voice, the name, a chime; the sound is the clue", () => {
+test("animal: the recorded question and name as one sequence, then the device voice, the name, a chime; the sound is the clue", () => {
   const sound = clip("s", "en", "sound");
-  const name = clip("n", "en", "name");
-  const plan = planAnimalAsk({ ...base, prompts: [clip("p1"), clip("p2")], name, sound });
-  assert.deepEqual(kinds(plan), ["clip", "speak", "clip", "chime"]);
-  assert.equal(plan.ask[0].clip.id, "p1");
+  const plan = planAnimalAsk({ ...base, questions: [clip("q1"), clip("q2")], names: [henEn], sound });
+  assert.deepEqual(kinds(plan), ["clips", "speak", "clip", "chime"]);
+  assert.deepEqual(plan.ask[0].clips.map((c) => c.id), ["q1", "n-en"], "the question first, then the name");
   assert.equal(plan.ask[1].text, "Where is the hen?");
-  assert.equal(plan.ask[2].clip, name);
+  assert.equal(plan.ask[2].clip, henEn);
   assert.deepEqual(plan.clue, { kind: "clip", clip: sound });
+  assert.equal(plan.recorded, true);
 });
 
-test("animal: a random take among the recorded ones, never the same one twice in a row", () => {
-  const prompts = [clip("p1"), clip("p2"), clip("p3")];
-  assert.equal(planAnimalAsk({ ...base, prompts, rng: () => 0.99 }).ask[0].clip.id, "p3");
-  assert.equal(planAnimalAsk({ ...base, prompts, rng: () => 0, lastId: "p1" }).ask[0].clip.id, "p2");
-  assert.equal(planAnimalAsk({ ...base, prompts: [clip("p1")], lastId: "p1" }).ask[0].clip.id, "p1", "one take repeats");
+test("animal: a random question take, never the same one twice in a row", () => {
+  const questions = [clip("q1"), clip("q2"), clip("q3")];
+  const first = (o) => planAnimalAsk({ ...base, names: [henEn], ...o }).ask[0].clips[0].id;
+  assert.equal(first({ questions, rng: () => 0.99 }), "q3");
+  assert.equal(first({ questions, rng: () => 0, lastId: "q1" }), "q2");
+  assert.equal(first({ questions: [clip("q1")], lastId: "q1" }), "q1", "one take repeats");
 });
 
-test("animal: prompts in the play language win; else the device voice, then another language's prompts", () => {
-  const prompts = [clip("en1"), clip("sv1", "sv")];
-  assert.equal(planAnimalAsk({ ...base, prompts, lang: "sv" }).ask[0].clip.id, "sv1");
-  const de = planAnimalAsk({ ...base, prompts: [clip("sv1", "sv")], lang: "de" });
-  assert.deepEqual(kinds(de), ["speak", "clip", "chime"], "QA round 3: the card says the iPad voice reads it");
-  assert.equal(de.ask[1].clip.id, "sv1", "a recording still asks when the voice is not heard");
-  assert.equal(planAnimalAsk({ ...base, prompts: [clip("sv1", "sv")], lang: "de", canSpeak: false }).ask[0].clip.id, "sv1");
+test("animal: question and name must be in the same language, else the device voice says the whole line", () => {
+  const sv = planAnimalAsk({ ...base, questions: [clip("q-en"), clip("q-sv", "sv")], names: [henEn, clip("n-sv", "sv", "name")], lang: "sv" });
+  assert.deepEqual(sv.ask[0].clips.map((c) => c.id), ["q-sv", "n-sv"]);
+  const noName = planAnimalAsk({ ...base, questions: [clip("q-sv", "sv")], names: [henEn], lang: "sv" });
+  assert.deepEqual(kinds(noName), ["speak", "clip", "chime"], "no Swedish name: the iPad voice asks");
+  assert.equal(noName.ask[1].clip, henEn, "the other language's name still plays when the voice is not heard");
+  assert.equal(noName.recorded, false);
+  const noQuestion = planAnimalAsk({ ...base, names: [henEn] });
+  assert.deepEqual(kinds(noQuestion), ["speak", "clip", "chime"]);
+  assert.equal(noQuestion.recorded, false, "a recorded name alone is not a recorded question");
 });
 
 test("animal: no recording and no voice still asks something; no sound means no clue", () => {
@@ -39,6 +44,7 @@ test("animal: no recording and no voice still asks something; no sound means no 
   assert.equal(plan.clue, null);
   assert.deepEqual(kinds(planAnimalAsk({ ...base, lines: [] })), ["chime"]);
   assert.equal(planAnimalAsk({ ...base, rng: () => 0.9 }).ask[0].text, "Can you find the hen?", "a random line");
+  assert.deepEqual(kinds(planAnimalAsk({ ...base, canSpeak: false, questions: [clip("q")], names: [clip("n-sv", "sv", "name")] })), ["clip", "chime"], "no voice: the name alone");
 });
 
 test("colour: recorded question + word in the same language play as one sequence", () => {
@@ -60,12 +66,13 @@ test("colour: a missing word or question falls back to the device voice, then an
   assert.deepEqual(kinds(planColorAsk({ questions: [], words: [], lang: "en", line: null, canSpeak: true, rng: () => 0 })), ["chime"]);
 });
 
-test("colour language: fixed, or mixed among the fully recorded languages", () => {
-  assert.equal(colorAskLanguage({ playLanguage: "sv", languages: ["en", "sv"] }, ["en"], () => 0), "sv");
-  assert.equal(colorAskLanguage({ playLanguage: "alternate", languages: ["en", "sv"] }, ["sv"], () => 0), "sv");
-  assert.equal(colorAskLanguage({ playLanguage: "alternate", languages: ["en", "sv"] }, [], () => 0.9), "sv");
+test("round language: fixed, or mixed among the fully recorded languages", () => {
+  assert.equal(askLanguage({ playLanguage: "sv", languages: ["en", "sv"] }, ["en"], () => 0), "sv");
+  assert.equal(askLanguage({ playLanguage: "alternate", languages: ["en", "sv"] }, ["sv"], () => 0), "sv");
+  assert.equal(askLanguage({ playLanguage: "alternate", languages: ["en", "sv"] }, [], () => 0.9), "sv");
   const q = [clip("q", "en", "color-question"), clip("q2", "de", "color-question")];
-  assert.deepEqual(recordedColorLangs(q, [clip("w", "en", "color-word"), clip("w2", "sv", "color-word")]), ["en"]);
+  assert.deepEqual(recordedLangs(q, [clip("w", "en", "color-word"), clip("w2", "sv", "color-word")]), ["en"]);
+  assert.deepEqual(recordedLangs([clip("q", "sv")], [henEn, clip("n-sv", "sv", "name")]), ["sv"], "find question and name");
 });
 
 test("the device voice reads a line in the language of its script, not the play language", () => {
@@ -77,12 +84,10 @@ test("the device voice reads a line in the language of its script, not the play 
 });
 
 test("recorded tells whether the parent's own question plays (the find buttons' recording tip)", () => {
-  assert.equal(planAnimalAsk({ ...base, prompts: [clip("p1")] }).recorded, true);
-  assert.equal(planAnimalAsk({ ...base, prompts: [clip("sv1", "sv")], lang: "en" }).recorded, false, "the iPad voice asks in English: tip");
-  assert.equal(planAnimalAsk({ ...base, prompts: [clip("sv1", "sv")], lang: "en", canSpeak: false }).recorded, true, "no voice: another language's recording asks");
-  assert.equal(planAnimalAsk({ ...base, name: clip("n", "en", "name") }).recorded, false, "a recorded name is not a question");
+  assert.equal(planAnimalAsk({ ...base, questions: [clip("q")], names: [henEn] }).recorded, true);
+  assert.equal(planAnimalAsk({ ...base, questions: [clip("q")] }).recorded, false, "no name");
+  assert.equal(planAnimalAsk({ ...base, questions: [clip("q-sv", "sv")], names: [henEn] }).recorded, false, "question in another language");
   assert.equal(planAnimalAsk({ ...base, canSpeak: false }).recorded, false);
-  assert.equal(planAnimalAsk({ ...base, lines: [], prompts: [clip("sv1", "sv")], lang: "en" }).recorded, true, "a voice with no lines to read: the other language's recording asks");
   const line = { text: "Tap on an animal that is yellow!", lang: "en" };
   const q = [clip("q", "en", "color-question")];
   const w = [clip("w", "en", "color-word")];
@@ -91,3 +96,13 @@ test("recorded tells whether the parent's own question plays (the find buttons' 
   assert.equal(planColorAsk({ questions: [], words: w, lang: "en", line, canSpeak: true, rng: () => 0 }).recorded, false, "no question");
   assert.equal(planColorAsk({ questions: q, words: [clip("w-sv", "sv", "color-word")], lang: "en", line, canSpeak: true, rng: () => 0 }).recorded, false);
 });
+
+test("missing says what keeps a round from playing fully recorded (the recording tip names it)", () => {
+  assert.equal(planAnimalAsk({ ...base, names: [henEn] }).missing, "question");
+  assert.equal(planAnimalAsk({ ...base, questions: [clip("q")] }).missing, "word");
+  assert.equal(planAnimalAsk({ ...base, questions: [clip("q")], names: [henEn] }).missing, null);
+  const line = { text: "Tap", lang: "en" };
+  assert.equal(planColorAsk({ questions: [clip("q", "en", "color-question")], words: [], lang: "en", line, canSpeak: true, rng: () => 0 }).missing, "word");
+  assert.equal(planColorAsk({ questions: [], words: [], lang: "en", line, canSpeak: true, rng: () => 0 }).missing, "question");
+});
+

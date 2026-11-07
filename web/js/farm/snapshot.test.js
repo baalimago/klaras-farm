@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { validateSnapshot, canonicalJson, canonicalSnapshot, emptySnapshot, clipKey, roundPoints, FORMAT_VERSION } from "./snapshot.js";
 import { aSnapshot, aPlace, aThing, aClip, fixedEnv } from "../../../tests/builders.js";
 
-const full = () => aSnapshot().withPlace(aPlace().withThing(aThing().withClip(aClip()).withClip(aClip({ kind: "prompt" })))).build();
+const full = () => aSnapshot().withPlace(aPlace().withThing(aThing().withClip(aClip()).withClip(aClip({ kind: "sound" })))).build();
 
 test("a built snapshot and an empty one are valid", () => {
   assert.deepEqual(validateSnapshot(full()), { ok: true });
@@ -11,7 +11,7 @@ test("a built snapshot and an empty one are valid", () => {
 });
 
 test("rejects files from a newer app that this one cannot read", () => {
-  const r = validateSnapshot({ ...full(), formatVersion: FORMAT_VERSION + 1, minReaderFormat: FORMAT_VERSION + 1 });
+  const r = validateSnapshot({ ...full(), formatVersion: FORMAT_VERSION + 2, minReaderFormat: FORMAT_VERSION + 1 });
   assert.equal(r.ok, false);
   assert.match(r.error, /newer/);
 });
@@ -46,7 +46,7 @@ test("migrate 4 → 5 only moves the version: format 4 colours are valid as they
   const { migrate } = await import("./snapshot.js");
   const v4 = { ...full(), formatVersion: 4, minReaderFormat: 4 };
   const v5 = migrate(v4);
-  assert.equal(v5.formatVersion, 5);
+  assert.equal(v5.formatVersion, 6);
   assert.deepEqual({ ...v5, formatVersion: 4 }, v4);
   assert.equal(validateSnapshot(v5).ok, true);
 });
@@ -94,7 +94,7 @@ const v2Thing = (t) => { const { legs, ...rest } = t; return rest; };
 
 test("migrate 2 → 3 gives walkers the two legs the renderer drew, floaters none", async () => {
   const { migrate, FORMAT_VERSION } = await import("./snapshot.js");
-  assert.equal(FORMAT_VERSION, 5);
+  assert.equal(FORMAT_VERSION, 6);
   const s = aSnapshot().withPlace(aPlace()
     .withThing(aThing({ motion: { kind: "preset", preset: "walk", params: {} } }))
     .withThing(aThing({ motion: { kind: "preset", preset: "float", params: {} } }))
@@ -146,22 +146,59 @@ test("storedFormat: stored settings without maxThings come from a format 3 build
   assert.equal(storedFormat(s.things.map(v2Thing), v3Settings(s.settings)), 2, "the oldest sign wins: every step runs");
 });
 
-test("migrate 3 → 4 adds maxThings 8 and keeps cue lines and takes; mixed data is safe", async () => {
+test("migrate 3 → 5 adds maxThings 8 and discards per-thing questions; mixed data is safe", async () => {
   const { migrate, withMaxThings } = await import("./snapshot.js");
   const s = aSnapshot().withPlace(aPlace().withThing(aThing({ cues: { en: { lines: ["Where is our pig?", "", ""] } } }).withClip(aClip({ kind: "prompt", take: 3 })))).build();
   const v3 = { ...s, formatVersion: 3, minReaderFormat: 1, settings: v3Settings(s.settings) };
   assert.equal(validateSnapshot(v3).ok, false, "a format 3 settings record lacks maxThings");
-  const v4 = migrate(v3);
-  assert.equal(v4.formatVersion, FORMAT_VERSION);
-  assert.equal(v4.settings.maxThings, 8);
-  assert.deepEqual(v4.things[0].cues, s.things[0].cues);
-  assert.equal(v4.clips[0].take, 3);
-  assert.deepEqual(validateSnapshot(v4), { ok: true });
+  const v5 = migrate(v3);
+  assert.equal(v5.formatVersion, FORMAT_VERSION);
+  assert.equal(v5.settings.maxThings, 8);
+  assert.deepEqual(v5.things[0].cues, {});
+  assert.deepEqual(v5.clips, []);
+  assert.deepEqual(validateSnapshot(v5), { ok: true });
   assert.equal(v3.settings.maxThings, undefined, "migrate does not mutate its input");
   const kept = { ...s.settings, maxThings: 3 };
   assert.equal(withMaxThings(kept), kept);
   assert.equal(withMaxThings({ ...kept, maxThings: 40 }).maxThings, 8);
   assert.equal(withMaxThings(null), null);
+});
+
+// ---------- format 6: the find question is the family's; per-thing questions go ----------
+
+test("migrate 4 → 6 drops prompt clips and cue lines, keeps articles, names, sounds and game clips", async () => {
+  const { migrate, withoutCueLines } = await import("./snapshot.js");
+  const thing = aThing({ cues: { de: { lines: ["Wo ist das Schwein?"], article: "das" }, en: { lines: ["Where is our pig?"] } } })
+    .withClip(aClip({ kind: "name" })).withClip(aClip({ kind: "sound" })).withClip(aClip({ kind: "prompt", take: 2 }));
+  const s = aSnapshot().withPlace(aPlace().withThing(thing)).build();
+  const colour = aClip({ thingId: null, kind: "color-question" }).build();
+  const v4 = { ...s, formatVersion: 4, minReaderFormat: 4, clips: [...s.clips, colour] };
+  const v5 = migrate(v4);
+  assert.equal(v5.formatVersion, 6);
+  assert.deepEqual(v5.things[0].cues, { de: { article: "das" } });
+  assert.deepEqual(v5.clips.map((c) => c.kind).sort(), ["color-question", "name", "sound"]);
+  assert.deepEqual(validateSnapshot(v5), { ok: true });
+  assert.equal(v4.clips.length, 4, "migrate does not mutate its input");
+  const plain = aThing().build().thing;
+  assert.equal(withoutCueLines(plain), plain, "a thing without lines stays the same object");
+  assert.equal(withoutCueLines({ cues: { en: null } }).cues.en, null, "a broken cue is left for validation");
+});
+
+test("storedFormat: prompt clips or cue lines in storage come from a format 5 or older build", async () => {
+  const { storedFormat } = await import("./snapshot.js");
+  const s = full();
+  assert.equal(storedFormat(s.things, s.settings, s.clips), 6);
+  assert.equal(storedFormat(s.things, s.settings, [aClip({ kind: "prompt" }).build()]), 5);
+  assert.equal(storedFormat([{ ...s.things[0], cues: { en: { lines: ["a"] } } }], s.settings, []), 5);
+  assert.equal(storedFormat([{ ...s.things[0], cues: { en: { article: "der" } } }], s.settings), 6);
+});
+
+test("a format 5 app cannot read format 6: minReaderFormat is 6", async () => {
+  const { MIN_READER_FORMAT } = await import("./snapshot.js");
+  assert.equal(MIN_READER_FORMAT, 6);
+  assert.match(validateSnapshot({ ...full(), clips: [aClip({ thingId: "x", kind: "prompt" }).build()] }).error, /unknown thing|kind/);
+  const s = full();
+  assert.match(validateSnapshot({ ...s, clips: [{ ...s.clips[0], kind: "prompt" }] }).error, /kind/, "a prompt clip is no longer a thing clip");
 });
 
 test("validates settings.maxThings: a whole number from 1 to 12", () => {
@@ -170,32 +207,33 @@ test("validates settings.maxThings: a whole number from 1 to 12", () => {
   for (const bad of [0, 13, 2.5, "8", undefined]) assert.match(validateSnapshot({ ...s, settings: { ...s.settings, maxThings: bad } }).error ?? "", /maxThings/, String(bad));
 });
 
-test("validates questions: up to 6 prompt takes and up to 6 free-text cue lines", () => {
+test("validates cues and game question takes: up to 6 ways to ask", () => {
   const s = full();
   const thing = s.things[0];
   const withCue = (cue) => ({ ...s, things: [{ ...thing, cues: { en: cue } }] });
-  assert.equal(validateSnapshot(withCue({ lines: ["a", "b", "c", "d", "e", "f"] })).ok, true);
-  assert.equal(validateSnapshot(withCue({ lines: ["a", null, ""], article: "der" })).ok, true, "null lines from old files mean the example");
-  assert.equal(validateSnapshot(withCue({ lines: Array(7).fill("x") })).ok, false);
-  assert.equal(validateSnapshot(withCue({ lines: [3] })).ok, false);
+  assert.equal(validateSnapshot(withCue({ article: "der" })).ok, true);
   assert.equal(validateSnapshot(withCue({ article: 3 })).ok, false);
   assert.equal(validateSnapshot({ ...s, things: [{ ...thing, cues: { en: null } }] }).ok, false);
-  const prompt = (take) => ({ ...s, clips: [{ ...s.clips[1], take }] });
-  assert.equal(validateSnapshot(prompt(6)).ok, true);
-  assert.equal(validateSnapshot(prompt(7)).ok, false);
+  const ask = (take) => ({ ...s, clips: [aClip({ thingId: null, kind: "find-question", take }).build()] });
+  assert.equal(validateSnapshot(ask(6)).ok, true);
+  assert.equal(validateSnapshot(ask(7)).ok, false);
 });
 
-test("colour game clips: thingId null, a simple colour for words, keyed by language, kind, colour and take", async () => {
+test("find game clips: thingId null, a simple colour for words, keyed by language, kind, colour and take", async () => {
   const { isGameClip } = await import("./snapshot.js");
   const s = full();
   const word = (color, fields = {}) => aClip({ thingId: null, kind: "color-word", color, language: "en", ...fields }).build();
   const question = aClip({ thingId: null, kind: "color-question", language: "sv", take: 2 }).build();
-  const ok = { ...s, clips: [...s.clips, word("yellow"), word("red"), word("yellow", { language: "sv" }), question] };
+  const find = aClip({ thingId: null, kind: "find-question", language: "sv", take: 2 }).build();
+  const ok = { ...s, clips: [...s.clips, word("yellow"), word("red"), word("yellow", { language: "sv" }), question, find] };
   assert.deepEqual(validateSnapshot(ok), { ok: true });
   assert.equal(isGameClip(question), true);
   assert.equal(isGameClip(s.clips[0]), false);
   assert.equal(clipKey(word("yellow")), "game|en|color-word|yellow|1");
   assert.equal(clipKey(question), "game|sv|color-question||2");
+  assert.equal(clipKey(find), "game|sv|find-question||2");
+  assert.equal(isGameClip(find), true);
+  assert.match(validateSnapshot({ ...s, clips: [{ ...s.clips[0], kind: "find-question" }] }).error, /kind/, "a thing has no find question");
   const dup = { ...s, clips: [word("yellow"), word("yellow")] };
   assert.match(validateSnapshot(dup).error, /duplicate key/);
   assert.match(validateSnapshot({ ...s, clips: [word("sun")] }).error, /colour/, "felt keys are not simple colours");
@@ -213,4 +251,17 @@ test("validates legs: an array of up to 8 points", () => {
     assert.equal(r.ok, false, JSON.stringify(bad));
     assert.match(r.error, /legs/);
   }
+});
+
+test("cue lines go on every migrate, also from a format 6 file; a broken cue is left for validation, never a TypeError", async () => {
+  const { migrate, storedFormat } = await import("./snapshot.js");
+  const s = full();
+  const v5 = { ...s, things: [{ ...s.things[0], cues: { en: { lines: ["Where is it?"], article: "x" } } }] };
+  const out = migrate(v5);
+  assert.deepEqual(out.things[0].cues, { en: { article: "x" } });
+  assert.equal(migrate(s), s, "nothing to strip: the same snapshot");
+  const broken = { ...s, formatVersion: 4, things: [{ ...s.things[0], cues: { en: "x" } }] };
+  assert.doesNotThrow(() => migrate(broken));
+  assert.equal(validateSnapshot(migrate(broken)).ok, false);
+  assert.equal(storedFormat(broken.things, s.settings), 6);
 });

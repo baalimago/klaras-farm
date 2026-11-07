@@ -144,7 +144,6 @@ test("guided add: two overlapping shapes drawn with the pad become one outline t
   await page.getByRole("button", { name: "Next" }).click();
   await page.locator('input[name="name"]').fill("Duck");
   await page.getByRole("button", { name: "Next" }).click();
-  await page.getByRole("button", { name: "Skip for now" }).click();
   await page.getByRole("button", { name: "Finish" }).click();
   await page.waitForFunction(() => window.__t.store.snapshot.things.length === 1);
 

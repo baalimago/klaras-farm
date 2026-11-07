@@ -1,9 +1,10 @@
 // "Where is the…" scripts: pure template filling with per-language fallback (US-4.8).
 // Script files are data: web/data/scripts/<lang>.json
-//   { "lang": "de", "articles": ["der","die","das"], "templates": ["Wo ist {the} {name}?", …] }
+//   { "lang": "de", "articles": ["der","die","das"], "templates": ["Wo ist {the} {name}?", …],
+//     "findQuestion": "Wo ist…", "colorQuestion": …, "colorTemplates": […], "colors": {…} }
+// templates are the device voice's find questions; findQuestion is the cue for the family's
+// recorded find question, which the thing's recorded name follows.
 // Placeholders: {name}; {the} is the chosen article (dropped with its space when there is none).
-
-import { MAX_QUESTIONS } from "./snapshot.js";
 
 export const FALLBACK_LANG = "en";
 
@@ -25,44 +26,30 @@ export function fillTemplate(template, { name, article = "" }) {
   return out.replace(/\s{2,}/g, " ").trim();
 }
 
-/** Questions a thing has in a language before the parent adds or removes any (the script examples). */
-export const DEFAULT_QUESTIONS = 3;
-/** The most questions per thing and language (matches MAX_QUESTIONS in snapshot.js). */
-export const MAX_CUE_LINES = MAX_QUESTIONS;
-
 /**
- * How many questions a thing has in `lang`: the length of the parent's lines, else the default 3.
- * @param {{cues?:Object<string, {lines?:(string|null)[]}>}} thing
+ * What the device voice may ask for a thing in `lang` when the family's question is not recorded
+ * (US-4.8): the script's templates filled with the typed name and the chosen article.
+ * @param {Object<string, any>} files
+ * @param {{names:Object<string,string>, cues?:Object<string, {article?:string}>}} thing
+ * @param {string} lang
+ * @returns {{lines:string[], fallback:boolean, articles:string[]}}
+ *   fallback: the language has no script, so the lines are English
  */
-export function questionCount(thing, lang) {
-  const n = thing?.cues?.[lang]?.lines?.length ?? 0;
-  return n ? Math.min(n, MAX_CUE_LINES) : DEFAULT_QUESTIONS;
+export function askLines(files, thing, lang) {
+  const { file, fallback } = scriptFileFor(files, lang);
+  const name = thing.names?.[lang] || thing.names?.[FALLBACK_LANG] || Object.values(thing.names ?? {}).find(Boolean) || "…";
+  const article = fallback ? "" : (thing.cues?.[lang]?.article ?? "");
+  const lines = (file?.templates ?? []).map((t) => fillTemplate(t, { name, article }));
+  return { lines, fallback, articles: fallback ? [] : (file?.articles ?? []) };
 }
 
 /**
- * The cue lines for one thing and language. The parent's lines are free text, 1 to 6 of them; an
- * empty line means "the example" (the script template at that position, round and round).
- * The built-in examples are only a starting point.
- * @param {Object<string, any>} files
- * @param {{names:Object<string,string>, cues:Object<string, {lines?:(string|null)[], article?:string}>}} thing
- * @param {string} lang
- * @returns {{lines:string[], examples:string[], fallback:boolean, articles:string[]}}
- *   examples: what each line says when the parent leaves it empty
+ * What the parent says for the find game's recorded question in `lang` ("Where is the…"); the
+ * thing's recorded name follows it. Falls back to English.
  */
-export function cueLines(files, thing, lang) {
-  const { file, fallback } = scriptFileFor(files, lang);
-  const cue = thing.cues?.[lang] ?? {};
-  const name = thing.names?.[lang] || thing.names?.[FALLBACK_LANG] || Object.values(thing.names ?? {})[0] || "…";
-  const article = fallback ? "" : (cue.article ?? "");
-  const templates = file?.templates ?? [];
-  const examples = [];
-  const lines = [];
-  for (let i = 0; i < questionCount(thing, lang); i++) {
-    const example = templates.length ? fillTemplate(templates[i % templates.length], { name, article }) : "";
-    examples.push(example);
-    lines.push(String(cue.lines?.[i] ?? "").trim() || example);
-  }
-  return { lines, examples, fallback, articles: fallback ? [] : (file?.articles ?? []) };
+export function findQuestionText(files, lang) {
+  const { file } = scriptFileFor(files, lang);
+  return file?.findQuestion ?? files[FALLBACK_LANG]?.findQuestion ?? "";
 }
 
 /**

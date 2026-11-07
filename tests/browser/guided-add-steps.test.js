@@ -1,7 +1,7 @@
 // <kf-guided-add> per step, mounted alone on a modulePage with a real FarmStore over MemoryRepo and
 // the F1 stubs (tests/browser/stubs/f1-stubs.js): the Legs step never leaves with fewer legs than
-// chosen, many legs get smaller markers, the Ask step has the card's 1–6 editable questions, and
-// Finish closes the sheet right after the tap.
+// chosen, many legs get smaller markers, Name picks the article for the iPad voice, there is no Ask
+// step (format 5), and Finish closes the sheet right after the tap.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
@@ -57,7 +57,7 @@ async function atStep(stepIndex, { languages = ["en"] } = {}) {
 
 const step = (page) => page.evaluate(() => window.__el.dataset.step);
 const thing = (page) => page.evaluate(() => structuredClone(window.__el.thing));
-const LEGS = 3, ASK = 6, SOUND = 7;
+const LEGS = 3, NAME = 5, SOUND = 6;
 
 async function tapBoard(page, x, y) {
   const [cx, cy] = await page.evaluate(([x, y]) => window.__el.toClient(x, y), [x, y]);
@@ -131,78 +131,6 @@ test("legs: with 8 spread legs the markers shrink so they never overlap, and a l
   assert.deepEqual(page.errors, []);
 });
 
-test("ask: add, edit and remove questions (1 to 6), each with its own recording, kept when the thing is added", async () => {
-  const page = await atStep(ASK);
-  const inputs = page.locator('.kf-question input[type="text"]');
-  assert.equal(await inputs.count(), 3, "three example questions to start");
-  assert.equal(await page.locator('input[name="cue-1"]').inputValue(), "Where is the Hen?");
-  await page.getByRole("button", { name: "Skip for now" }).waitFor();
-
-  // Add: a fourth question shows at once, filled with an example.
-  await page.getByRole("button", { name: "+ Add a question" }).click();
-  assert.equal(await inputs.count(), 4);
-  assert.notEqual(await page.locator('input[name="cue-4"]').inputValue(), "");
-
-  // Edit question 2 free-hand.
-  await page.locator('input[name="cue-2"]').fill("Peep peep, where is the Hen?");
-  await page.locator('input[name="cue-2"]').press("Tab");
-  assert.equal((await thing(page)).cues.en.lines[1], "Peep peep, where is the Hen?");
-  assert.equal(await page.locator('input[name="cue-2"]').inputValue(), "Peep peep, where is the Hen?");
-
-  // Record question 3: the recorder shows its words; while it is open no question can be removed.
-  await page.getByRole("button", { name: "Record question 3" }).click();
-  const q3 = await page.locator('input[name="cue-3"]').inputValue();
-  assert.equal(await page.locator("kf-recorder .stub-label").textContent(), q3);
-  assert.equal(await page.locator('[data-action="remove-question"]:not([disabled])').count(), 0, "remove waits while recording");
-  await page.locator('kf-recorder [data-stub="take"]').click();
-  await page.getByRole("heading", { name: "Questions (1/4)" }).waitFor();
-  assert.equal(await page.locator("kf-recorder").count(), 0, "the recorder closed with the take");
-  await page.getByRole("button", { name: "Play question 3" }).waitFor();
-  await page.getByRole("button", { name: "Next" }).waitFor();
-
-  // Remove question 2: question 3 and its recording move up to 2.
-  await page.getByRole("button", { name: "Remove question 2" }).click();
-  assert.equal(await inputs.count(), 3);
-  assert.equal(await page.locator('input[name="cue-2"]').inputValue(), q3);
-  await page.getByRole("button", { name: "Play question 2" }).waitFor();
-  assert.deepEqual((await page.evaluate(() => window.__el.draft.clips)).map((c) => `${c.kind}${c.take}`), ["prompt2"]);
-
-  // Up to six; then Add is off. One always stays.
-  for (let i = 0; i < 3; i++) await page.getByRole("button", { name: "+ Add a question" }).click();
-  assert.equal(await inputs.count(), 6);
-  assert.equal(await page.getByRole("button", { name: "+ Add a question" }).isDisabled(), true);
-  await page.waitForFunction(() => window.__t.store.listDrafts().then((d) => d[0]?.thing.cues.en.lines.length === 6));
-  await shot(page, "ga-ask-6.png");
-  for (let i = 0; i < 5; i++) await page.getByRole("button", { name: "Remove question 1" }).click();
-  assert.equal(await inputs.count(), 1);
-  assert.equal(await page.getByRole("button", { name: "Remove question 1" }).isDisabled(), true);
-  await page.getByRole("button", { name: "+ Add a question" }).click();
-  const lines = (await thing(page)).cues.en.lines;
-  assert.equal(lines.length, 2);
-
-  // Finish: the thing keeps both questions.
-  await page.getByRole("button", { name: /Next|Skip for now/ }).click();
-  assert.equal(await step(page), "sound");
-  await page.getByRole("button", { name: "Finish", exact: true }).click();
-  await page.waitForFunction(() => window.__closed === 1);
-  const added = await page.evaluate(() => window.__t.store.snapshot.things.at(-1));
-  assert.equal(added.cues.en.lines.length, 2, "two questions, as the parent left them");
-  assert.deepEqual(page.errors, []);
-});
-
-test("ask: a recorded question is kept when another language is picked and back", async () => {
-  const page = await atStep(ASK, { languages: ["en", "sv"] });
-  await page.getByRole("button", { name: "Record question 1" }).click();
-  await page.locator('kf-recorder [data-stub="take"]').click();
-  await page.getByRole("heading", { name: "Questions (1/3)" }).waitFor();
-  await page.getByRole("tab", { name: "Swedish" }).click();
-  await page.getByRole("heading", { name: "Questions (0/3)" }).waitFor();
-  await page.getByRole("button", { name: "Skip for now" }).waitFor();
-  await page.getByRole("tab", { name: "English" }).click();
-  await page.getByRole("button", { name: "Play question 1" }).waitFor();
-});
-
-// QA round 3 review: Back to Ask, another language tab, Next showed an empty Sound and Finish saved two sounds.
 test("sound: one sound whichever language tab is open, and Finish stands the new thing on the ground", async () => {
   const page = await atStep(SOUND, { languages: ["en", "sv"] });
   const take = () => page.locator('kf-recorder[data-kind="sound"] [data-stub="take"]').click();
@@ -211,7 +139,7 @@ test("sound: one sound whichever language tab is open, and Finish stands the new
   const first = await page.evaluate(() => window.__f1.recorded.at(-1).sha);
   await page.getByRole("button", { name: "‹ Back" }).click();
   await page.getByRole("tab", { name: "Swedish" }).click();
-  await page.getByRole("button", { name: "Skip for now" }).click(); // no question recorded: the Ask step says Skip
+  await page.getByRole("button", { name: "Next" }).click(); // Name → Sound (there is no Ask step since format 5)
   assert.equal(await step(page), "sound");
   assert.equal(await shown(), first, "the sound shows on the Swedish tab too");
   await take();
@@ -273,15 +201,18 @@ test("finish in a full scene keeps the sheet and says the scene is full", async 
   assert.equal(await page.evaluate(() => window.__f1.chimes.includes("plink")), false);
 });
 
-test("ask: typing words and then tapping Record (or the next field) works in one tap", async () => {
-  const page = await atStep(ASK);
-  await page.locator('input[name="cue-1"]').fill("Hen, hen, where are you?");
-  await page.getByRole("button", { name: "Record question 1" }).click();
-  await page.locator("kf-recorder").waitFor();
-  assert.equal(await page.locator("kf-recorder .stub-label").textContent(), "Hen, hen, where are you?");
-  await page.getByRole("button", { name: "Cancel" }).click();
-  await page.locator('input[name="cue-2"]').fill("Peep?");
-  await page.locator('input[name="cue-3"]').click();
-  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("name")), "cue-3", "the tapped field keeps the focus");
-  assert.deepEqual((await thing(page)).cues.en.lines.slice(0, 2), ["Hen, hen, where are you?", "Peep?"]);
+test("name: the article for the iPad voice where the language has articles; no Ask step, Next goes to Sound", async () => {
+  const page = await atStep(NAME, { languages: ["en", "de"] });
+  assert.equal(await page.locator('select[name="article"]').count(), 0, "English has no articles");
+  await page.getByRole("tab", { name: "German" }).click();
+  await page.locator('input[name="name"]').fill("Huhn");
+  await page.locator('select[name="article"]').selectOption("das");
+  await page.waitForFunction(() => window.__el.thing.cues?.de?.article === "das");
+  assert.equal(await page.locator('select[name="article"]').inputValue(), "das", "the picker shows the choice");
+  await page.getByRole("button", { name: "Next" }).click();
+  assert.equal(await step(page), "sound");
+  await page.getByRole("button", { name: "Finish", exact: true }).click();
+  await page.waitForFunction(() => window.__t.store.snapshot.things.length === 1);
+  assert.deepEqual(await page.evaluate(() => window.__t.store.snapshot.things[0].cues), { de: { article: "das" } });
+  assert.deepEqual(page.errors, []);
 });

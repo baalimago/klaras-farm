@@ -1,4 +1,5 @@
 { "lang": "fr", "articles": ["le", "la", "l'"], "templates": ["Où est {the} {name} ?", "Tu peux trouver {the} {name} ?", "Montre-moi {the} {name} !"],
+  "findQuestion": "Où est…",
   "colorQuestion": "Touche un animal de couleur…",
   "colorTemplates": ["Touche un animal qui est {color} !", "Quel animal est {color} ?", "Tu peux trouver un animal {color} ?"],
   "colors": { "red": "rouge", "orange": "orange", "yellow": "jaune", "green": "vert", "blue": "bleu", "purple": "violet", "pink": "rose", "brown": "marron", "white": "blanc", "grey": "gris", "black": "noir" } }

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fillTemplate, cueLines, scriptFileFor, questionCount, DEFAULT_QUESTIONS, MAX_CUE_LINES, colorQuestionText, colorWord } from "./scripts.js";
+import { fillTemplate, askLines, findQuestionText, scriptFileFor, colorQuestionText, colorWord } from "./scripts.js";
 
 const files = {
   en: { templates: ["Where is the {name}?", "Can you find the {name}?", "Show me the {name}!"], articles: [] },
@@ -17,24 +17,26 @@ test("uses the language file, the base language, or English with a fallback flag
   assert.equal(scriptFileFor(files, "fi").fallback, true);
 });
 
-test("cue lines honour the parent's edits per line; an empty line is the example", () => {
-  const thing = { names: { de: "Hund", en: "dog" }, cues: { de: { article: "der", lines: [null, "Wo versteckt sich der Hund?", ""] } } };
-  const de = cueLines(files, thing, "de");
-  assert.deepEqual(de.lines, ["Wo ist der Hund?", "Wo versteckt sich der Hund?", "Zeig mir der Hund!"]);
-  assert.deepEqual(de.examples, ["Wo ist der Hund?", "Kannst du der Hund finden?", "Zeig mir der Hund!"]);
-  const fi = cueLines(files, thing, "fi");
+test("ask lines: every script template with the typed name and the chosen article", () => {
+  const thing = { names: { de: "Hund", en: "dog" }, cues: { de: { article: "der" } } };
+  const de = askLines(files, thing, "de");
+  assert.deepEqual(de.lines, ["Wo ist der Hund?", "Kannst du der Hund finden?", "Zeig mir der Hund!"]);
+  assert.deepEqual(de.articles, ["der", "die", "das"]);
+  assert.equal(de.fallback, false);
+  const fi = askLines(files, thing, "fi");
   assert.equal(fi.fallback, true);
+  assert.deepEqual(fi.articles, [], "no article in an English fallback");
   assert.equal(fi.lines[0], "Where is the dog?");
+  assert.deepEqual(askLines({}, thing, "en").lines, [], "no script file: nothing to say");
+  assert.equal(askLines(files, { names: {} }, "en").lines[0], "Where is the …?");
 });
 
-test("the number of questions is the length of the parent's lines (1 to 6), else 3 examples", () => {
-  const thing = (lines) => ({ names: { en: "dog" }, cues: lines ? { en: { lines } } : {} });
-  assert.equal(questionCount(thing(), "en"), DEFAULT_QUESTIONS);
-  assert.deepEqual(cueLines(files, thing(["Woof?"]), "en").lines, ["Woof?"]);
-  const six = cueLines(files, thing(["a", "", "", "", "e", ""]), "en");
-  assert.deepEqual(six.lines, ["a", "Can you find the dog?", "Show me the dog!", "Where is the dog?", "e", "Show me the dog!"], "examples go round");
-  assert.equal(questionCount(thing(Array(9).fill("x")), "en"), MAX_CUE_LINES);
-  assert.deepEqual(cueLines({}, thing(["", "Hi?"]), "en").lines, ["", "Hi?"], "no script file: empty examples");
+test("find question text: what the parent records, with English fallback", () => {
+  const f = { en: { findQuestion: "Where is the…" }, sv: { findQuestion: "Var är…" }, de: {} };
+  assert.equal(findQuestionText(f, "sv"), "Var är…");
+  assert.equal(findQuestionText(f, "de"), "Where is the…");
+  assert.equal(findQuestionText(f, "fi"), "Where is the…");
+  assert.equal(findQuestionText({}, "en"), "");
 });
 
 test("colour game texts: the question to record and the colour words, with English fallback", () => {

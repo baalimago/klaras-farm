@@ -265,7 +265,7 @@ test("eyes: Cancel on the thing card's Re-stamp keeps the old eyes and the card 
 
 // ---------------------------------------------------------------- state propagation
 
-test("thing card: felt, moves, name and question edits show at once, even with a slow disk", async () => {
+test("thing card: felt, moves and name edits show at once, even with a slow disk", async () => {
   const page = await farmPage();
   await mount(page, "kf-thing-card", { thingId: "id-0002" });
   await slowDisk(page);
@@ -286,13 +286,6 @@ test("thing card: felt, moves, name and question edits show at once, even with a
     r.title = q("#kf-tc-title").textContent;
     r.name = store.snapshot.things[0].names.en;
 
-    const cue = q('input[name="cue-1"]');
-    cue.value = "Where is my Piglet?";
-    cue.dispatchEvent(new Event("change"));
-    await tick();
-    r.cue = store.snapshot.things[0].cues.en.lines[0];
-    r.cueInput = q('input[name="cue-1"]').value;
-
     // iPad: tapping a button does not take the focus from a text field.
     q('input[name="name"]').focus();
     q('.kf-tc-motion[data-motion="float"]').click();
@@ -305,7 +298,7 @@ test("thing card: felt, moves, name and question edits show at once, even with a
     return r;
   });
   assert.deepEqual(out, {
-    swatch: "true", color: "blue", title: "Piglet", name: "Piglet", cue: "Where is my Piglet?", cueInput: "Where is my Piglet?",
+    swatch: "true", color: "blue", title: "Piglet", name: "Piglet",
     float: "true", leaf: "true", focusKept: true,
   });
   // And it all reaches the disk.
@@ -376,8 +369,11 @@ test("settings: changes show at once with a slow disk, and the sheet keeps its s
       scrolled: top > 0,
       scrollKept: q(".kf-settings.kf-sheet").scrollTop === top,
       helpOpen: q(".kf-settings-details").open,
+      findNote: q(".kf-find-it .kf-note").textContent,
     };
   });
+  assert.match(out.findNote, /The question isn't recorded yet/, "the find games note says what is missing (format 5)");
+  delete out.findNote;
   assert.deepEqual(out, { sleep: 15, sleepShown: "15", findIt: false, findItShown: false, scrolled: true, scrollKept: true, helpOpen: true });
   assert.deepEqual(page.errors, []);
 });

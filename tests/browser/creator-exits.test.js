@@ -79,7 +79,7 @@ async function exitsReachable(page) {
 const OK = { back: "ok", close: "ok" };
 const READY = { outline: SQUARE, color: "red", motion: WALK, names: { en: "Cow" } };
 
-test("every step has ‹ Back and ✕ on top, also with a shape picked, the name keyboard up or a question being recorded", async () => {
+test("every step has ‹ Back and ✕ on top, also with a shape picked, the name keyboard up or the sound recorder showing", async () => {
   const page = await creator();
   assert.deepEqual(await exitsReachable(page), OK, "the very first screen: Back is not greyed out");
   await page.evaluate(() => document.querySelector("kf-draw-pad").emitStroke([[0.3, 0.3], [0.7, 0.3], [0.7, 0.7], [0.3, 0.7]]));
@@ -87,7 +87,7 @@ test("every step has ‹ Back and ✕ on top, also with a shape picked, the name
   await page.locator(".kf-se-selection:not([hidden])").waitFor();
   assert.deepEqual(await exitsReachable(page), OK, "a shape picked in the shape editor");
   await page.evaluate((t) => Object.assign(window.__el.draft.thing, t), READY);
-  for (let i = 1; i < 8; i++) {
+  for (let i = 1; i < 7; i++) {
     await page.evaluate((i) => window.__el._go(i), i);
     assert.deepEqual(await exitsReachable(page), OK, `step ${await step(page)}`);
     if ((await step(page)) === "legs") {
@@ -98,23 +98,22 @@ test("every step has ‹ Back and ✕ on top, also with a shape picked, the name
       await page.locator('input[name="name"]').focus();
       assert.deepEqual(await exitsReachable(page), OK, "typing a name");
     }
-    if ((await step(page)) === "ask") {
-      await page.getByRole("button", { name: "Record question 1" }).click();
-      await page.locator("kf-recorder").waitFor();
-      assert.deepEqual(await exitsReachable(page), OK, "recording a question");
+    if ((await step(page)) === "sound") {
+      await page.locator('kf-recorder[data-kind="sound"]').waitFor();
+      assert.deepEqual(await exitsReachable(page), OK, "the sound recorder");
     }
   }
   assert.deepEqual(page.errors, []);
 });
 
 test("‹ Back steps back on every step, and on Body asks to stop instead of doing nothing", async () => {
-  const page = await creator({ thing: READY, step: 7 });
+  const page = await creator({ thing: READY, step: 6 });
   const order = [];
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 6; i++) {
     await page.getByRole("button", { name: "‹ Back" }).click();
     order.push(await step(page));
   }
-  assert.deepEqual(order, ["ask", "name", "moves", "legs", "eyes", "felt", "draw"]);
+  assert.deepEqual(order, ["name", "moves", "legs", "eyes", "felt", "draw"]);
   await page.getByRole("button", { name: "‹ Back" }).click();
   const dialog = page.getByRole("alertdialog", { name: "Stop adding this animal?" });
   await dialog.waitFor();
@@ -224,7 +223,7 @@ test("Enter on the Name field commits the name, closes the keyboard and goes on"
   assert.equal(await input.getAttribute("enterkeyhint"), "next");
   await input.fill("Cow");
   await input.press("Enter");
-  assert.equal(await step(page), "ask");
+  assert.equal(await step(page), "sound");
   assert.deepEqual(await page.evaluate(() => window.__el.thing.names), { en: "Cow" });
   assert.notEqual(await page.evaluate(() => document.activeElement?.name), "name", "the keyboard went down");
   await page.waitForFunction(() => window.__t.store.listDrafts().then((d) => d[0]?.thing.names.en === "Cow"));
@@ -233,7 +232,7 @@ test("Enter on the Name field commits the name, closes the keyboard and goes on"
   await page.getByRole("button", { name: "‹ Back" }).click();
   await page.locator('input[name="name"]').fill("Ko");
   await page.evaluate(() => document.querySelector(".kf-ga-name-form").requestSubmit());
-  assert.equal(await step(page), "ask");
+  assert.equal(await step(page), "sound");
   assert.equal(await page.evaluate(() => window.__el.thing.names.en), "Ko");
   assert.deepEqual(page.errors, []);
 });
@@ -245,17 +244,6 @@ test("Enter on an empty Name closes the keyboard and asks for a name, without go
   assert.equal(await step(page), "name");
   await page.getByRole("alert").filter({ hasText: "Give it a name first" }).waitFor();
   assert.notEqual(await page.evaluate(() => document.activeElement?.name), "name");
-});
-
-test("Enter in a question field commits it and closes the keyboard", async () => {
-  const page = await creator({ thing: READY, step: 6 });
-  const q = page.locator('input[name="cue-1"]');
-  assert.equal(await q.getAttribute("enterkeyhint"), "done");
-  await q.fill("Where is my cow?");
-  await q.press("Enter");
-  assert.equal(await page.evaluate(() => document.activeElement?.name ?? null), null, "the field let go");
-  assert.equal(await page.evaluate(() => window.__el.thing.cues.en.lines[0]), "Where is my cow?");
-  assert.equal(await step(page), "ask", "Enter in a question does not skip ahead");
 });
 
 test("a name is required: Next on Name asks for one, typing clears the ask, Finish without a name goes back to Name", async () => {
@@ -271,7 +259,7 @@ test("a name is required: Next on Name asks for one, typing clears the ask, Fini
   await page.locator('input[name="name"]').fill("");
 
   // Straight to Sound (a draft from before this rule): Finish asks instead of adding a nameless animal.
-  await page.evaluate(() => window.__el._go(7));
+  await page.evaluate(() => window.__el._go(6));
   await page.getByRole("button", { name: "Finish", exact: true }).click();
   assert.equal(await step(page), "name");
   await ask.waitFor();
@@ -279,8 +267,7 @@ test("a name is required: Next on Name asks for one, typing clears the ask, Fini
   assert.equal(await closed(page), 0);
   await page.locator('input[name="name"]').fill("Kossa");
   await page.getByRole("button", { name: "Next" }).click();
-  assert.equal(await step(page), "ask");
-  await page.evaluate(() => window.__el._go(7));
+  assert.equal(await step(page), "sound");
   await page.getByRole("button", { name: "Skip", exact: true }).click();
   await page.waitForFunction(() => window.__closed === 1);
   assert.deepEqual(await page.evaluate(() => window.__t.store.snapshot.things[0].names), { en: "Kossa" });

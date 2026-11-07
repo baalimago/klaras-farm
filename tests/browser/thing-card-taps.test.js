@@ -54,37 +54,16 @@ async function mount(page, tag, params = {}) {
 
 
 
-test("thing card: typing a question then tapping Record or + Add a question works on the first tap", async () => {
-  const page = await farmPage();
-  await page.setViewportSize({ width: 1180, height: 820 });
-  await mount(page, "kf-thing-card", { thingId: "id-0002" });
-  await page.locator('input[name="cue-2"]').fill("Where is my piggy?");
-  await page.locator('.kf-question[data-index="1"] [data-action="record"]').click();
-  await page.locator("kf-recorder").waitFor({ timeout: 2000 });
-  await page.locator('[data-action="cancel-record"]').click();
-  await page.locator("kf-recorder").waitFor({ state: "detached" });
-  await page.locator('input[name="cue-3"]').fill("Peekaboo!");
-  await page.getByRole("button", { name: "+ Add a question" }).click();
-  await page.locator('input[name="cue-4"]').waitFor({ timeout: 2000 });
-  const lines = await page.evaluate(() => window.__t.store.snapshot.things[0].cues.en.lines);
-  assert.equal(lines[1], "Where is my piggy?");
-  assert.equal(lines[2], "Peekaboo!");
-  assert.equal(lines.length, 4);
-});
-
 test("thing card: an edit far down the card keeps the card where it was", async () => {
   const page = await farmPage();
-  await page.setViewportSize({ width: 1180, height: 600 });
+  await page.setViewportSize({ width: 1180, height: 420 });
   await mount(page, "kf-thing-card", { thingId: "id-0002" });
-  for (let i = 0; i < 3; i++) await page.getByRole("button", { name: "+ Add a question" }).click();
-  const field = page.locator('input[name="cue-6"]');
-  await field.scrollIntoViewIfNeeded();
+  const hop = page.locator('.kf-tc-motion[data-motion="hop"]');
+  await hop.scrollIntoViewIfNeeded();
   const before = await page.evaluate(() => document.querySelector(".kf-tc").scrollTop);
   assert.ok(before > 100, `the card scrolled (${before})`);
-  await field.fill("Last one?");
-  await page.locator('input[name="name"]').evaluate((el) => el.blur());
-  await page.evaluate(() => document.activeElement?.blur());
-  await page.waitForFunction(() => window.__t.store.snapshot.things[0].cues.en.lines[5] === "Last one?");
+  await hop.click();
+  await page.waitForFunction(() => window.__t.store.snapshot.things[0].motion.preset === "hop");
   await new Promise((r) => setTimeout(r, 100));
   const after = await page.evaluate(() => document.querySelector(".kf-tc").scrollTop);
   assert.ok(Math.abs(after - before) < 80, `stays put (${before} → ${after})`);

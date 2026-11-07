@@ -72,7 +72,7 @@ describe("buildExport", () => {
     assert.deepEqual(Object.keys(entries).sort(), ["manifest.json", ...blobs.map((b) => `blobs/${b.sha256}`)].sort());
     const manifest = strFromU8(entries["manifest.json"]);
     assert.equal(manifest, canonicalJson(canonicalSnapshot(JSON.parse(manifest))));
-    assert.equal(JSON.parse(manifest).formatVersion, 5);
+    assert.equal(JSON.parse(manifest).formatVersion, 6);
     for (const b of blobs) assert.deepEqual([...entries[`blobs/${b.sha256}`]], [...new Uint8Array(b.bytes)]);
     // Local file header: compression method 0 (stored).
     assert.equal(new DataView(u8.buffer, u8.byteOffset).getUint16(8, true), 0);
@@ -113,7 +113,7 @@ describe("readImport", () => {
       [new Uint8Array([1, 2, 3, 4, 5]).buffer, "not-a-farm"],
       [new ArrayBuffer(0), "not-a-farm"],
       [zip({ "hello.txt": strToU8("hi") }), "not-a-farm"],
-      [zip({ ...good, "manifest.json": strToU8(JSON.stringify({ ...manifest, formatVersion: 7, minReaderFormat: 6 })) }), "newer"],
+      [zip({ ...good, "manifest.json": strToU8(JSON.stringify({ ...manifest, formatVersion: 8, minReaderFormat: 7 })) }), "newer"],
     ];
     const tampered = { ...good };
     const key = Object.keys(good).find((k) => k.startsWith("blobs/"));

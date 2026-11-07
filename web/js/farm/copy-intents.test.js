@@ -9,9 +9,9 @@ const env = () => fixedEnv();
 const valid = (s) => assert.deepEqual(validateSnapshot(s), { ok: true });
 
 test("copyThing adds an independent copy of a thing to another scene, with its recordings over the same blobs", () => {
-  const pig = aThing({ names: { en: "Pig", sv: "Gris" }, cues: { en: { lines: ["Find the pig"] } }, motion: { kind: "preset", preset: "hop", params: {} } })
+  const pig = aThing({ names: { en: "Pig", sv: "Gris" }, cues: { de: { article: "das" } }, motion: { kind: "preset", preset: "hop", params: {} } })
     .withClip(aClip({ kind: "name" }))
-    .withClip(aClip({ kind: "prompt", take: 1 }));
+    .withClip(aClip({ kind: "sound" }));
   const s = aSnapshot().withPlace(aPlace().withThing(pig)).withPlace(aPlace({ name: "Sea" })).build();
   const [farm, sea] = s.places;
   const source = s.things[0];

@@ -1,7 +1,7 @@
 // One recording slot in a parent panel: what plays for it now ("Your recording" with ▶, or "iPad
 // voice for now"), Record / Re-record, a "won't play" flag, and the open <kf-recorder> with Cancel.
-// Shared by the thing card (name, questions, sound) and the find game setup (questions, colour
-// question, colour words), so every slot looks and works the same. It renders from what it is
+// Shared by the thing card (name, sound), the find game setup (find question and names, colour
+// question and colour words) and guided add, so every slot looks and works the same. It renders from what it is
 // given; the host owns which slot is recording, saves the take, and says what plays (play/voice.js).
 import { h } from "../kf-guided-add/dom.js";
 import { capital, device } from "../../io/device.js";

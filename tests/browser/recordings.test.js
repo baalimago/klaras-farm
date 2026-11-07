@@ -111,23 +111,6 @@ test("thing card: one sound for every language; re-recording it on the Swedish t
   assert.deepEqual(page.errors, []);
 });
 
-test("thing card: questions without a recording invite your own; recorded ones say so, the rest wait", async () => {
-  const page = await mounted("kf-thing-card");
-  const invite = page.getByTestId("question-invite");
-  assert.equal(await invite.textContent(), "The built-in voice reads these for now. Record your own: Klara knows your voice best.");
-  assert.equal(await voiceOf(slot(page, "prompt", 1)).textContent(), "Built-in voice for now");
-  assert.equal(await slot(page, "prompt", 1).locator('[data-action="record"]').textContent(), "Record your own");
-
-  await slot(page, "prompt", 1).locator('[data-action="record"]').click();
-  await finishTake(page);
-  await page.locator("kf-recorder").waitFor({ state: "detached" });
-  assert.equal(await invite.count(), 0);
-  assert.equal(await voiceOf(slot(page, "prompt", 1)).textContent(), "Your recording");
-  assert.equal(await voiceOf(slot(page, "prompt", 2)).textContent(), "Not asked until recorded");
-  await shot(page, "card-questions");
-  assert.deepEqual(page.errors, []);
-});
-
 test("thing card: a missing name stands out; Enter saves it and closes the keyboard", async () => {
   const page = await mounted("kf-thing-card", { names: {} });
   assert.equal(await page.locator("#kf-tc-title").textContent(), "No name yet");
@@ -148,32 +131,28 @@ test("thing card: a missing name stands out; Enter saves it and closes the keybo
   assert.doesNotMatch(await page.locator(".kf-tc-name").getAttribute("class"), /is-missing/);
   assert.equal(await voiceOf(slot(page, "name")).textContent(), "Built-in voice says “Ko” for now");
 
-  // Enter in a question field commits it the same way.
-  const q = page.locator('input[name="cue-2"]');
-  await q.fill("Var är kon?");
-  await q.press("Enter");
-  await page.waitForFunction(() => window.__t.store.snapshot.things[0].cues?.en?.lines?.[1] === "Var är kon?");
-  assert.equal(await page.evaluate(() => document.activeElement?.tagName), "BODY");
   assert.deepEqual(page.errors, []);
 });
 
-test("find setup: unrecorded questions and the colour question invite your own; a take replaces the iPad voice", async () => {
+test("find setup: the unrecorded find question invites your own; a take replaces the iPad voice", async () => {
   const page = await mounted("kf-find-setup", { params: { game: "animal" } });
-  const thing = page.locator(".kf-fs-thing");
-  await thing.getByTestId("question-invite").waitFor();
-  const q1 = thing.locator('.kf-tc-clip[data-kind="prompt"][data-take="1"]');
+  const invite = page.getByTestId("find-invite");
+  await invite.waitFor();
+  assert.equal(await invite.textContent(), "The built-in voice asks this for now. Record your own: Klara knows your voice best.");
+  const q1 = page.locator('.kf-tc-clip[data-kind="find-question"][data-take="1"]');
   assert.equal(await voiceOf(q1).textContent(), "Built-in voice for now");
   assert.equal(await q1.locator('[data-action="record"]').textContent(), "Record your own");
   await shot(page, "find-setup-invite");
   await q1.locator('[data-action="record"]').click();
   await finishTake(page);
+  await page.locator("kf-recorder").waitFor({ state: "detached" });
+  assert.equal(await invite.count(), 0);
+  // Its own recording plays only with the animal's recorded name: until then the slot says so.
+  assert.equal(await voiceOf(q1).textContent(), "Built-in voice until a name is recorded");
+  const name = page.locator('.kf-fs-thing .kf-tc-clip[data-kind="name"]');
+  await name.locator('[data-action="record"]').click();
+  await finishTake(page);
   await voiceOf(q1).filter({ hasText: "Your recording" }).waitFor();
-  assert.equal(await thing.getByTestId("question-invite").count(), 0);
-  // Enter commits a question line here too.
-  const field = thing.locator('input[name="cue-1"]');
-  await field.fill("Hitta kon!");
-  await field.press("Enter");
-  await page.waitForFunction(() => window.__t.store.snapshot.things[0].cues?.en?.lines?.[0] === "Hitta kon!");
   assert.deepEqual(page.errors, []);
 });
 

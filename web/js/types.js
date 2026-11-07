@@ -51,9 +51,9 @@
 /** @typedef {PresetMotion} Motion */
 
 /**
- * @typedef {Object} Cue   The parent's edits to the "Where is the…" scripts for one language.
- * @property {string[]=} lines     1–6 free-text questions (format 4); an empty line means the script's example
- * @property {string=} article     chosen article for languages that need one (der/die/das)
+ * @typedef {Object} Cue   How the iPad voice asks for a thing in one language ("Wo ist der Hund?").
+ * @property {string=} article     chosen article for languages that need one (der/die/das). Format 4's
+ *                                 `lines` (per-thing questions) were dropped in format 6.
  */
 
 /**
@@ -74,11 +74,11 @@
 /**
  * @typedef {Object} Clip
  * @property {string} id
- * @property {string|null} thingId   null for colour game clips (format 4)
+ * @property {string|null} thingId   null for find game clips (format 4; find-question format 6)
  * @property {Lang} language
- * @property {'name'|'prompt'|'sound'|'color-word'|'color-question'} kind
+ * @property {'name'|'sound'|'find-question'|'color-word'|'color-question'} kind
  * @property {string=} color           simple colour key, color-word only
- * @property {number} take             1 for name/sound/color-word; 1–6 for prompt (question line n) and color-question
+ * @property {number} take             1 for name/sound/color-word; 1–6 for find-question and color-question
  * @property {string} blobSha256
  * @property {string} mime
  * @property {number} durationMs
@@ -111,7 +111,7 @@
  */
 
 /**
- * @typedef {Object} Snapshot   Format version FORMAT_VERSION (farm/snapshot.js, now 5). Also the export manifest.
+ * @typedef {Object} Snapshot   Format version FORMAT_VERSION (farm/snapshot.js, now 6). Also the export manifest.
  * @property {number} formatVersion
  * @property {number} minReaderFormat
  * @property {string} appVersion

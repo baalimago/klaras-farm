@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { FarmStore } from "../../web/js/farm-store.js";
 import { MemoryRepo } from "../../web/js/io/memory-repo.js";
-import { fixedEnv, square, aSnapshot, aPlace, aThing } from "../builders.js";
+import { fixedEnv, square, aSnapshot, aPlace, aThing, aClip } from "../builders.js";
 
 async function store(repoOpts) {
   const repo = new MemoryRepo(repoOpts);
@@ -162,12 +162,9 @@ test("every intent wrapper runs its intent, emits one change, and the result sur
   await s.addThing({ placeId, outline: square(), color: "red" });
   const thingId = s.thingsIn(placeId)[0].id;
   await s.updateThing({ thingId, patch: { color: "blue" } });
-  await s.setQuestionLine({ thingId, language: "en", index: 0, text: "Where is it?" });
-  await s.addQuestion({ thingId, language: "en", text: "Peekaboo?" });
-  await s.saveClip({ clip: { id: "c1", thingId, language: "en", kind: "prompt", take: 4, blobSha256: "a".repeat(64), mime: "audio/mp4", durationMs: 500, trimStartMs: 0, trimEndMs: 500, gainDb: 0, createdAt: "2026-11-04T00:00:00.000Z" }, blob: { sha256: "a".repeat(64), mime: "audio/mp4", size: 1, createdAt: "2026-11-04T00:00:00.000Z", bytes: new Uint8Array([1]).buffer } });
-  const removed = await s.removeQuestion({ thingId, language: "en", index: 3 });
-  assert.equal(s.clipsFor(thingId).length, 0);
-  await s.restoreQuestions(removed.removed);
+  await s.updateThing({ thingId, patch: { cues: { de: { article: "der" } } } });
+  await s.saveClip({ clip: { id: "c1", thingId, language: "en", kind: "name", take: 1, blobSha256: "a".repeat(64), mime: "audio/mp4", durationMs: 500, trimStartMs: 0, trimEndMs: 500, gainDb: 0, createdAt: "2026-11-04T00:00:00.000Z" }, blob: { sha256: "a".repeat(64), mime: "audio/mp4", size: 1, createdAt: "2026-11-04T00:00:00.000Z", bytes: new Uint8Array([1]).buffer } });
+  await s.saveClip({ clip: { thingId: null, language: "en", kind: "find-question", take: 2, blobSha256: "a".repeat(64), mime: "audio/mp4", durationMs: 500, trimStartMs: 0, trimEndMs: 500, gainDb: 0 } });
   assert.equal(s.clipsFor(thingId).length, 1);
   await s.deleteClip({ clipId: s.clipsFor(thingId)[0].id });
   const del = await s.deleteThing({ thingId });
@@ -181,7 +178,8 @@ test("every intent wrapper runs its intent, emits one change, and the result sur
   assert.equal(again.snapshot.places.length, 1);
   assert.equal(again.snapshot.places[0].skyColor, "blue");
   assert.equal(again.thingsIn(placeId)[0].color, "blue");
-  assert.deepEqual(again.thingsIn(placeId)[0].cues.en.lines, ["Where is it?", "", "", "Peekaboo?"]);
+  assert.deepEqual(again.thingsIn(placeId)[0].cues, { de: { article: "der" } });
+  assert.deepEqual(again.gameClips({ kind: "find-question" }).map((c) => c.take), [2]);
   assert.equal(again.maxThings, 5);
 });
 
@@ -200,4 +198,28 @@ test("settled() waits for every queued write, including failed ones, and never r
   await p;
   assert.equal(settled, true);
   assert.equal(await s.settled(), undefined, "a settled store resolves at once");
+});
+
+test("hydrating a format 4 farm drops its per-thing questions and writes that back", async () => {
+  const thing = aThing({ cues: { en: { lines: ["Where is the pig?"] }, de: { article: "das" } } })
+    .withClip(aClip({ kind: "name" })).withClip(aClip({ kind: "prompt", take: 1 })).withClip(aClip({ kind: "prompt", take: 2 }));
+  const old = aSnapshot().withPlace(aPlace().withThing(thing)).build();
+  const repo = new MemoryRepo();
+  await repo.write([
+    { store: "settings", op: "put", value: old.settings },
+    ...old.places.map((value) => ({ store: "places", op: "put", value })),
+    ...old.things.map((value) => ({ store: "things", op: "put", value })),
+    ...old.clips.map((value) => ({ store: "clips", op: "put", value })),
+  ]);
+  const s = new FarmStore(repo, fixedEnv());
+  await s.hydrate();
+  assert.deepEqual(s.snapshot.clips.map((c) => c.kind), ["name"]);
+  assert.deepEqual(s.snapshot.things[0].cues, { de: { article: "das" } });
+  await s.saveDraft({ placeId: "x", step: 0, thing: {}, clips: [] }); // waits for the queued write-back
+  const stored = await repo.load();
+  assert.deepEqual(stored.clips.map((c) => c.kind), ["name"], "the old recordings are gone from storage");
+  assert.deepEqual(stored.things[0].cues, { de: { article: "das" } });
+  const fresh = await store();
+  await fresh.s.saveDraft({ placeId: "x", step: 0, thing: {}, clips: [] });
+  assert.equal(fresh.s.snapshot.clips.length, 0, "a current farm writes nothing back");
 });
