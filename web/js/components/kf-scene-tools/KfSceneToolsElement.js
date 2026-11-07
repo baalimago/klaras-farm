@@ -14,8 +14,8 @@
 //
 // The Sky and Ground sheets end in a native colour picker (kf-dialog/dom.js sceneColors). While its
 // sheet stays open the chooser is updated in place, never rebuilt, so the iPad's picker popover stays
-// open while the scene repaints behind it. Its moves are live edits (at most one a frame) that fold
-// into one undo entry; its commit seals that entry and plays the colour sound once.
+// open while the scene repaints behind it. Its moves are live edits (a few a second, LIVE_PICK_MS)
+// that fold into one undo entry; its commit seals that entry and plays the colour sound once.
 //
 // No lag: a piece being dragged or resized is drawn by the board's renderer from its cached sprite
 // (services.board.setLift), with the board rect read once per drag. Nothing is written to the store
@@ -288,7 +288,8 @@ export class KfSceneToolsElement extends HTMLElement {
       if (this._colours?.sheet === s.sheet) return void this._colours.el.update(current); // keeps an open picker open
       title = s.sheet === "sky" ? "Sky colour" : "Ground colour";
       const keys = s.sheet === "sky" ? SKY_COLORS : GROUND_COLORS;
-      const el = sceneColors("Colour", keys, current, (value, { live }) => this.pickColour(value, { live }));
+      const sheet = s.sheet; // a pick is for this sheet only, even if it lands after the sheet changed
+      const el = sceneColors("Colour", keys, current, (value, { live }) => this.pickSceneColour(sheet, value, live));
       this._colours = { sheet: s.sheet, el };
       body = [el];
     } else if (s.sheet === "start") {
@@ -504,10 +505,10 @@ export class KfSceneToolsElement extends HTMLElement {
     this.edit((place) => this.store.addPiece({ placeId: place.id, piece: { kind, stroke: points, color } }));
   }
 
-  /** A colour from the open sheet. `live` marks a colour-picker move (no sound; folded into one undo). */
-  pickColour(key, { live = false } = {}) {
+  /** A colour from the open draw or piece sheet (sky and ground go through pickSceneColour). */
+  pickColour(key) {
     const s = this.state;
-    if (s.sheet === "sky" || s.sheet === "ground") return this.pickSceneColour(s.sheet, key, live);
+    if (s.sheet !== "draw" && s.sheet !== "piece") return;
     editSound(this.services, "colour");
     if (s.sheet === "draw") {
       this.send({ type: "draw-colour", key });
@@ -517,8 +518,12 @@ export class KfSceneToolsElement extends HTMLElement {
     this.edit((place) => this.store.updatePiece({ placeId: place.id, pieceId: s.selected, patch: { color: key } }));
   }
 
-  /** Sky or ground: a swatch (one edit) or the picker (a run of live edits, sealed on commit). */
+  /**
+   * Sky or ground: a swatch (one edit) or the picker (a run of live edits without a sound, folded
+   * into one undo entry and sealed on commit). Ignored unless that sheet is still open.
+   */
   pickSceneColour(sheet, value, live) {
+    if (this.state.sheet !== sheet) return;
     const field = sheet === "sky" ? "skyColor" : "groundColor";
     const custom = isCustomColor(value);
     if (!live) editSound(this.services, "colour");

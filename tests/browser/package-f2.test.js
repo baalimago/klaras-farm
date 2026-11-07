@@ -388,7 +388,7 @@ test("scenes: a new scene can take any sky colour from the picker; the preview f
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
   });
-  assert.equal(await sky.getByLabel("Any colour (picked)").getAttribute("data-mark"), "kept", "updated in place");
+  assert.equal(await sky.getByLabel("Your own colour").getAttribute("data-mark"), "kept", "updated in place");
   await page.getByRole("group", { name: "Ground colour" }).getByRole("button", { name: "Snow white" }).click();
   await page.getByRole("button", { name: "Start drawing" }).click();
   await until(page, () => window.F2.calls.some((c) => c[0] === "session.sceneTools"));

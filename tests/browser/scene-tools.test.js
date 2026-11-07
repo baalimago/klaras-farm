@@ -387,7 +387,7 @@ test("pointer steps are guarded: a failing capture or board rect never eats the 
 async function movePicker(page, values, commit = true) {
   await page.evaluate(async ({ values, commit }) => {
     const input = document.querySelector('kf-scene-tools [role="dialog"] input[type="color"]');
-    const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const frame = () => new Promise((r) => setTimeout(r, 200)); // past LIVE_PICK_MS
     for (const v of values) {
       input.value = v;
       input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -419,7 +419,7 @@ test("sky and ground: many presets, and any colour from the picker, live, as one
   assert.equal((await chimes(page)).length, chimesBefore, "no sound per move");
   await movePicker(page, ["#123abc"]); // the commit of what is already shown
   assert.equal((await chimes(page)).length, chimesBefore + 1, "one sound for the commit");
-  assert.equal(await sheet.getByLabel("Any colour (picked)").count(), 1);
+  assert.equal(await sheet.getByLabel("Your own colour").count(), 1);
   assert.equal(await sheet.locator('button.kf-swatch[aria-pressed="true"]').count(), 0, "no preset is marked");
 
   const undo = t.getByRole("button", { name: "Undo", exact: true });
@@ -442,5 +442,55 @@ test("sky and ground: many presets, and any colour from the picker, live, as one
   await until(page, () => window.services.store.currentPlace.groundColor === "grass");
   await undo.click();
   await until(page, () => window.services.store.currentPlace.skyColor === "sky"); // the Night blue tap; Grass was no edit
+  await page.close();
+});
+
+test("picker: fast moves reach the board a few times a second with the latest colour, not every frame", async () => {
+  const page = await open();
+  await tools(page).getByRole("button", { name: "Sky", exact: true }).click();
+  const out = await page.evaluate(async () => {
+    const store = window.services.store;
+    let changes = 0;
+    store.addEventListener("change", () => changes++);
+    const input = document.querySelector('kf-scene-tools [role="dialog"] input[type="color"]');
+    const t0 = performance.now();
+    for (let i = 0; i < 30; i++) {
+      input.value = `#0000${(i + 16).toString(16)}`;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      await new Promise((r) => requestAnimationFrame(r));
+    }
+    const moves = changes;
+    const ms = performance.now() - t0;
+    await new Promise((r) => setTimeout(r, 300));
+    return { moves, ms, sky: store.currentPlace.skyColor, undo: document.querySelector('[data-tool="undo"]').disabled };
+  });
+  assert.ok(out.moves >= 1 && out.moves <= Math.ceil(out.ms / 150) + 1, `${out.moves} writes in ${Math.round(out.ms)} ms`);
+  assert.equal(out.sky, "#00002d", "the last move lands");
+  assert.equal(out.undo, false);
+  await page.close();
+});
+
+test("picker: a move still pending when the sheet closes or changes changes nothing", async () => {
+  const page = await open();
+  const t = tools(page);
+  await t.getByRole("button", { name: "Move", exact: true }).click();
+  const [x, y] = toClient([0.8, 0.2]);
+  await page.mouse.click(x, y); // the sun is selected
+  for (const leave of ["close", "ground"]) {
+    await t.getByRole("button", { name: "Sky", exact: true }).click();
+    await page.evaluate((leave) => {
+      const input = document.querySelector('kf-scene-tools [role="dialog"] input[type="color"]');
+      input.value = "#2e3a6e";
+      input.dispatchEvent(new Event("input", { bubbles: true })); // delivered in a later task
+      const sheet = document.querySelector('kf-scene-tools [role="dialog"]');
+      if (leave === "close") [...sheet.querySelectorAll("button")].find((b) => b.textContent === "Close").click();
+      else document.querySelector('kf-scene-tools [data-tool="ground"]').click();
+    }, leave);
+    await page.waitForTimeout(300);
+    const p = await place(page);
+    assert.deepEqual([p.skyColor, p.groundColor, p.pieces.find((q) => q.id === "sun").color], ["sky", "grass", "yellow"], leave);
+    if (leave === "ground") await page.getByRole("dialog", { name: "Ground colour" }).getByRole("button", { name: "Close" }).click();
+  }
+  assert.deepEqual(page.errors, []);
   await page.close();
 });

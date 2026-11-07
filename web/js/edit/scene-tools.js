@@ -12,10 +12,11 @@
 //   lifted:   null | pieceId   a dropped piece the board still shows lifted, until the store's change
 //                              for it arrives (then the renderer draws it from the store itself)
 //   undo:     UndoEntry[]      the edits that can be taken back, newest last, at most UNDO_LIMIT.
-//                              UndoEntry = {seq, placeId, before, merge?}: `before` is the place's
+//                              UndoEntry = {seq, placeId, before, run?, merge?}: `before` is the place's
 //                              {pieces, skyColor, groundColor, backdrop} as it was, so Undo is one
-//                              store.updatePlace with it. `merge` ('sky' | 'ground') marks an open
-//                              run of colour-picker edits that later picks fold into (see `edited`).
+//                              store.updatePlace with it. `run` ('sky' | 'ground') marks an entry made
+//                              by the colour picker; `merge` (the same value) is set while that run
+//                              is still open, so later picks fold into it (see `edited`).
 //   undoing:  UndoEntry[]      entries taken back whose Undo write has not committed yet
 //   seq:      number           the last entry's number (each edit gets the next one)
 //
@@ -44,8 +45,11 @@
 //                          and place, the edit folds into it instead: the entry keeps its `before`
 //                          and takes the new seq, so dragging through the colour picker is one Undo.
 //                          `seal` (the picker committed its value) closes the run after this edit.
+//                          Any other edit closes an open run first.
 //   seal                 → the newest entry's run (if open) is closed: the next pick starts a new entry.
-//   edit-failed {seq}    → that edit's write failed: its entry goes (from undo or undoing).
+//   edit-failed {seq}    → that edit's write failed: its entry goes (from undo or undoing). A picker
+//                          run's entry stays, sealed: the store fell back to an earlier pick of the
+//                          run (or to `before` itself), so Undo to `before` is still right.
 //   undo                 → the newest entry moves to undoing (read it first with undoTop).
 //   undo-saved {seq}     → the Undo committed: the entry is gone for good.
 //   undo-failed {seq}    → the Undo's write failed, so the store has the edit again: the entry is back
@@ -171,12 +175,21 @@ export function nextSceneTools(s, e) {
       if (!e.placeId || !e.before) return s;
       const seq = s.seq + 1;
       const top = undoTop(s);
-      const run = e.merge && top?.merge === e.merge && top.placeId === e.placeId;
-      const entry = run ? { ...top, seq } : { seq, placeId: e.placeId, before: e.before, merge: e.merge || undefined };
-      if (e.seal || !entry.merge) delete entry.merge;
-      return { ...s, seq, undo: capped([...(run ? s.undo.slice(0, -1) : s.undo), entry]) };
+      const fold = e.merge && top?.merge === e.merge && top.placeId === e.placeId;
+      if (!fold) s = sealed(s);
+      const entry = fold ? { ...top, seq } : { seq, placeId: e.placeId, before: e.before };
+      if (e.merge) entry.run = e.merge;
+      if (e.merge && !e.seal) entry.merge = e.merge;
+      else delete entry.merge;
+      return { ...s, seq, undo: capped([...(fold ? s.undo.slice(0, -1) : s.undo), entry]) };
     }
     case "edit-failed": {
+      const runIndex = s.undo.findIndex((u) => u.seq === e.seq && u.run);
+      if (runIndex >= 0) {
+        if (!s.undo[runIndex].merge) return s;
+        const { merge, ...kept } = s.undo[runIndex];
+        return { ...s, undo: s.undo.map((u, i) => (i === runIndex ? kept : u)) };
+      }
       const undo = withoutSeq(s.undo, e.seq);
       const undoing = withoutSeq(s.undoing, e.seq);
       return undo.length === s.undo.length && undoing.length === s.undoing.length ? s : { ...s, undo, undoing };

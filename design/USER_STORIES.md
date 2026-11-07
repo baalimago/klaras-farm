@@ -40,7 +40,7 @@ Priority: **M** = first playable version, **N** = next, **L** = later. Look is t
 
 ## E2. Places
 
-**US-2.1 (M) Create a place.** As a parent, I want to create a new place with a name (for me) and choose its ground and sky colours from the Sunny palette.
+**US-2.1 (M) Create a place.** As a parent, I want to create a new place with a name (for me) and choose its ground and sky colours from the Sunny palette, or any colour with the colour picker.
 
 **US-2.2 (M) Draw a scene.** As a parent, I want to draw a few strokes on the place's backdrop (barn, window, seaweed), so that the place is ours.
 - Strokes are smoothed and rendered as felt pieces with stitches and shadows. Undo removes the last stroke.

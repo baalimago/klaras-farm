@@ -245,7 +245,8 @@ export class KfScenesElement extends HTMLElement {
       h("div", { class: "kf-field" }, [h("label", { htmlFor: inputId, text: "Scene name" }), input]),
       h("p", { class: "kf-note", id: noteId, text: "The name is for you; Klara never sees text. A few animals move in to start with." }),
       h("div", { class: "kf-scene-new-grid" }, [
-        h("div", {}, [h("h3", { text: "Backdrop" }), backdrops, h("h3", { text: "Sky" }), skyHolder, h("h3", { text: "Ground" }), groundHolder]),
+        h("div", {}, [h("h3", { text: "Backdrop" }), backdrops, h("h3", { text: "Sky" }), skyHolder, h("h3", { text: "Ground" }), groundHolder,
+          h("p", { class: "kf-note", text: "Tap the rainbow to pick any colour." })]),
         h("div", { class: "kf-scene-preview-wrap" }, [preview]),
       ]),
       h("div", { class: "kf-row end kf-scene-actions" }, [
