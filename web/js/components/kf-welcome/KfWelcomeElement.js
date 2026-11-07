@@ -1,7 +1,7 @@
 // <kf-welcome>: the one-time first-run card for the parent (US-1.2).
 // A watercolour splash in the style of Klara's first birthday card (bunting, a sheep and a pig
 // on an autumn meadow, leaves drifting down) with three short lines: a co-play tip, how to
-// enter edit mode, and the Add to Home Screen nudge (Safari, not standalone).
+// enter edit mode, and the Add to Home Screen nudge (iPad and iPhone, not standalone).
 // Dismissing requests persistent storage, unlocks audio (it is a user gesture), sets
 // settings.welcomed and dispatches kf-close. It never asks for the microphone.
 import { h, newId } from "../kf-dialog/dom.js";
@@ -44,7 +44,7 @@ export class KfWelcomeElement extends HTMLElement {
       h("p", { class: "kf-welcome-tip" }, [h("strong", { text: "Play together:" }), " tap, listen and say the names with Klara."]),
       h("p", { class: "kf-welcome-tip" }, [h("strong", { text: "Grown-ups:" }), " hold the scene for 1.5 s to draw and record."]),
     ];
-    if (!standalone && device().safari) {
+    if (!standalone && device().ios) {
       tips.push(h("p", { class: "kf-welcome-tip kf-welcome-home" }, [h("strong", { text: "Add it to your Home Screen: " }), "tap Share, then Add to Home Screen. It opens full screen and keeps your recordings safer."]));
     }
     const start = h("button", { type: "button", class: "kf-btn primary kf-welcome-start", text: "Start playing", onclick: () => this.dismiss() });

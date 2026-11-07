@@ -5,7 +5,8 @@ kf-welcome { position: absolute; inset: 0; display: block; z-index: 20; }
 
 .kf-sheet.kf-welcome {
   padding: 0;
-  min-height: 440px;
+  /* The old card's size, but never taller than the screen (a phone in landscape). */
+  min-height: min(440px, calc(100% - 32px));
   background:
     radial-gradient(circle at 18% 34%, rgb(240 200 110 / 0.16), transparent 42%),
     radial-gradient(circle at 84% 46%, rgb(228 137 147 / 0.13), transparent 40%),
@@ -106,4 +107,8 @@ kf-welcome { position: absolute; inset: 0; display: block; z-index: 20; }
 }
 .kf-welcome-start:focus-visible { outline: 3px solid #e7a0aa; outline-offset: 3px; }
 .kf-welcome-start:active { transform: translateY(3px); box-shadow: 0 1px 0 #9e4250, 0 4px 10px rgb(74 51 38 / 0.25); }
-.kf-sheet .kf-welcome-private { position: absolute; z-index: 3; left: 0; right: 0; bottom: 14px; margin: 0; text-align: center; font-size: 0.85rem; color: #7a5a3c; }
+/* A paper label on the grass, so leaves and hooves on a narrow card never cover the words. */
+.kf-sheet .kf-welcome-private { position: absolute; z-index: 3; left: 50%; bottom: 10px; transform: translateX(-50%); margin: 0; padding: 2px 12px; white-space: nowrap; border-radius: 999px; background: rgb(253 249 241 / 0.85); font-size: 0.85rem; color: #6a4c31; }
+/* A phone in landscape: the card scrolls, and the label would sit on the Start button.
+   Settings → Privacy says the same. */
+@media (max-height: 500px) { .kf-sheet .kf-welcome-private { display: none; } }

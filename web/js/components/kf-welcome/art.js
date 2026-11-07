@@ -1,7 +1,8 @@
 // The watercolour pictures on the welcome card: bunting, a meadow with a fluffy sheep and a
 // pink pig, mushrooms, acorns and the autumn leaves that drift down onto the grass.
 // Promise: every function returns fresh, static, aria-hidden SVG built with createElementNS
-// (no innerHTML). The only motion is CSS on the leaves and the card, and every animation has
+// (no innerHTML). The only motion is CSS on the card, the leaves and the sheep's and pig's
+// hops (kf-welcome.css), and every animation has
 // a finite iteration count, so the card goes back to 0 fps once the leaves have landed.
 
 const NS = "http://www.w3.org/2000/svg";

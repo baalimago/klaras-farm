@@ -11,6 +11,30 @@
 // {thingId|null, language, kind, take}, existing (Clip|null).
 
 import { device } from "../../io/device.js";
+import { h } from "../kf-dialog/dom.js";
+
+/**
+ * How to turn the microphone back on. On iPad and iPhone the switch is in the Settings app,
+ * under the browser in use (Safari for most families); elsewhere it is the site's settings.
+ */
+function deniedSteps({ ios, name }) {
+  const b = (text) => h("b", { text });
+  const steps = ios
+    ? [
+        h("li", {}, ["Open the ", b("Settings"), ` app on the ${name}.`]),
+        h("li", {}, ["Tap ", b("Apps"), ", then the browser you use, usually ", b("Safari"), ` (on older ${name}s, scroll down to it).`]),
+        h("li", {}, ["Tap ", b("Microphone"), " and choose ", b("Allow"), " (or ", b("Ask"), ")."]),
+      ]
+    : [
+        h("li", { text: "Open this site's settings in your browser (often the icon beside the address)." }),
+        h("li", {}, ["Set ", b("Microphone"), " to ", b("Allow"), "."]),
+      ];
+  return h("div", { class: "kf-warning kf-rec-denied" }, [
+    h("p", {}, [h("strong", { text: "The microphone is turned off for Klara's Farm." }), " To turn it on:"]),
+    h("ol", {}, [...steps, h("li", {}, ["Come back here and tap ", b("Try again"), "."])]),
+    h("p", { class: "kf-note", text: "You can keep going without a recording and add it later from the thing's card." }),
+  ]);
+}
 
 const ERRORS = {
   "too-short": "That was too short. Say the word a little more slowly, then try again.",
@@ -264,23 +288,7 @@ export class KfRecorderElement extends HTMLElement {
         break;
       }
       case "denied": {
-        const box = document.createElement("div");
-        box.className = "kf-warning kf-rec-denied";
-        // Static markup only; the device name is one of three fixed words from io/device.js.
-        const { ios, name } = device();
-        box.innerHTML =
-          "<p><strong>The microphone is turned off for Klara's Farm.</strong> To turn it on:</p>" +
-          "<ol>" +
-          (ios
-            ? `<li>Open the <b>Settings</b> app on the ${name}.</li>` +
-              `<li>Tap <b>Apps</b>, then <b>Safari</b> (on older ${name}s, scroll down to <b>Safari</b>).</li>` +
-              "<li>Tap <b>Microphone</b> and choose <b>Allow</b> (or <b>Ask</b>).</li>"
-            : "<li>Open this site's settings in your browser (often the icon beside the address).</li>" +
-              "<li>Set <b>Microphone</b> to <b>Allow</b>.</li>") +
-          "<li>Come back here and tap <b>Try again</b>.</li>" +
-          "</ol>" +
-          '<p class="kf-note">You can keep going without a recording and add it later from the thing\'s card.</p>';
-        body.append(box);
+        body.append(deniedSteps(device()));
         row.append(this._btn("Try again", "primary", () => this.record()));
         status = "Microphone is off";
         break;

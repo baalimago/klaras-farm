@@ -10,7 +10,7 @@ The bar every change is judged against:
 
 - **No lag, ever.** 60 fps while anything moves, 0 fps when idle, a tap sounds within 50 ms, a dragged thing stays under the finger. If it is laggy on the iPad even slightly, the design is wrong.
 - **The child view has no text and no failure states.** No buzzers or ✗. Child buttons are icon-only and at least 88 px. One exception, decided in QA round 3: a short, self-fading tip for the grown-up beside the child ("Hold 1 s to record your own question") may appear next to a find button when a question played in the iPad voice. It never blocks a tap and can be switched off in Settings.
-- **The iPad is the main target, not the only one.** Parent copy names the device only through `io/device.js` ("this iPad" on an iPad, "this device" elsewhere), and iPad-only steps show only on iPad and iPhone.
+- **The iPad is the main target, not the only one.** Parent copy names the device only through `io/device.js` ("this iPad" on an iPad, "this device" elsewhere), and steps that exist only on iPad and iPhone (`device().ios`) show only there.
 - **Parents never get stuck or confused.** Every screen has a visible way out. Every edit shows on screen immediately. Parent targets are at least 44 px. Copy is short, warm and says exactly what to do ("Record: say “Chicken”").
 - **Offline and private.** Everything lives on the iPad. No accounts, no tracking, no network needed to play.
 - **Toddler-proof input.** Primary pointer only, palms ignored, mash-safe audio, press-and-hold plus an adult check before anything meant for grown-ups.

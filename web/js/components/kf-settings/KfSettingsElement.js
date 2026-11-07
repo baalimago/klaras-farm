@@ -1,12 +1,12 @@
 // <kf-settings>: the parent settings panel (US-5.4, 7.3, 7.4, 7.5, 8.2, 8.3, 9.1, 11.2).
 // Languages (add/remove, which plays or a random mix), sleep timer, things per scene, adult check kind,
 // export (pre-built so the share sheet opens inside the tap), import (confirm with counts,
-// replace, Undo until next boot), storage status, privacy, Guided Access guide, delete all data,
+// replace, Undo until next boot), storage status, privacy, Guided Access guide (iPad and iPhone only), delete all data,
 // "Update ready", app version, "Show recording tips" (services.prefs) and "Show the tour again"
 // (closes Settings, then services.shell.tour()). Props: services, params. Dispatches kf-close.
 import { h, newId, plural, joinAnd, languageName, reportFailure } from "../kf-dialog/dom.js";
 import { editSound } from "../kf-dialog/feedback.js";
-import { capital, device } from "../../io/device.js";
+import { device } from "../../io/device.js";
 
 const SLEEP_OPTIONS = [
   [0, "Off"],
@@ -307,7 +307,7 @@ export class KfSettingsElement extends HTMLElement {
     const status = [];
     if (this._persist === true) status.push(h("p", { text: `Your farm is kept safely on this ${device().name} (persistent storage is on).` }));
     if (this._persist === false)
-      status.push(h("p", { class: "kf-warning", text: `The browser may clear the farm's drawings and recordings if this ${device().name} runs low on space. Export a copy now and then, and add the app to the Home Screen.` }));
+      status.push(h("p", { class: "kf-warning", text: `The browser may clear the farm's drawings and recordings if this ${device().name} runs low on space. Export a copy now and then${device().ios ? ", and add the app to the Home Screen" : ""}.` }));
     if (this._estimate?.usage != null) status.push(h("p", { class: "kf-note", text: `Using ${formatBytes(this._estimate.usage)} on this ${device().name}.` }));
 
     const fileInput = h("input", { type: "file", accept: ".zip,.klarasfarm,application/zip", hidden: true, "aria-label": "Import from a file" });

@@ -203,6 +203,8 @@ test("a parent adds a thing with a recorded name, and it survives a reload", asy
   await page.waitForFunction(() => document.querySelector('[data-action="add"]').classList.contains("full"));
   assert.equal((await page.locator('[data-testid="add-count"]').innerText()).trim(), "8/8", "the eighth thing fills the scene");
 
+  // The screen updates before the disk; reloading while the write is in flight would lose it.
+  await kf(page, () => window.__kf.store.settled());
   await page.reload();
   await page.waitForFunction(() => document.documentElement.dataset.ready === "true");
   const persisted = await kf(page, async () => {
