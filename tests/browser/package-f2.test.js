@@ -322,6 +322,9 @@ test("welcome on an iPad says this iPad; elsewhere this device", async () => {
   const ipad = await open("kf-welcome", { snapshot, userAgent: IPAD_UA });
   await ipad.locator("kf-welcome").getByText("Everything stays on this iPad.").waitFor();
   assert.match(await ipad.locator("kf-welcome").textContent(), /Add it to your Home Screen/, "Safari on iPad gets the nudge");
+  const home = await open("kf-welcome", { snapshot, userAgent: IPAD_UA, opts: { storage: { standalone: true } } });
+  await home.locator("kf-welcome").getByText("Everything stays on this iPad.").waitFor();
+  assert.doesNotMatch(await home.locator("kf-welcome").textContent(), /Home Screen/, "already on the Home Screen: no tip");
   const other = await open("kf-welcome", { snapshot });
   await other.locator("kf-welcome").getByText("Everything stays on this device.").waitFor();
   assert.doesNotMatch(await other.locator("kf-welcome").textContent(), /iPad|Home Screen/);
@@ -358,10 +361,15 @@ test("welcome: hold-to-edit tip, persistence request on dismiss, welcomed set, n
   assert.ok(art.leaves >= 4, "leaves fall onto the meadow");
   assert.ok(art.anims.length > 0 && art.anims.every(Number.isFinite), `finite animations only: ${art.anims}`);
 
-  await card.getByRole("button", { name: "Start playing" }).click();
+  assert.ok(await page.evaluate(() => document.activeElement?.classList.contains("kf-welcome-start")), "Start playing has the focus");
+
+  // A double tap (a toddler mashing, or a parent being sure) closes it once.
+  await page.evaluate(() => { const b = document.querySelector(".kf-welcome-start"); b.click(); b.click(); });
   await until(page, () => window.services.store.settings.welcomed === true);
   await until(page, () => window.F2.calls.some((c) => c[0] === "kf-close"));
   const all = await calls(page);
+  assert.equal(all.filter((c) => c === "kf-close").length, 1, "one kf-close");
+  assert.ok(all.includes("audio.unlock"), "the tap unlocks audio");
   assert.ok(all.includes("storage.requestPersist"));
   assert.ok(!all.includes("getUserMedia"));
   assert.deepEqual(page.errors, []);
