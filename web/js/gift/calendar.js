@@ -26,9 +26,15 @@ export function isGiftDay(date, when) {
   return w.year === undefined || date.getFullYear() === w.year;
 }
 
+/** Days in a month; February has 29 unless the year is given and is not a leap year. */
+function daysIn(month, year) {
+  if (month === 2) return year === undefined || (year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)) ? 29 : 28;
+  return [4, 6, 9, 11].includes(month) ? 30 : 31;
+}
+
 function checked(w) {
   const ok = Number.isInteger(w.month) && w.month >= 1 && w.month <= 12 && Number.isInteger(w.day) && w.day >= 1 && w.day <= 31;
-  if (!ok) throw new RangeError(`Gift day ${JSON.stringify(w)} has no such month or day`);
+  if (!ok || w.day > daysIn(w.month, w.year)) throw new RangeError(`Gift day ${JSON.stringify(w)} has no such month or day`);
   if (w.year === undefined) delete w.year;
   return w;
 }

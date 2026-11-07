@@ -1,7 +1,7 @@
 // wrapper.js: literal wrapping paper for a web page. It covers the page with a sheet of gift paper;
 // a finger (or mouse) pokes in and drags, and the paper tears along the pull, in whatever direction
-// it goes. Torn strips tumble away, and once enough is gone the rest falls off with confetti and a
-// chime, and the page underneath is free.
+// it goes. The torn strip folds back over the finger and tumbles away on lift; once enough is gone
+// the rest fades off with confetti and a chime, and the page underneath is free.
 //
 //   import { wrapOn } from "./gift/wrapper.js";
 //   wrapOn("11-07", { theme: "autumn" });          // every 7 November (device local time)
@@ -12,15 +12,16 @@
 // so it can be copied onto another page as is. It owns its own DOM, canvas and audio.
 //
 // Promises: the paper never traps the page. Any failure while mounting or in an input handler
-// removes the paper (it fails open). Enter, Space or Escape opens it from a keyboard. It draws only
-// while something moves (0 fps when idle); a tear is cut synchronously in the pointer handler, so
-// it stays under the finger. Only the primary pointer tears; palms and second fingers are ignored.
+// removes the paper (it fails open). Enter, Space or Escape opens it from a keyboard (the paper takes
+// focus when it mounts). It draws only while something moves (0 fps when idle); a tear is cut
+// synchronously in the pointer handler, so it stays under the finger. Only the primary pointer
+// tears; palms (by contact size) and second fingers are ignored.
 
 import { isGiftDay, parseWhen } from "./calendar.js";
 import { confettiColours, paintPaper, resolveTheme, seeded } from "./paper.js";
 import { RipSound } from "./sound.js";
-import { DEFAULT_RULES, accepts, initialWrap, nextWrap } from "./state.js";
-import { clearedFraction, cover, createCoverage, scalePoints, startTear, stripOf, tearSize, tearTo } from "./tear.js";
+import { DEFAULT_RULES, accepts, initialWrap, isPalm, nextWrap } from "./state.js";
+import { clearedFraction, cover, createCoverage, foldAt, scalePoints, startTear, stripOf, tearSize, tearTo } from "./tear.js";
 
 export { isGiftDay, parseWhen } from "./calendar.js";
 export { THEMES } from "./paper.js";
@@ -31,7 +32,7 @@ export { THEMES } from "./paper.js";
  *   sound?: boolean, audioContext?: AudioContext, confetti?: boolean, zIndex?: number, label?: string,
  *   seed?: number, rng?: () => number, onOpen?: () => void, today?: Date
  * }} WrapOptions
- *   openAt: share of paper torn away (0 to 1) that opens it on the next lift, default 0.25
+ *   openAt: share of paper torn away (0 to 1) that opens it on the next lift, default 0.2
  *   openAfterTears: or open after this many tears, however small, default 8
  *   today: the date wrapOn checks (default now, local time)
  */
@@ -145,6 +146,7 @@ export class Wrapping {
     window.addEventListener("resize", this.onResize);
     parent.append(root);
     this.root = root;
+    try { root.focus({ preventScroll: true }); } catch {} // so Enter, Space or Escape open it at once
   }
 
   /** Run a handler; if it throws, take the paper away rather than leave the page stuck under it. */
@@ -165,7 +167,11 @@ export class Wrapping {
     if (this.w && this.h) {
       const sx = w / this.w, sy = h / this.h;
       this.cuts = this.cuts.map((p) => ({ cut: scalePoints(p.cut, sx, sy), rim: scalePoints(p.rim, sx, sy) }));
-      this.endTear(); // a rotation mid-pull ends that tear
+      // A rotation mid-pull ends that tear (the finger is somewhere else on the new layout), through
+      // the state machine so the state and the screen agree; pieces in flight are dropped, because
+      // the sheet they show is about to be repainted at the new size.
+      if (this.state.phase === "tearing") this.dispatch({ type: "cancel", pointerId: this.state.pointerId }, { fling: false });
+      this.pieces = [];
     }
     this.w = w;
     this.h = h;
@@ -191,9 +197,7 @@ export class Wrapping {
   }
 
   onDown(e) {
-    const next = nextWrap(this.state, { type: "down", pointerId: e.pointerId, primary: e.isPrimary }, this.rules);
-    if (next === this.state) return;
-    this.state = next;
+    if (!this.dispatch({ type: "down", pointerId: e.pointerId, primary: e.isPrimary, palm: isPalm(e) })) return;
     e.preventDefault();
     // Sound first and synchronously: the gesture is what lets the iPad play it.
     try { this.sound?.unlock(); this.sound?.pop(); this.sound?.start(); } catch {}
@@ -224,11 +228,7 @@ export class Wrapping {
   }
 
   onUp(e, type) {
-    if (!accepts(this.state, e.pointerId)) return;
-    this.endTear();
-    this.state = nextWrap(this.state, { type, pointerId: e.pointerId }, this.rules);
-    this.root.style.cursor = "grab";
-    if (this.state.phase === "opening") this.startOpening();
+    this.dispatch({ type, pointerId: e.pointerId });
   }
 
   onKey(e) {
@@ -238,14 +238,15 @@ export class Wrapping {
     this.open();
   }
 
-  /** The torn strip comes away and falls. */
-  endTear() {
+  /** The tear ends: the strip, folded back over the finger, comes away and falls (unless `fling` is false). */
+  endTear(fling = true) {
     const tear = this.tear;
     this.tear = null;
     this.sound?.stop();
+    if (this.root) this.root.style.cursor = "grab";
     if (!tear) return;
-    const strip = stripOf(tear);
-    if (strip) this.fling(strip, this.velocity());
+    const flap = fling && flapOf(tear);
+    if (flap) this.fling(flap, this.velocity(), true);
     this.kick();
   }
 
@@ -261,11 +262,20 @@ export class Wrapping {
 
   // ---------------------------------------------------------------- state
 
-  dispatch(event) {
-    const before = this.state.phase;
-    this.state = nextWrap(this.state, event, this.rules);
-    if (before !== "opening" && this.state.phase === "opening") this.startOpening();
-    if (before !== "open" && this.state.phase === "open") this.teardown();
+  /**
+   * Every phase change goes through here, and the screen follows the phase: leaving `tearing` ends
+   * the tear, entering `opening` starts the falling-away, entering `open` removes the paper.
+   * @returns {boolean} whether the state changed
+   */
+  dispatch(event, { fling = true } = {}) {
+    const before = this.state;
+    this.state = nextWrap(before, event, this.rules);
+    if (this.state === before) return false;
+    const was = before.phase, now = this.state.phase;
+    if (was === "tearing" && now !== "tearing") this.endTear(fling);
+    if (was !== "opening" && now === "opening") this.startOpening();
+    if (was !== "open" && now === "open") this.teardown();
+    return true;
   }
 
   /** Cut pieces out of the paper and count what is gone. */
@@ -275,7 +285,7 @@ export class Wrapping {
       this.cuts.push(p);
       cover(this.coverage, p.cut, this.w, this.h);
     }
-    this.state = nextWrap(this.state, { type: "cleared", fraction: clearedFraction(this.coverage) }, this.rules);
+    this.dispatch({ type: "cleared", fraction: clearedFraction(this.coverage) });
   }
 
   cutOut({ cut, rim }) {
@@ -290,7 +300,6 @@ export class Wrapping {
   }
 
   startOpening() {
-    this.endTear();
     this.root.style.pointerEvents = "none"; // the page is usable while the paper falls away
     this.root.removeAttribute("role");
     try { this.sound?.chime(); } catch {}
@@ -336,7 +345,7 @@ export class Wrapping {
   // ---------------------------------------------------------------- animation
 
   /** A piece of paper (an outline in px) falls away. */
-  fling(poly, v) {
+  fling(poly, v, backUp = false) {
     if (!poly || poly.length < 3) return;
     let cx = 0, cy = 0, minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const p of poly) {
@@ -355,7 +364,7 @@ export class Wrapping {
       vx: v.x * 0.5 + (r() - 0.5) * 260,
       vy: v.y * 0.5 - 260 - r() * 200,
       angle: 0, spin: (r() - 0.5) * 5,
-      flip: 0, flipRate: 3 + r() * 5,
+      flip: backUp ? Math.PI : 0, flipRate: 3 + r() * 5,
       life: 0, size: Math.max(maxX - minX, maxY - minY),
     });
   }
@@ -431,7 +440,7 @@ export class Wrapping {
     const ctx = this.fctx;
     ctx.clearRect(0, 0, this.w, this.h);
     for (const p of this.pieces) this.drawPiece(ctx, p);
-    if (this.tear) this.drawCurl(ctx, this.tear);
+    if (this.tear) this.drawFlap(ctx, this.tear);
     for (const c of this.confetti) {
       ctx.save();
       ctx.translate(c.x, c.y);
@@ -469,9 +478,32 @@ export class Wrapping {
     ctx.restore();
   }
 
-  /** Where the finger pulls, the torn paper rolls up into a curl. */
-  drawCurl(ctx, tear) {
+  /**
+   * The strip torn so far, folded back over the finger like real paper being pulled off: its white
+   * back up, lying ahead of the finger, with a soft shadow and a curl at the fold.
+   */
+  drawFlap(ctx, tear) {
     if (!tear.dir) return;
+    const flap = flapOf(tear);
+    if (flap) {
+      ctx.save();
+      ctx.translate(4, 6);
+      ctx.fillStyle = "rgba(40,25,15,0.16)";
+      tracePoly(ctx, flap);
+      ctx.fill();
+      ctx.restore();
+      ctx.fillStyle = this.theme.back;
+      tracePoly(ctx, flap);
+      ctx.fill();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(60,40,30,0.18)";
+      ctx.stroke();
+    }
+    this.drawCurl(ctx, tear);
+  }
+
+  /** At the fold under the finger, the paper rolls into a curl. */
+  drawCurl(ctx, tear) {
     const len = tear.width * 2.1;
     const thick = Math.max(10, tear.width * 0.42);
     ctx.save();
@@ -492,6 +524,12 @@ export class Wrapping {
     ctx.fill();
     ctx.restore();
   }
+}
+
+/** The torn strip folded back at the finger: mirrored across the line through the finger, square to the pull. */
+function flapOf(tear) {
+  const strip = stripOf(tear);
+  return strip && tear.dir ? foldAt(strip, tear.last, tear.dir) : null;
 }
 
 function tracePoly(ctx, poly) {

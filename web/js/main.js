@@ -101,15 +101,28 @@ async function boot() {
 /** Klara's birthday, every year: the farm opens wrapped in gift paper to tear off. */
 const BIRTHDAY = "11-07";
 
+/**
+ * Wrap the farm on Klara's birthday: at launch, and again when the app comes back from the background
+ * on a birthday it has not been wrapped on yet (a Home Screen app is often resumed, not relaunched).
+ */
 function wrapBirthday(mode) {
   // Automated browsers (the test suites) never get paper unless a test asks for it with ?flag=wrap:always.
   if (mode === "never" || (mode === "auto" && navigator.webdriver)) return;
-  try {
-    const options = { theme: "autumn", label: "A birthday present. Drag to tear the paper open." };
-    window.__kfGift = mode === "always" ? wrap(options) : wrapOn(BIRTHDAY, options); // debugging and tests
-  } catch (e) {
-    console.warn("birthday wrapping skipped", e); // a present must never stop the farm from starting
-  }
+  const options = { theme: "autumn", label: "A birthday present. Drag to tear the paper open." };
+  let wrappedOn = null;
+  const tryWrap = () => {
+    try {
+      const today = new Date().toDateString();
+      if (wrappedOn === today) return;
+      const present = mode === "always" ? wrap(options) : wrapOn(BIRTHDAY, options);
+      if (present) wrappedOn = today;
+      window.__kfGift = present; // debugging and tests
+    } catch (e) {
+      console.warn("birthday wrapping skipped", e); // a present must never stop the farm from starting
+    }
+  };
+  tryWrap();
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") tryWrap(); });
 }
 
 async function loadJsonMap(dir, ids) {

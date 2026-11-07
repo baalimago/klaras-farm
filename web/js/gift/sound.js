@@ -60,7 +60,9 @@ export class RipSound {
     try {
       const t = this.ctx.currentTime;
       const k = Math.min(1, pxPerMs / 2.2);
+      v.gain.gain.cancelScheduledValues(t);
       v.gain.gain.setTargetAtTime(RIP_MAX_GAIN * k, t, 0.02);
+      v.gain.gain.setTargetAtTime(0, t + 0.08, 0.05); // a finger that stops goes quiet; the next move lifts it again
       v.band.frequency.setTargetAtTime(1100 + 2600 * k, t, 0.04);
     } catch {}
   }

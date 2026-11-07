@@ -172,6 +172,17 @@ export function inside(x, y, poly) {
   return hit;
 }
 
+/**
+ * Fold points over the line through `at` square to the unit direction `dir`: a strip pulled back
+ * over the finger lies mirrored ahead of it.
+ */
+export function foldAt(points, at, dir) {
+  return points.map((p) => {
+    const k = 2 * ((at.x - p.x) * dir.x + (at.y - p.y) * dir.y);
+    return { x: p.x + k * dir.x, y: p.y + k * dir.y };
+  });
+}
+
 /** Scale points from one viewport size to another (a rotation or resize keeps the tears in place). */
 export function scalePoints(points, sx, sy) {
   return points.map((p) => ({ x: p.x * sx, y: p.y * sy }));

@@ -47,6 +47,8 @@ test("the paper covers the whole page and takes its taps", async () => {
   assert.equal(await page.getAttribute(".gift-wrap", "role"), "button");
   assert.match(await page.getAttribute(".gift-wrap", "aria-label"), /Drag to tear/);
   assert.equal(await paperAt(page, 300, 300), true);
+  const style = await page.locator(".gift-wrap").evaluate((e) => ({ touch: getComputedStyle(e).touchAction, focused: document.activeElement === e }));
+  assert.deepEqual(style, { touch: "none", focused: true }, "no scroll or zoom steals a pull on the iPad");
   await page.screenshot({ path: join(SHOTS, "gift-wrapped.png") }).catch(() => {});
   assert.deepEqual(page.errors, []);
 });
@@ -86,10 +88,12 @@ test("enough pulls open it: it falls away, the page underneath works, onOpen run
   await page.screenshot({ path: join(SHOTS, "gift-torn.png") }).catch(() => {});
   await pull(page, [100, 650], [1100, 680]);
   assert.equal(await page.evaluate(() => window.__w.phase), "opening");
+  const started = Date.now();
   // While it falls away, the page already takes taps.
   await page.mouse.click(100, 80);
   assert.equal(await page.evaluate(() => window.__clicks), 1);
   await page.evaluate(() => window.__w.opened);
+  assert.ok(Date.now() - started < 3000, "gone when the fade and the confetti are, not at the 4 s failsafe");
   assert.equal(await page.locator(".gift-wrap").count(), 0);
   assert.equal(await page.evaluate(() => window.__opened), 1);
   assert.equal(await page.evaluate(() => window.__w.phase), "open");
@@ -116,10 +120,89 @@ test("only the primary pointer tears: a second finger does nothing", async () =>
   assert.equal(await page.evaluate(() => window.__w.state.tears), 0);
 });
 
-test("Enter opens it from a keyboard", async () => {
+test("a second finger moving and lifting during a tear neither tears nor ends it", async () => {
+  const page = await wrapped({ openAt: 1, openAfterTears: 99 });
+  const phase = await page.evaluate(() => {
+    const root = document.querySelector(".gift-wrap");
+    const at = (type, id, primary, x, y) => root.dispatchEvent(new PointerEvent(type, { pointerId: id, isPrimary: primary, clientX: x, clientY: y, bubbles: true, pointerType: "touch" }));
+    at("pointerdown", 1, true, 200, 200);
+    at("pointerdown", 2, false, 800, 600);
+    at("pointermove", 2, false, 1000, 600);
+    at("pointerup", 2, false, 1000, 600);
+    const during = window.__w.phase;
+    at("pointermove", 1, true, 500, 200);
+    at("pointerup", 1, true, 500, 200);
+    return during;
+  });
+  assert.equal(phase, "tearing");
+  assert.equal(await paperAt(page, 900, 600), true, "no tear where the second finger went");
+  assert.equal(await paperAt(page, 350, 200), false, "the first finger's pull still tore");
+});
+
+test("0 fps when idle: frames stop once everything has landed", async () => {
+  const page = await wrapped({ openAt: 1, openAfterTears: 99 });
+  await page.evaluate(() => {
+    window.__frames = 0;
+    const raf = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = (fn) => { window.__frames++; return raf(fn); };
+  });
+  await pull(page, [200, 300], [700, 300]);
+  await page.waitForFunction(() => window.__w.pieces.length === 0, null, { timeout: 5000 });
+  await page.waitForTimeout(100);
+  const before = await page.evaluate(() => window.__frames);
+  await page.waitForTimeout(400);
+  assert.equal(await page.evaluate(() => window.__frames), before, "no frames while nothing moves");
+  // A held finger that moves asks for at most one frame per move.
+  await page.mouse.move(300, 500);
+  await page.mouse.down();
+  const start = await page.evaluate(() => window.__frames);
+  for (let x = 320; x <= 520; x += 20) await page.mouse.move(x, 500);
+  const used = (await page.evaluate(() => window.__frames)) - start;
+  assert.ok(used <= 12 + 3, `${used} frame requests for 11 moves`);
+  await page.mouse.up();
+});
+
+test("a palm that lands first does not tear, and a finger after it still can", async () => {
   const page = await wrapped();
-  await page.focus(".gift-wrap");
-  await page.keyboard.press("Enter");
+  const r = await page.evaluate(() => {
+    const root = document.querySelector(".gift-wrap");
+    const at = (type, id, x, y, size) => root.dispatchEvent(new PointerEvent(type, { pointerId: id, isPrimary: true, clientX: x, clientY: y, width: size, height: size, bubbles: true, pointerType: "touch" }));
+    at("pointerdown", 9, 500, 500, 220);
+    at("pointermove", 9, 800, 500, 220);
+    const afterPalm = { phase: window.__w.phase, tears: window.__w.state.tears };
+    at("pointerup", 9, 800, 500, 220);
+    at("pointerdown", 10, 300, 300, 20);
+    const afterFinger = window.__w.phase;
+    at("pointerup", 10, 300, 300, 20);
+    return { afterPalm, afterFinger };
+  });
+  assert.deepEqual(r, { afterPalm: { phase: "wrapped", tears: 0 }, afterFinger: "tearing" });
+  assert.equal(await paperAt(page, 500, 500), true, "no hole under the palm");
+  assert.equal(await paperAt(page, 300, 300), false);
+});
+
+test("while pulling, the torn strip folds back over the finger; it falls on lift with no flash", async () => {
+  const page = await wrapped({ openAt: 1, openAfterTears: 99 });
+  await page.mouse.move(150, 400);
+  await page.mouse.down();
+  for (let x = 170; x <= 600; x += 20) await page.mouse.move(x, 400);
+  await page.waitForTimeout(50); // a frame
+  const fxAt = (x, y) => page.evaluate(([x, y]) => {
+    const c = document.querySelectorAll(".gift-wrap canvas")[1];
+    const d = c.width / innerWidth;
+    return c.getContext("2d").getImageData(Math.round(x * d), Math.round(y * d), 1, 1).data[3] > 0;
+  }, [x, y]);
+  assert.equal(await fxAt(800, 400), true, "the folded strip lies ahead of the finger");
+  assert.equal(await fxAt(300, 400), false, "and the hole behind it is open");
+  await page.screenshot({ path: join(SHOTS, "gift-flap.png") }).catch(() => {});
+  await page.mouse.up();
+  assert.equal(await page.evaluate(() => window.__w.pieces.length >= 1), true);
+  assert.equal(await page.evaluate(() => window.__w.pieces.at(-1).x > 600), true, "it falls from where it was folded, not from the hole");
+});
+
+test("Escape opens it from a keyboard, with no click first (the paper takes focus)", async () => {
+  const page = await wrapped();
+  await page.keyboard.press("Escape");
   await page.evaluate(() => window.__w.opened);
   assert.equal(await page.locator(".gift-wrap").count(), 0);
 });
@@ -131,6 +214,20 @@ test("a rotation keeps the tears where they were", async () => {
   await page.waitForFunction(() => window.__w.w === 820);
   assert.equal(await paperAt(page, 410, 590), false, "the tear moved with the screen");
   assert.equal(await paperAt(page, 410, 150), true);
+});
+
+test("a rotation mid-pull ends that pull in the state too, and the next touch tears", async () => {
+  const page = await wrapped({ openAt: 1, openAfterTears: 99 });
+  await page.mouse.move(200, 300);
+  await page.mouse.down();
+  await page.mouse.move(400, 300);
+  await page.setViewportSize({ width: 820, height: 1180 });
+  await page.waitForFunction(() => window.__w.w === 820);
+  assert.deepEqual(await page.evaluate(() => ({ phase: window.__w.phase, tear: window.__w.tear })), { phase: "wrapped", tear: null });
+  await page.mouse.up();
+  await pull(page, [100, 900], [700, 900]);
+  assert.equal(await paperAt(page, 400, 900), false);
+  assert.deepEqual(page.errors, []);
 });
 
 test("wrapOn wraps only on its day; destroy removes it at once", async () => {
@@ -160,6 +257,24 @@ test("it fails open: with no canvas, the page is never covered", async () => {
 });
 
 // ---------------------------------------------------------------- the real app
+
+test("Klara's Farm wraps itself on 7 November, any year, and not on other days or with wrap:never", async () => {
+  const notAutomated = () => Object.defineProperty(Navigator.prototype, "webdriver", { get: () => false });
+  const cases = [
+    [new Date(2031, 10, 7, 9, 0), "", 1],
+    [new Date(2026, 10, 7, 23, 30), "", 1],
+    [new Date(2026, 10, 8, 0, 30), "", 0],
+    [new Date(2026, 6, 11, 12, 0), "", 0],
+    [new Date(2026, 10, 7, 9, 0), "?flag=wrap:never", 0],
+  ];
+  for (const [when, query, expected] of cases) {
+    const page = await h.newPage({ waitReady: false, init: notAutomated });
+    await page.clock.setFixedTime(when);
+    await page.goto(h.server.url + "/" + query);
+    await page.waitForFunction(() => document.documentElement.dataset.ready === "true");
+    assert.equal(await page.locator(".gift-wrap").count(), expected, `${when.toString()} ${query}`);
+  }
+});
 
 test("Klara's Farm: ?flag=wrap:always wraps the farm, and tearing it open reveals the board", async () => {
   const page = await h.newPage();

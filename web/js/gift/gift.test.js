@@ -3,8 +3,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { isGiftDay, parseWhen } from "./calendar.js";
-import { DEFAULT_RULES, accepts, initialWrap, nextWrap } from "./state.js";
-import { GRID_COLS, GRID_ROWS, clearedFraction, cover, createCoverage, inside, poke, scalePoints, startTear, stripOf, tearSize, tearTo } from "./tear.js";
+import { DEFAULT_RULES, PALM_PX, accepts, initialWrap, isPalm, nextWrap } from "./state.js";
+import { GRID_COLS, GRID_ROWS, clearedFraction, cover, createCoverage, foldAt, inside, poke, scalePoints, startTear, stripOf, tearSize, tearTo } from "./tear.js";
 import { THEMES, confettiColours, paintPaper, resolveTheme, seeded, withAlpha } from "./paper.js";
 
 // ---------------------------------------------------------------- calendar
@@ -27,7 +27,9 @@ test("parseWhen reads MM-DD, YYYY-MM-DD and objects, and refuses nonsense", () =
   assert.deepEqual(parseWhen("11-07"), { month: 11, day: 7 });
   assert.deepEqual(parseWhen(" 2026-1-2 "), { month: 1, day: 2, year: 2026 });
   assert.deepEqual(parseWhen({ month: 3, day: 9 }), { month: 3, day: 9 });
-  for (const bad of ["7 November", "13-01", "11-32", "00-10", "", { month: 2 }]) assert.throws(() => parseWhen(bad), RangeError, JSON.stringify(bad));
+  assert.deepEqual(parseWhen("02-29"), { month: 2, day: 29 }, "a leap-day birthday, every year");
+  assert.deepEqual(parseWhen("2028-02-29"), { month: 2, day: 29, year: 2028 });
+  for (const bad of ["7 November", "13-01", "11-32", "00-10", "", { month: 2 }, "02-30", "04-31", "2027-02-29", "1900-02-29", "11-00", { month: 2, day: 1.5 }, { month: 2.5, day: 1 }]) assert.throws(() => parseWhen(bad), RangeError, JSON.stringify(bad));
 });
 
 // ---------------------------------------------------------------- state machine
@@ -36,6 +38,12 @@ const run = (events, s = initialWrap(), rules = DEFAULT_RULES) => events.reduce(
 const down = (pointerId = 1, primary = true) => ({ type: "down", pointerId, primary });
 const up = (pointerId = 1) => ({ type: "up", pointerId });
 const cleared = (fraction) => ({ type: "cleared", fraction });
+
+test("the default rules: a fifth torn away, or eight tears", () => {
+  assert.deepEqual({ ...DEFAULT_RULES }, { openAt: 0.2, openAfterTears: 8 });
+  assert.equal(run([down(), up(), down(), up(), down(), up(), down(), up(), down(), up(), down(), up(), down(), up()]).phase, "wrapped");
+  assert.equal(run([down(), up(), down(), up(), down(), up(), down(), up(), down(), up(), down(), up(), down(), up(), down(), up()]).phase, "opening");
+});
 
 test("a primary finger starts a tear; lifting it with little torn leaves the paper on", () => {
   const s = run([down(7)]);
@@ -53,6 +61,7 @@ test("a primary finger starts a tear; lifting it with little torn leaves the pap
 test("palms and second fingers are ignored, and only the tearing finger can end its tear", () => {
   const s0 = initialWrap();
   assert.equal(nextWrap(s0, down(2, false)), s0, "not primary");
+  assert.equal(nextWrap(s0, { ...down(2), palm: true }), s0, "a palm that lands first is primary, and still ignored");
   const s = run([down(1)]);
   assert.equal(nextWrap(s, down(3)), s, "a second finger while tearing");
   assert.equal(nextWrap(s, up(3)), s, "another pointer's lift");
@@ -70,6 +79,17 @@ test("a child who only pokes still gets it open after enough tears", () => {
   const s = run([down(), up(), down(), up()], initialWrap(), rules);
   assert.equal(s.phase, "wrapped");
   assert.equal(run([down(), up()], s, rules).phase, "opening");
+});
+
+test("isPalm: a contact wider and taller than PALM_PX", () => {
+  assert.equal(isPalm({ width: PALM_PX + 1, height: PALM_PX + 1 }), true);
+  assert.equal(isPalm({ width: PALM_PX, height: 400 }), false, "a long thin contact is a finger sliding");
+  assert.equal(isPalm({ width: 20, height: 20 }), false);
+  assert.equal(isPalm({}), false, "no size reported: a finger");
+});
+
+test("cleared is kept while opening, and only grows", () => {
+  assert.equal(run([{ type: "open" }, cleared(0.5)]).cleared, 0.5);
 });
 
 test("cleared only grows and is capped at 1", () => {
@@ -207,6 +227,13 @@ test("a full-width pull across the screen clears a good share, so a few pulls op
   for (const p of [...pieces, ...res.pieces]) cover(cov, p.cut, 1180, 820);
   const f = clearedFraction(cov);
   assert.ok(f > 0.1 && f < DEFAULT_RULES.openAt, `one pull clears ${f}`);
+});
+
+test("foldAt mirrors the strip ahead of the finger, square to the pull", () => {
+  const folded = foldAt([{ x: 0, y: 10 }, { x: 90, y: -5 }, { x: 100, y: 0 }], { x: 100, y: 0 }, { x: 1, y: 0 });
+  assert.deepEqual(folded, [{ x: 200, y: 10 }, { x: 110, y: -5 }, { x: 100, y: 0 }]);
+  const up = foldAt([{ x: 5, y: 300 }], { x: 5, y: 200 }, { x: 0, y: -1 });
+  assert.deepEqual(up, [{ x: 5, y: 100 }]);
 });
 
 test("scalePoints maps a tear to a rotated screen", () => {

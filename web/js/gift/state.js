@@ -1,8 +1,9 @@
 // The wrapping's life, as a pure state machine. One finger tears at a time (the primary pointer;
-// palms and second fingers are ignored), and the paper comes off once enough of it is gone.
+// second fingers are ignored, and so is a palm, by its contact size, even when it lands first),
+// and the paper comes off once enough of it is gone.
 //
-//   wrapped ──down (primary pointer)──▶ tearing        the finger pokes in and starts a tear
-//   tearing ──cleared──▶ tearing                       the share of paper torn away grows
+//   wrapped ──down (primary pointer, not a palm)──▶ tearing   the finger pokes in and starts a tear
+//   any but open ──cleared──▶ same phase              the share of paper torn away grows
 //   tearing ──up / cancel (that pointer)──▶ wrapped    the strip falls off; more paper is left
 //   tearing ──up / cancel, enough torn──▶ opening      the rest of the paper falls away
 //   wrapped | tearing ──open──▶ opening                a key press, or the host opens it
@@ -17,7 +18,15 @@
 /** @typedef {{openAt: number, openAfterTears: number}} WrapRules */
 
 /** @type {WrapRules} */
-export const DEFAULT_RULES = Object.freeze({ openAt: 0.25, openAfterTears: 8 });
+export const DEFAULT_RULES = Object.freeze({ openAt: 0.2, openAfterTears: 8 });
+
+/** A contact wider and taller than this (CSS px) is a palm or a resting hand, not a finger. */
+export const PALM_PX = 140;
+
+/** Is this pointer contact a palm? Takes the pointer event's `width` and `height`. */
+export function isPalm({ width = 0, height = 0 }) {
+  return width > PALM_PX && height > PALM_PX;
+}
 
 /** @returns {WrapState} */
 export function initialWrap() {
@@ -31,7 +40,7 @@ export function accepts(s, pointerId) {
 
 /**
  * @param {WrapState} s
- * @param {{type:'down', pointerId:number, primary:boolean} | {type:'up'|'cancel', pointerId:number}
+ * @param {{type:'down', pointerId:number, primary:boolean, palm?:boolean} | {type:'up'|'cancel', pointerId:number}
  *   | {type:'cleared', fraction:number} | {type:'open'|'opened'|'destroy'}} e
  * @param {WrapRules} [rules]
  * @returns {WrapState}  the same object when the event changes nothing
@@ -39,7 +48,7 @@ export function accepts(s, pointerId) {
 export function nextWrap(s, e, rules = DEFAULT_RULES) {
   switch (e.type) {
     case "down":
-      if (s.phase !== "wrapped" || !e.primary) return s;
+      if (s.phase !== "wrapped" || !e.primary || e.palm) return s;
       return { ...s, phase: "tearing", pointerId: e.pointerId, tears: s.tears + 1 };
     case "cleared":
       if (s.phase === "open" || e.fraction <= s.cleared) return s;

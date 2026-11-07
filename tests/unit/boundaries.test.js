@@ -45,12 +45,22 @@ test("no module outside io/, components/, gift/ and main.js reads IndexedDB or a
   }
 });
 
+// The wrapping paper's logic modules are pure like the domains, so they test without a browser.
+test("gift/ logic modules are pure", () => {
+  for (const name of ["calendar.js", "state.js", "tear.js", "paper.js"]) {
+    const src = readFileSync(join(ROOT, "gift", name), "utf8").replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const rule of BANNED) assert.ok(!rule.test(src), `gift/${name} uses ${rule}`);
+  }
+});
+
+const SPECIFIERS = /(?:\bfrom\s*|\bimport\s*\(?\s*)["']([^"']+)["']/g; // static, side-effect and dynamic imports
+
 // gift/ (the wrapping paper) is a package meant to be copied onto other pages, so it owns its DOM,
 // canvas and audio, and it imports nothing from the app; only main.js imports it.
 test("gift/ is self-contained, and only main.js uses it", () => {
   for (const file of files(join(ROOT, "gift"))) {
     const src = readFileSync(file, "utf8");
-    for (const [, spec] of src.matchAll(/(?:import|export)[^'"]*?from\s*["']([^"']+)["']/g)) {
+    for (const [, spec] of src.matchAll(SPECIFIERS)) {
       const target = relative(join(ROOT, "gift"), resolve(dirname(file), spec));
       assert.ok(!target.startsWith(".."), `${relative(ROOT, file)} imports ${spec} from outside gift/`);
     }
@@ -58,6 +68,11 @@ test("gift/ is self-contained, and only main.js uses it", () => {
   for (const file of files(ROOT)) {
     const rel = relative(ROOT, file);
     if (rel.startsWith("gift/") || rel === "main.js") continue;
-    assert.ok(!/from\s*["'][^"']*gift\//.test(readFileSync(file, "utf8")), `${rel} imports gift/`);
+    const specs = [...readFileSync(file, "utf8").matchAll(SPECIFIERS)].map((m) => m[1]);
+    assert.ok(!specs.some((s) => /(^|\/)gift\//.test(s)), `${rel} imports gift/`);
+  }
+  // The wrapping paper stores nothing: it shows on every launch of the day.
+  for (const file of files(join(ROOT, "gift"))) {
+    assert.ok(!/\bindexedDB\b|\blocalStorage\b|\bsessionStorage\b|getUserMedia/.test(readFileSync(file, "utf8")), `${relative(ROOT, file)} stores or records`);
   }
 });
