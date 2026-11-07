@@ -184,3 +184,20 @@ test("every intent wrapper runs its intent, emits one change, and the result sur
   assert.deepEqual(again.thingsIn(placeId)[0].cues.en.lines, ["Where is it?", "", "", "Peekaboo?"]);
   assert.equal(again.maxThings, 5);
 });
+
+test("settled() waits for every queued write, including failed ones, and never rejects", async () => {
+  const { s, repo } = await store({ failOn: (_w, n) => (n === 2 ? new Error("disk") : null) });
+  await s.createPlace({ name: "Farm" });
+  let release;
+  const write = repo.write.bind(repo);
+  repo.write = (w) => new Promise((ok) => { release = ok; }).then(() => write(w));
+  s.renamePlace({ placeId: s.currentPlace.id, name: "Barn" }).catch(() => {});
+  let settled = false;
+  const p = s.settled().then(() => { settled = true; });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(settled, false, "still waiting on the rename");
+  release();
+  await p;
+  assert.equal(settled, true);
+  assert.equal(await s.settled(), undefined, "a settled store resolves at once");
+});

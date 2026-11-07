@@ -7,6 +7,7 @@ import { h, languageName } from "../kf-guided-add/dom.js";
 import { cueLines, MAX_CUE_LINES } from "../../farm/scripts.js";
 import { lineVoice } from "../../play/voice.js";
 import { commitOnEnter } from "./enter.js";
+import { device } from "../../io/device.js";
 
 /**
  * @param {{store:object, shell?:object, scripts:object, thing:object, lang:string,
@@ -31,7 +32,7 @@ export function questionsSection({ store, scripts, thing, lang, slot, onArticle,
     { class: "kf-questions", "data-thing": thing.id },
     heading ? h("h3", { text: `Questions (${count}/${lines.length})` }) : null,
     h("p", { class: "kf-note", text: "Examples, change them freely. Klara hears one of your recorded questions at random." }),
-    robot ? h("p", { class: "kf-invite", "data-testid": "question-invite", text: "The iPad voice reads these for now. Record your own: Klara knows your voice best." }) : null,
+    robot ? h("p", { class: "kf-invite", "data-testid": "question-invite", text: `The ${device().voice} reads these for now. Record your own: Klara knows your voice best.` }) : null,
     fallback ? h("p", { class: "kf-note", text: `No script for ${languageName(lang)} yet: say these in your language.` }) : null,
     articles.length
       ? h("label", { class: "kf-field kf-tc-article" }, h("span", { text: "Article" }),

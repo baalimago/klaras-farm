@@ -28,6 +28,7 @@ import { nameVoice, soundVoice } from "../../play/voice.js";
 import { lineVoiceText } from "./clip-slot.js";
 import { changedFields, revertPatch } from "./revert.js";
 import { reportFailure } from "../kf-dialog/dom.js";
+import { capital, device } from "../../io/device.js";
 
 const KIND_LABEL = { name: "name", prompt: "question", sound: "sound" };
 
@@ -278,7 +279,7 @@ export class ThingCardElement extends HTMLElement {
     const v = nameVoice(snap, this.thing, this.lang, this.canSpeak);
     if (v.source === "recording") return { source: v.source, text: "Your recording" };
     if (v.source === "other-language") return { source: v.source, clip: v.clip, text: `Plays your ${languageName(v.clip.language)} recording for now` };
-    if (v.source === "voice") return { source: v.source, text: `iPad voice says “${v.text}” for now` };
+    if (v.source === "voice") return { source: v.source, text: `${capital(device().voice)} says “${v.text}” for now` };
     return { source: "none", text: "Just a chime for now" };
   }
 
@@ -610,6 +611,6 @@ export class ThingCardElement extends HTMLElement {
     if (!sheet) return;
     let box = sheet.querySelector(".kf-tc-error");
     if (!box) sheet.prepend((box = h("p", { class: "kf-warning kf-tc-error", role: "alert" })));
-    box.textContent = e?.code === "quota" ? "The iPad is out of space, so this couldn't be saved." : "Something went wrong saving this. Try again.";
+    box.textContent = e?.code === "quota" ? `This ${device().name} is out of space, so this couldn't be saved.` : "Something went wrong saving this. Try again.";
   }
 }

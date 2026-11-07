@@ -63,6 +63,7 @@ Invariants checked by `validateSnapshot` (never throws, returns `{ok}` or `{ok:f
 - A failed write puts the snapshot back to the last committed one, emits `change {kind: 'reverted'}`, and rejects with `FarmError('storage')` or `FarmError('quota')`. Intents applied after the failed one were built on it, so they are dropped without writing and reject too: storage never holds half a change.
 - Blobs in queued writes (`putBlob`, `saveClip`) are readable through `getBlob` before they commit, so audio can decode a clip the snapshot already shows.
 - `replaceAll` writes and re-hydrates inside the queue; intents called meanwhile apply to the replaced farm.
+- `settled()` resolves (never rejects) once every write queued so far has committed or failed. Only for a reload or a test that needs the disk to agree with the snapshot; the UI never waits on it.
 - `exportSnapshot()` stamps `FORMAT_VERSION`, `MIN_READER_FORMAT`, `appVersion`, `exportedAt`, `deviceId`.
 - `replaceAll(snapshot, blobs)` for import and starter content, then re-hydrates from storage.
 - `saveDraft`, `discardDraft`, `listDrafts`, `setMeta`, `getBlob`, `putBlob`, getters `settings`, `currentPlace`, and `thingsIn`, `clipsFor`, `gameClips`, `canAddThing`, getter `maxThings`, and `setOccupancy(fn)` / getter `occupancy`: `fn(placeId)` returns where that place's things stand now (spread boxes) or null; the play engine sets it, and `copyThing` and `addThing` with `spot: "free"` pass its answer as `occupied` unless the caller gave one (a throwing occupancy falls back to the saved positions).

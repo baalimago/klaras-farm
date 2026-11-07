@@ -4,7 +4,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
-import { setup } from "./harness.js";
+import { setup, IPAD_UA } from "./harness.js";
 import { aSnapshot, aPlace, aThing, aClip, square } from "../builders.js";
 
 const STUBS = join(import.meta.dirname, "stubs/f2-stubs.js");
@@ -28,8 +28,8 @@ function farmAndSea() {
     .build();
 }
 
-async function open(tag, { snapshot = farmAndSea(), params = {}, opts = {} } = {}) {
-  const page = await h.modulePage('<div id="parent-layer" class="parent-layer"></div>');
+async function open(tag, { snapshot = farmAndSea(), params = {}, opts = {}, userAgent } = {}) {
+  const page = await h.modulePage('<div id="parent-layer" class="parent-layer"></div>', { userAgent });
   await page.addScriptTag({ path: STUBS });
   await page.evaluate(async ({ snapshot, opts }) => { await window.F2.boot(snapshot, opts); }, { snapshot, opts });
   if (tag) await page.evaluate(async ({ tag, params }) => { await window.F2.mount(tag, params); }, { tag, params });
@@ -298,13 +298,36 @@ test("settings: Update ready only when services.updateReady", async () => {
   await until(ready, () => window.F2.calls.some((c) => c[0] === "storage.applyUpdate"));
 });
 
-test("settings: privacy statement and Guided Access guide are there", async () => {
-  const page = await open("kf-settings");
+test("settings on an iPad: privacy says this iPad, and the Guided Access guide is there", async () => {
+  const page = await open("kf-settings", { userAgent: IPAD_UA });
   const s = page.locator("kf-settings");
   await s.getByText("Privacy", { exact: true }).click();
   await s.getByText(/stays on this iPad/).waitFor();
-  await s.getByText(/Guided Access/).first().click();
+  await s.getByText(/Lock the iPad to this app/).click();
   await s.getByText(/triple-click/i).first().waitFor();
+});
+
+test("settings elsewhere: neutral words, no iPad, and no Guided Access guide", async () => {
+  const page = await open("kf-settings");
+  const s = page.locator("kf-settings");
+  await s.getByText("Privacy", { exact: true }).click();
+  await s.getByText(/stays on this device/).waitFor();
+  assert.equal(await s.getByText(/Guided Access/).count(), 0, "Guided Access exists only on iPad and iPhone");
+  assert.doesNotMatch(await s.textContent(), /iPad/);
+});
+
+test("welcome on an iPad says this iPad; elsewhere this device", async () => {
+  const snapshot = farmAndSea();
+  snapshot.settings.welcomed = false;
+  const ipad = await open("kf-welcome", { snapshot, userAgent: IPAD_UA });
+  await ipad.locator("kf-welcome").getByText("Everything stays on this iPad.").waitFor();
+  assert.match(await ipad.locator("kf-welcome").textContent(), /Add it to your Home Screen/, "Safari on iPad gets the nudge");
+  const home = await open("kf-welcome", { snapshot, userAgent: IPAD_UA, opts: { storage: { standalone: true } } });
+  await home.locator("kf-welcome").getByText("Everything stays on this iPad.").waitFor();
+  assert.doesNotMatch(await home.locator("kf-welcome").textContent(), /Home Screen/, "already on the Home Screen: no tip");
+  const other = await open("kf-welcome", { snapshot });
+  await other.locator("kf-welcome").getByText("Everything stays on this device.").waitFor();
+  assert.doesNotMatch(await other.locator("kf-welcome").textContent(), /iPad|Home Screen/);
 });
 
 // ---------------------------------------------------------------- kf-welcome
@@ -324,11 +347,29 @@ test("welcome: hold-to-edit tip, persistence request on dismiss, welcomed set, n
   assert.match(await card.textContent(), /together/i);
   await assertAccessible(page, "kf-welcome");
   assert.ok(!(await calls(page)).includes("storage.requestPersist"), "asks only on dismiss");
+  assert.equal(await card.getByRole("heading", { name: "Welcome to Klara's Farm!" }).count(), 1);
+  // The splash pictures are decoration only, and every animation on the card ends by itself,
+  // so the card goes back to 0 fps once the leaves have landed.
+  const art = await page.evaluate(() => {
+    const el = document.querySelector("kf-welcome");
+    const svgs = [...el.querySelectorAll("svg")];
+    const leaves = el.querySelectorAll(".kf-welcome-leaf").length;
+    const anims = el.getAnimations({ subtree: true }).map((a) => a.effect.getComputedTiming().iterations);
+    return { svgs: svgs.length, hidden: svgs.every((s) => s.closest("[aria-hidden=true]")), leaves, anims };
+  });
+  assert.ok(art.svgs >= 3 && art.hidden, "bunting, meadow and leaves are aria-hidden pictures");
+  assert.ok(art.leaves >= 4, "leaves fall onto the meadow");
+  assert.ok(art.anims.length > 0 && art.anims.every(Number.isFinite), `finite animations only: ${art.anims}`);
 
-  await card.getByRole("button", { name: "Start playing" }).click();
+  assert.ok(await page.evaluate(() => document.activeElement?.classList.contains("kf-welcome-start")), "Start playing has the focus");
+
+  // A double tap (a toddler mashing, or a parent being sure) closes it once.
+  await page.evaluate(() => { const b = document.querySelector(".kf-welcome-start"); b.click(); b.click(); });
   await until(page, () => window.services.store.settings.welcomed === true);
   await until(page, () => window.F2.calls.some((c) => c[0] === "kf-close"));
   const all = await calls(page);
+  assert.equal(all.filter((c) => c === "kf-close").length, 1, "one kf-close");
+  assert.ok(all.includes("audio.unlock"), "the tap unlocks audio");
   assert.ok(all.includes("storage.requestPersist"));
   assert.ok(!all.includes("getUserMedia"));
   assert.deepEqual(page.errors, []);

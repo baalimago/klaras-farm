@@ -64,7 +64,7 @@ test("thing card: nothing recorded says the iPad voice; a new take replaces it a
   const page = await mounted("kf-thing-card");
   const name = slot(page, "name");
   assert.equal(await name.getAttribute("data-voice"), "voice");
-  assert.equal(await voiceOf(name).textContent(), "iPad voice says “Cow” for now");
+  assert.equal(await voiceOf(name).textContent(), "Built-in voice says “Cow” for now");
   assert.match(await name.locator('[data-action="record"]').getAttribute("class"), /primary/, "Record is the invitation");
   assert.equal(await name.locator('[data-action="play"]').count(), 0, "nothing of yours to play yet");
   assert.equal(await voiceOf(slot(page, "sound")).textContent(), "No sound yet");
@@ -114,8 +114,8 @@ test("thing card: one sound for every language; re-recording it on the Swedish t
 test("thing card: questions without a recording invite your own; recorded ones say so, the rest wait", async () => {
   const page = await mounted("kf-thing-card");
   const invite = page.getByTestId("question-invite");
-  assert.equal(await invite.textContent(), "The iPad voice reads these for now. Record your own: Klara knows your voice best.");
-  assert.equal(await voiceOf(slot(page, "prompt", 1)).textContent(), "iPad voice for now");
+  assert.equal(await invite.textContent(), "The built-in voice reads these for now. Record your own: Klara knows your voice best.");
+  assert.equal(await voiceOf(slot(page, "prompt", 1)).textContent(), "Built-in voice for now");
   assert.equal(await slot(page, "prompt", 1).locator('[data-action="record"]').textContent(), "Record your own");
 
   await slot(page, "prompt", 1).locator('[data-action="record"]').click();
@@ -146,7 +146,7 @@ test("thing card: a missing name stands out; Enter saves it and closes the keybo
   assert.equal(await page.evaluate(() => document.activeElement?.tagName), "BODY", "the field let go: the keyboard closes");
   await page.locator("#kf-tc-title").filter({ hasText: "Ko" }).waitFor();
   assert.doesNotMatch(await page.locator(".kf-tc-name").getAttribute("class"), /is-missing/);
-  assert.equal(await voiceOf(slot(page, "name")).textContent(), "iPad voice says “Ko” for now");
+  assert.equal(await voiceOf(slot(page, "name")).textContent(), "Built-in voice says “Ko” for now");
 
   // Enter in a question field commits it the same way.
   const q = page.locator('input[name="cue-2"]');
@@ -162,7 +162,7 @@ test("find setup: unrecorded questions and the colour question invite your own; 
   const thing = page.locator(".kf-fs-thing");
   await thing.getByTestId("question-invite").waitFor();
   const q1 = thing.locator('.kf-tc-clip[data-kind="prompt"][data-take="1"]');
-  assert.equal(await voiceOf(q1).textContent(), "iPad voice for now");
+  assert.equal(await voiceOf(q1).textContent(), "Built-in voice for now");
   assert.equal(await q1.locator('[data-action="record"]').textContent(), "Record your own");
   await shot(page, "find-setup-invite");
   await q1.locator('[data-action="record"]').click();
@@ -182,15 +182,15 @@ test("colour game setup: “Tap on an animal that is…” invites your own unti
   const invite = page.getByTestId("color-invite");
   await invite.waitFor();
   const q = page.locator('.kf-tc-clip[data-kind="color-question"][data-take="1"]');
-  assert.equal(await voiceOf(q).textContent(), "iPad voice for now");
+  assert.equal(await voiceOf(q).textContent(), "Built-in voice for now");
   await page.locator('.kf-fs-swatch[data-group="white"]').click();
   const word = page.locator('.kf-tc-clip[data-kind="color-word"][data-color="white"]');
-  assert.equal(await voiceOf(word).textContent(), "iPad voice for now");
+  assert.equal(await voiceOf(word).textContent(), "Built-in voice for now");
   await shot(page, "colour-setup-invite");
   await q.locator('[data-action="record"]').click();
   await finishTake(page);
   // The recorded question plays only with the colour's recorded word (play/ask.js planColorAsk).
-  await voiceOf(q).filter({ hasText: "iPad voice until a colour word is recorded" }).waitFor();
+  await voiceOf(q).filter({ hasText: "Built-in voice until a colour word is recorded" }).waitFor();
   assert.equal(await invite.count(), 0);
   await word.locator('[data-action="record"]').click();
   await finishTake(page);

@@ -1,13 +1,29 @@
 // <kf-welcome>: the one-time first-run card for the parent (US-1.2).
-// Add to Home Screen nudge (Safari, not standalone), how to enter edit mode, a co-play tip.
+// A watercolour splash in the style of Klara's first birthday card (bunting, a sheep and a pig
+// on an autumn meadow, leaves drifting down) with three short lines: a co-play tip, how to
+// enter edit mode, and the Add to Home Screen nudge (iPad and iPhone, not standalone).
 // Dismissing requests persistent storage, unlocks audio (it is a user gesture), sets
 // settings.welcomed and dispatches kf-close. It never asks for the microphone.
 import { h, newId } from "../kf-dialog/dom.js";
+import { bunting, leaf, meadow, PAINT } from "./art.js";
+import { device } from "../../io/device.js";
 
-function isSafari() {
-  const ua = navigator.userAgent;
-  const iPadOS = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
-  return (/Safari\//.test(ua) && !/Chrome|Chromium|CriOS|FxiOS|EdgiOS|Edg\/|OPR\//.test(ua)) || /iP(ad|hone|od)/.test(ua) || iPadOS;
+// Each leaf: where it lands (% from the left, px above the bottom), shape, colour, and when it
+// starts and how long it falls. One fall each, so the card is still once they have landed.
+const LEAVES = [
+  { x: 8, y: 24, shape: "maple", color: PAINT.flags[3], delay: 0.1, secs: 3.3, spin: 160 },
+  { x: 22, y: 8, shape: "round", color: PAINT.flags[4], delay: 0.7, secs: 3.9, spin: -120 },
+  { x: 34, y: 30, shape: "long", color: PAINT.flags[2], delay: 0.4, secs: 3.6, spin: 200 },
+  { x: 76, y: 32, shape: "maple", color: PAINT.flags[1], delay: 1.1, secs: 3.5, spin: -180 },
+  { x: 85, y: 22, shape: "round", color: PAINT.flags[8], delay: 0.2, secs: 4.2, spin: 140 },
+  { x: 63, y: 34, shape: "long", color: PAINT.flags[6], delay: 1.5, secs: 3.7, spin: -150 },
+];
+
+function fallingLeaves() {
+  return h("div", { class: "kf-welcome-leaves", "aria-hidden": "true" }, LEAVES.map((l) =>
+    h("span", { class: "kf-welcome-leaf", style: `left:${l.x}%;bottom:${l.y}px;--delay:${l.delay}s;--secs:${l.secs}s;--spin:${l.spin}deg` }, [
+      h("span", { class: "kf-welcome-sway" }, [leaf(l.shape, l.color)]),
+    ])));
 }
 
 export class KfWelcomeElement extends HTMLElement {
@@ -25,24 +41,31 @@ export class KfWelcomeElement extends HTMLElement {
       standalone = !!this.services?.storage?.isStandalone?.();
     } catch {}
     const tips = [
-      h("li", {}, [h("strong", { text: "Klara just taps. " }), "The first tap turns the sound on; every thing she taps jumps and says its name."]),
-      h("li", {}, [h("strong", { text: "To edit, press and hold the scene for 1.5 s. " }), "A ring fills, then a quick adult check opens edit mode. Klara can't get there by tapping."]),
-      h("li", {}, [h("strong", { text: "Play together: " }), "say the names with Klara, and record your own voice for each thing."]),
+      h("p", { class: "kf-welcome-tip" }, [h("strong", { text: "Play together:" }), " tap, listen and say the names with Klara."]),
+      h("p", { class: "kf-welcome-tip" }, [h("strong", { text: "Grown-ups:" }), " hold the scene for 1.5 s to draw and record."]),
     ];
-    if (!standalone && isSafari()) {
-      tips.unshift(h("li", { class: "kf-welcome-home" }, [h("strong", { text: "Add it to your Home Screen. " }), "Tap Share, then Add to Home Screen. It then opens full screen, works offline and keeps your recordings safer."]));
+    if (!standalone && device().ios) {
+      tips.push(h("p", { class: "kf-welcome-tip kf-welcome-home" }, [h("strong", { text: "Add it to your Home Screen: " }), "tap Share, then Add to Home Screen. It opens full screen and keeps your recordings safer."]));
     }
     const start = h("button", { type: "button", class: "kf-btn primary kf-welcome-start", text: "Start playing", onclick: () => this.dismiss() });
     this.replaceChildren(
       h("div", { class: "kf-welcome-scrim" }),
       h("section", { class: "kf-sheet center kf-welcome", role: "dialog", "aria-modal": "true", "aria-labelledby": titleId }, [
-        h("h2", { id: titleId, text: "Welcome to Klara's Farm" }),
-        h("ul", { class: "kf-welcome-tips" }, tips),
-        h("p", { class: "kf-note", text: "Everything stays on this iPad. The microphone is only used when you record." }),
-        h("div", { class: "kf-row end" }, [start]),
+        bunting(),
+        meadow(),
+        fallingLeaves(),
+        h("div", { class: "kf-welcome-body" }, [
+          h("h2", { id: titleId, class: "kf-welcome-title" }, [
+            h("span", { class: "kf-welcome-hello", text: "Welcome to " }),
+            h("span", { class: "kf-welcome-name", text: "Klara's Farm!" }),
+          ]),
+          h("div", { class: "kf-welcome-tips" }, tips),
+          h("div", { class: "kf-welcome-go" }, [start]),
+        ]),
+        h("p", { class: "kf-welcome-private", text: `Everything stays on this ${device().name}.` }),
       ]),
     );
-    start.focus();
+    start.focus({ preventScroll: true });
   }
 
   /**

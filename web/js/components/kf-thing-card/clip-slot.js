@@ -4,6 +4,7 @@
 // question, colour words), so every slot looks and works the same. It renders from what it is
 // given; the host owns which slot is recording, saves the take, and says what plays (play/voice.js).
 import { h } from "../kf-guided-add/dom.js";
+import { capital, device } from "../../io/device.js";
 
 /**
  * @param {{services:object, clip:object|null, kind:string, take?:number, color?:string, what:string,
@@ -58,7 +59,7 @@ export function clipSlot(o) {
 /** Copy for a question line's voice (play/voice.js lineVoice), or null when it says nothing. */
 export function lineVoiceText(source) {
   if (source === "recording") return { source, text: "Your recording" };
-  if (source === "voice") return { source, text: "iPad voice for now" };
+  if (source === "voice") return { source, text: `${capital(device().voice)} for now` };
   if (source === "skipped") return { source, text: "Not asked until recorded" };
   return null;
 }

@@ -314,5 +314,5 @@ test("board: a resize whose write fails says so on screen, like any other edit",
     await new Promise((res) => setTimeout(res, 0));
     return toasts;
   }, SQUARE);
-  assert.deepEqual(toasts, ["The iPad is out of space. Nothing was changed."]);
+  assert.deepEqual(toasts, ["This device is out of space. Nothing was changed."]);
 });

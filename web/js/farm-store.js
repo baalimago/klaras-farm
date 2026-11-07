@@ -214,6 +214,12 @@ export class FarmStore extends EventTarget {
   }
 
   /** Intents run one at a time, in call order, so each sees the previous one's snapshot. */
+  /** Resolves once every write queued so far has committed or failed. Never rejects. For a
+   *  reload or a test that must see the disk agree with the snapshot; the UI never waits on it. */
+  settled() {
+    return this._queue;
+  }
+
   _serial(task) {
     const run = this._queue.then(task, task);
     this._queue = run.catch(() => {});
