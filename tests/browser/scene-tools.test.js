@@ -189,7 +189,10 @@ test("toolbars frame the board: the rail left, the tool's options right, never o
   await tools(page).getByRole("button", { name: "Change colour" }).waitFor();
   assert.deepEqual(await overBoard(page), [], "Move with a selection");
   const done = await tools(page).getByRole("button", { name: "Done" }).boundingBox();
-  assert.ok(done.y + done.height <= B.top + B.height + 1 && done.x >= B.left + B.width, "Done sits bottom right, beside the board");
+  assert.ok(Math.abs(done.y + done.height - (B.top + B.height)) <= 2 && done.x >= B.left + B.width, "Done sits bottom right, level with the board's bottom");
+  // Foreground rule: both toolbars stack above the drawing canvas (kf-draw-pad's overlay is z 5).
+  const z = await page.evaluate(() => [".kf-st-left", ".kf-st-right"].map((q) => Number(getComputedStyle(document.querySelector(q)).zIndex)));
+  assert.ok(z.every((n) => n > 5), `toolbars above the draw pad (${z})`);
   // A sheet takes the options' place in the column: no hint, no options behind it, still beside the board.
   await tools(page).getByRole("button", { name: "Change colour" }).click();
   await page.getByRole("dialog", { name: "Piece colour" }).waitFor();

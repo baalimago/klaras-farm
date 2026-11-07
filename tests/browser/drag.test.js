@@ -200,6 +200,9 @@ test("scene tools: the board makes room for both toolbars, so no control covers 
   got = await covering();
   assert.deepEqual(got.out, [], "portrait");
   assert.ok(got.stageOnBoard && got.inView, "portrait: the stage follows the board and every control is on screen");
+  assert.ok(got.board.width >= 760, `portrait board keeps nearly the full width (${got.board.width} px)`);
+  const band = await page.evaluate(() => innerHeight - window.__kf.board.boardRect().bottom);
+  assert.ok(band >= 290 + 12 + 12 && band < 420, `the options band below the board has its room (${band} px)`);
   // Done gives the board its whole room back.
   await page.setViewportSize({ width: 1180, height: 820 });
   await tools.getByRole("button", { name: "Done" }).click();
