@@ -31,18 +31,19 @@ web/js/
   farm/ geometry/ motion/ play/ edit/ dsp/   pure domains: data in, data out
   farm-store.js session.js play-engine.js    state owners, one per kind of state
   io/                                        device adapters: IndexedDB, audio, mic, canvas, storage
+  gift/                                      wrapper.js: birthday wrapping paper, self-contained and reusable
   components/<tag>/                          custom elements: the board and the parent UI
   shell.js main.js                           mounting and boot
 backend/                                     Python ASGI: static assets, health, client log, migrations
 ```
 
-Each domain has its architecture doc, `docs/<domain>.md`: farm, geometry, motion, play, edit, dsp, io, components, backend. Read the doc before changing the domain. Product intent is in `design/DESIGN.md` and `design/USER_STORIES.md`. `design/ARCHITECTURE.md` and `design/IMPLEMENTATION.md` are the original plans and are historical; where they disagree with `docs/`, `docs/` wins.
+Each domain has its architecture doc, `docs/<domain>.md`: farm, geometry, motion, play, edit, dsp, io, gift, components, backend. Read the doc before changing the domain. Product intent is in `design/DESIGN.md` and `design/USER_STORIES.md`. `design/ARCHITECTURE.md` and `design/IMPLEMENTATION.md` are the original plans and are historical; where they disagree with `docs/`, `docs/` wins.
 
 Rules that hold everywhere:
 
 1. **Pure domains stay pure.** They import only each other and `types.js`. No DOM, `window`, timers, `fetch`, `Date.now`, `performance.now` or `Math.random`: inject `now` and `rng`. `tests/unit/boundaries.test.js` enforces this.
 2. **One owner per state.** The farm lives in `FarmStore` (one snapshot, changed only through intents in `farm/intents.js`). UI mode lives in `Session`; the first-run overlays (welcome card, tour) are mounted and dismissed by the `Shell`, because they never change the mode and never come back by themselves. The board's world lives in `PlayEngine`. Components read state and call intents; they never mutate a snapshot.
-3. **Only `io/`, `components/` and `main.js` touch the device** (IndexedDB, audio, mic, DOM, storage).
+3. **Only `io/`, `components/` and `main.js` touch the device** (IndexedDB, audio, mic, DOM, storage). The exception is `gift/`, a package meant to be copied onto other pages: it owns its DOM, canvas and audio, imports nothing from the app, and only `main.js` imports it.
 4. **Data format changes are versioned.** Bump `FORMAT_VERSION` in `farm/snapshot.js`, add a `migrate` step, decide `minReaderFormat`, extend `storedFormat()` so old IndexedDB records are detected and migrated on load, update `types.js`, `tests/builders.js` and the export fixtures, and regenerate `web/data/starter.json` with `node tools/make-starter.mjs`. Old exports must still import.
 5. **iPad audio and gestures.** Call `audio.unlock()` and start speech synchronously inside the gesture handler. Never `await` before closing UI after a tap (iPad promises such as `storage.persist()` can hang). Guard each step in a pointer handler so one failure never eats the tap.
 6. **No secrets in the repo.** Tokens live in the environment only.

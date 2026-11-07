@@ -17,6 +17,7 @@ import { PlayEngine } from "./play-engine.js";
 import { PRESET_IDS } from "./motion/pose.js";
 import { Session } from "./session.js";
 import { Shell } from "./shell.js";
+import { wrap, wrapOn } from "./gift/wrapper.js";
 import "./components/kf-board/define.js";
 import "./components/kf-find-buttons/define.js";
 
@@ -24,6 +25,7 @@ const APP_VERSION = document.querySelector("base")?.getAttribute("href")?.split(
 
 async function boot() {
   const flags = readFlags(location.search);
+  wrapBirthday(flags.wrap); // first, so the paper covers the farm before it appears
   const deviceId = storage.deviceId();
   const env = { now: () => new Date().toISOString(), rng: Math.random, newId: () => crypto.randomUUID(), deviceId };
   const warnings = [];
@@ -94,6 +96,20 @@ async function boot() {
   if (!store.settings.welcomed) shell.welcome();
   window.__kf = services; // debugging and browser tests
   document.documentElement.dataset.ready = "true";
+}
+
+/** Klara's birthday, every year: the farm opens wrapped in gift paper to tear off. */
+const BIRTHDAY = "11-07";
+
+function wrapBirthday(mode) {
+  // Automated browsers (the test suites) never get paper unless a test asks for it with ?flag=wrap:always.
+  if (mode === "never" || (mode === "auto" && navigator.webdriver)) return;
+  try {
+    const options = { theme: "autumn", label: "A birthday present. Drag to tear the paper open." };
+    window.__kfGift = mode === "always" ? wrap(options) : wrapOn(BIRTHDAY, options); // debugging and tests
+  } catch (e) {
+    console.warn("birthday wrapping skipped", e); // a present must never stop the farm from starting
+  }
 }
 
 async function loadJsonMap(dir, ids) {

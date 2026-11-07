@@ -36,11 +36,28 @@ for (const domain of DOMAINS) {
   });
 }
 
-test("no module outside io/, components/ and main.js reads IndexedDB or audio directly", () => {
+test("no module outside io/, components/, gift/ and main.js reads IndexedDB or audio directly", () => {
   for (const file of files(ROOT)) {
     const rel = relative(ROOT, file);
-    if (rel.startsWith("io/") || rel.startsWith("components/") || rel === "main.js") continue;
+    if (rel.startsWith("io/") || rel.startsWith("components/") || rel.startsWith("gift/") || rel === "main.js") continue;
     const src = readFileSync(file, "utf8");
     assert.ok(!/\bindexedDB\b|\bnew AudioContext\b|getUserMedia/.test(src), `${rel} touches a device API`);
+  }
+});
+
+// gift/ (the wrapping paper) is a package meant to be copied onto other pages, so it owns its DOM,
+// canvas and audio, and it imports nothing from the app; only main.js imports it.
+test("gift/ is self-contained, and only main.js uses it", () => {
+  for (const file of files(join(ROOT, "gift"))) {
+    const src = readFileSync(file, "utf8");
+    for (const [, spec] of src.matchAll(/(?:import|export)[^'"]*?from\s*["']([^"']+)["']/g)) {
+      const target = relative(join(ROOT, "gift"), resolve(dirname(file), spec));
+      assert.ok(!target.startsWith(".."), `${relative(ROOT, file)} imports ${spec} from outside gift/`);
+    }
+  }
+  for (const file of files(ROOT)) {
+    const rel = relative(ROOT, file);
+    if (rel.startsWith("gift/") || rel === "main.js") continue;
+    assert.ok(!/from\s*["'][^"']*gift\//.test(readFileSync(file, "utf8")), `${rel} imports gift/`);
   }
 });
