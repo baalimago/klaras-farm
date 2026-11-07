@@ -16,6 +16,8 @@
   --font: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif;
   --gutter: max(16px, env(safe-area-inset-left));
   --gutter-right: max(16px, env(safe-area-inset-right));
+  --edge-top: max(12px, env(safe-area-inset-top));       /* the top and bottom margins parent bars keep */
+  --edge-bottom: max(12px, env(safe-area-inset-bottom));
   /* Scene tools frame the board: the tool rail on one side, the chosen tool's options on the other. */
   --st-rail: 84px;           /* the rail's thickness (one tool button plus its padding) */
   --st-side: 220px;          /* the options column's width (landscape) */

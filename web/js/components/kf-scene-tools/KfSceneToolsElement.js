@@ -13,7 +13,9 @@
 // made by the stage itself (main.css .stage[data-mode="scene"] padding, tokens --st-rail, --st-side,
 // --st-foot), so the board letterboxes into what is left and this element only follows its rect.
 // Foreground rule: both toolbars sit above the drawing canvas (z-index over kf-draw-pad's overlay),
-// and while a sheet is open the stage is inert: no stroke can start while a colour is being picked.
+// and while the board is paused (edit/scene-tools.js isPaused: the felt colour or Start sheet is open)
+// the stage is inert under a paper wash: no stroke can start while a colour is being picked. The sky,
+// ground and piece sheets leave the board live and clear: tapping another piece moves the piece sheet to it.
 //
 // No lag: a piece being dragged or resized is drawn by the board's renderer from its cached sprite
 // (services.board.setLift), with the board rect read once per drag. Nothing is written to the store
@@ -138,7 +140,10 @@ export class KfSceneToolsElement extends HTMLElement {
     this.replaceChildren(
       this.stage,
       h("div", { class: "kf-st-left" }, [this.rail]),
-      h("div", { class: "kf-st-right", role: "region", "aria-label": "Tool options" }, [this.hintEl, this.panel, this.sheet, this.done]),
+      h("div", { class: "kf-st-right" }, [
+        h("div", { class: "kf-st-options", role: "region", "aria-label": "Tool options" }, [this.hintEl, this.panel, this.sheet]),
+        this.done,
+      ]),
     );
     this.render();
   }
@@ -151,6 +156,9 @@ export class KfSceneToolsElement extends HTMLElement {
     // The toolbars line up with the board's top and bottom edges (kf-scene-tools.css).
     this.style.setProperty("--st-top", `${Math.round(r.top - host.top)}px`);
     this.style.setProperty("--st-bottom", `${Math.round(host.bottom - r.bottom)}px`);
+    // The rail runs along the top in portrait (kf-scene-tools.css), so say which way it goes.
+    const across = typeof matchMedia === "function" && matchMedia("(orientation: portrait)").matches;
+    this.rail.setAttribute("aria-orientation", across ? "horizontal" : "vertical");
     this.renderSelection();
   }
 
@@ -285,7 +293,7 @@ export class KfSceneToolsElement extends HTMLElement {
   renderSheet(s, place) {
     this.sheet.hidden = !s.sheet || !place;
     if (this.sheet.hidden) return void this.sheet.replaceChildren();
-    const close = h("button", { type: "button", class: "kf-btn", text: "Close", onclick: () => this.closeSheet() });
+    const close = h("button", { type: "button", class: "kf-btn kf-st-close", text: "Close", onclick: () => this.closeSheet() });
     let title = "";
     let body = [];
     if (s.sheet === "start") {
@@ -305,7 +313,7 @@ export class KfSceneToolsElement extends HTMLElement {
       body = [swatches("Colour", keys, current, (key) => this.pickColour(key))];
     }
     this.sheet.setAttribute("aria-label", title);
-    this.sheet.replaceChildren(h("div", { class: "kf-st-sheet-head" }, [h("h2", { text: title }), close]), ...body);
+    this.sheet.replaceChildren(h("h2", { text: title }), ...body, close);
   }
 
   /** Dashed outline of the selected piece, and the resize handle in Move. Moved with a transform while dragging. */

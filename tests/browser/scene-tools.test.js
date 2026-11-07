@@ -15,6 +15,9 @@ after(async () => { await h?.teardown(); });
 // Board stub rect: where the real stage puts the board in scene mode at 1180 × 820 (main.css
 // .stage[data-mode="scene"]: room for the rail on the left and the options column on the right).
 const B = { left: 112, top: 102, width: 820, height: 615 };
+const BOARD = B;
+// And at 820 × 1180 (portrait: the rail on top, the options band below).
+const PORTRAIT = { left: 16, top: 191, width: 788, height: 591 };
 const toClient = ([x, y]) => [B.left + x * B.width, B.top + y * B.height];
 
 function farm() {
@@ -28,9 +31,9 @@ function farm() {
     .build();
 }
 
-async function open({ snapshot = farm(), drawPad = true } = {}) {
+async function open({ snapshot = farm(), drawPad = true, viewport = { width: 1180, height: 820 }, B = BOARD } = {}) {
   const page = await h.modulePage('<div id="parent-layer" class="parent-layer"></div>');
-  await page.setViewportSize({ width: 1180, height: 820 });
+  await page.setViewportSize(viewport);
   await page.addScriptTag({ path: STUBS });
   await page.evaluate(async ({ snapshot, drawPad, B }) => { await window.F2.boot(snapshot, { mode: "scene", drawPad, boardRect: B }); }, { snapshot, drawPad, B });
   await page.evaluate(async () => { await window.F2.mount("kf-scene-tools", {}); });
@@ -135,7 +138,7 @@ test("colour picker: on top of the drawing canvas, which is paused while it is o
 });
 
 /** Controls in either toolbar whose box reaches into the board (none may: they frame it). */
-const overBoard = (page) => page.evaluate((B) => {
+const overBoard = (page, board = B) => page.evaluate((B) => {
   const out = [];
   for (const el of document.querySelectorAll("kf-scene-tools .kf-st-left *, kf-scene-tools .kf-st-right *")) {
     const r = el.getBoundingClientRect();
@@ -143,7 +146,22 @@ const overBoard = (page) => page.evaluate((B) => {
     if (r.right > B.left && r.left < B.left + B.width && r.bottom > B.top && r.top < B.top + B.height) out.push(el.className || el.tagName);
   }
   return out;
-}, B);
+}, board);
+
+/** Points just inside the board's edges where a press lands on something other than the board. */
+const edgeMisses = (page, board = B) => page.evaluate((B) => {
+  const out = [];
+  const pts = [];
+  for (const f of [0.05, 0.25, 0.5, 0.75, 0.95]) {
+    pts.push([B.left + 2, B.top + f * B.height], [B.left + B.width - 2, B.top + f * B.height]);
+    pts.push([B.left + f * B.width, B.top + 2], [B.left + f * B.width, B.top + B.height - 2]);
+  }
+  for (const [x, y] of pts) {
+    const el = document.elementFromPoint(x, y);
+    if (!el?.closest(".kf-st-stage")) out.push(`${Math.round(x)},${Math.round(y)}: ${el?.className || el?.tagName}`);
+  }
+  return out;
+}, board);
 
 test("toolbars frame the board: the rail left, the tool's options right, never over a piece", async () => {
   // A piece in the board's top-left corner, where the options used to pop out over the scene.
@@ -155,6 +173,9 @@ test("toolbars frame the board: the rail left, the tool's options right, never o
   const right = await tools(page).locator(".kf-st-right").boundingBox();
   assert.ok(rail.x + rail.width <= B.left, "the rail is left of the board");
   assert.ok(right.x >= B.left + B.width - 16, "the options column is right of the board");
+  const options = await tools(page).locator(".kf-st-options").boundingBox();
+  assert.ok(options.x >= B.left + B.width, "the options sit right of the board");
+  assert.deepEqual(await edgeMisses(page), [], "a press at the board's very edge lands on the board");
   assert.ok(Math.abs(right.y + 16 - B.top) <= 1, "the options start level with the board's top");
   assert.deepEqual(await overBoard(page), [], "Shape");
   for (const name of ["Line", "Move", "Colour", "Sky", "Ground", "Delete"]) {
@@ -180,6 +201,67 @@ test("toolbars frame the board: the rail left, the tool's options right, never o
   await page.getByRole("dialog", { name: "Start from" }).waitFor();
   assert.deepEqual(await overBoard(page), [], "the Start sheet");
   await assertAccessible(page);
+  assert.deepEqual(page.errors, []);
+});
+
+test("portrait: the rail runs along the top and the options fill a band below, never over the board", async () => {
+  const page = await open({ viewport: { width: 820, height: 1180 }, B: PORTRAIT });
+  assert.equal(await tools(page).locator(".kf-st-rail").getAttribute("aria-orientation"), "horizontal");
+  const rail = await tools(page).locator(".kf-st-rail").boundingBox();
+  assert.ok(rail.y + rail.height <= PORTRAIT.top && rail.y >= 0, "the rail is above the board");
+  for (const name of ["Shape", "Line", "Move", "Colour", "Sky", "Ground", "Delete"]) {
+    await tools(page).getByRole("button", { name, exact: true }).click();
+    assert.deepEqual(await overBoard(page, PORTRAIT), [], name);
+  }
+  await tools(page).getByRole("button", { name: "Move", exact: true }).click();
+  const [x, y] = [PORTRAIT.left + 0.2 * PORTRAIT.width, PORTRAIT.top + 0.5 * PORTRAIT.height];
+  await page.mouse.click(x, y);
+  await tools(page).getByRole("button", { name: "Change colour" }).click();
+  await page.getByRole("dialog", { name: "Piece colour" }).waitFor();
+  assert.deepEqual(await overBoard(page, PORTRAIT), [], "the piece sheet");
+  await tools(page).getByRole("button", { name: "Close" }).click();
+  assert.deepEqual(await edgeMisses(page, PORTRAIT), [], "a press at the board's very edge lands on the board");
+  await tools(page).getByRole("button", { name: "Start", exact: true }).click();
+  await page.getByRole("dialog", { name: "Start from" }).waitFor();
+  assert.deepEqual(await overBoard(page, PORTRAIT), [], "the Start sheet");
+  const done = await tools(page).getByRole("button", { name: "Done" }).boundingBox();
+  assert.ok(done.y >= PORTRAIT.top + PORTRAIT.height && done.y + done.height <= 1180 && done.x + done.width <= 820, "Done is below the board, on screen");
+  await assertAccessible(page);
+  // Split View (a narrow portrait): the rail scrolls sideways inside the screen, Undo can be reached.
+  await page.setViewportSize({ width: 590, height: 1180 });
+  const narrow = await tools(page).locator(".kf-st-rail").boundingBox();
+  assert.ok(narrow.x >= 0 && narrow.x + narrow.width <= 590, `the rail stays on screen (${narrow.x}, ${narrow.width})`);
+  await tools(page).getByRole("button", { name: "Undo" }).scrollIntoViewIfNeeded();
+  const undo = await tools(page).getByRole("button", { name: "Undo" }).boundingBox();
+  assert.ok(undo.x >= 0 && undo.x + undo.width <= 590, "Undo scrolls into reach");
+  assert.deepEqual(page.errors, []);
+});
+
+test("colour one piece after another: the sheet beside the board follows the next tapped piece", async () => {
+  const page = await open();
+  await tools(page).getByRole("button", { name: "Colour", exact: true }).click();
+  await page.mouse.click(...toClient([0.8, 0.2])); // the sun
+  const sheet = page.getByRole("dialog", { name: "Piece colour" });
+  await sheet.waitFor();
+  assert.equal(await page.evaluate(() => document.querySelector(".kf-st-stage").inert), false, "the board stays live");
+  assert.equal(await tools(page).getByRole("button", { name: "Done" }).isVisible(), true, "Done stays in reach");
+  await sheet.getByRole("button", { name: "Blue" }).click();
+  await until(page, () => window.services.store.currentPlace.pieces.find((p) => p.id === "sun").color === "blue");
+  await page.mouse.click(...toClient([0.2, 0.5])); // the barn, while the sheet is open
+  await until(page, () => document.querySelector(".kf-st-sheet [aria-pressed=true]")?.dataset.color === "red");
+  assert.equal(await selectedShown(page), true);
+  await sheet.getByRole("button", { name: "Pink" }).click();
+  await until(page, () => window.services.store.currentPlace.pieces.find((p) => p.id === "barn").color === "pink");
+  assert.equal((await pieceById(page, "sun")).color, "blue", "the first piece keeps its colour");
+  // Sky: the sheet leaves the board clear, so the new sky shows as it lands.
+  await tools(page).getByRole("button", { name: "Sky", exact: true }).click();
+  await page.getByRole("dialog", { name: "Sky colour" }).waitFor();
+  assert.equal(await page.evaluate(() => document.querySelector(".kf-st-stage").classList.contains("paused")), false);
+  // The felt colour sheet of Shape still pauses the board, under a wash.
+  await tools(page).getByRole("button", { name: "Shape", exact: true }).click();
+  await tools(page).getByRole("button", { name: /Felt colour/ }).click();
+  await page.getByRole("dialog", { name: "Shape colour" }).waitFor();
+  assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector(".kf-st-stage"), "::after").content), '""', "a wash over the paused board");
   assert.deepEqual(page.errors, []);
 });
 

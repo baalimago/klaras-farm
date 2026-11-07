@@ -93,6 +93,10 @@ export class Renderer {
     this._clearPieces();
     for (const s of this._confettiSprites) releaseCanvas(s);
     this._confettiSprites = confettiSprites(Math.max(3, Math.round(5.5 * this.U)));
+    // Resizing cleared the canvas. Draw now (setSize runs from a resize or ResizeObserver callback,
+    // before the browser paints), so a cleared board is never shown, e.g. when the scene tools
+    // shrink the board on entering Change scene; the loop goes on from the next frame.
+    if (!this._destroyed) this._draw(0);
     this.wake();
   }
 

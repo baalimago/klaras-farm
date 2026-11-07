@@ -3,6 +3,8 @@
 // cheaply (no felt repaint while moving), write the store once on release, and keep their cached
 // sprite when the store catches up ("exactly" means within 0.01 px: normalised coordinates carry
 // float noise of about 1e-4 px). Frame cost is the Renderer's own draw time per frame.
+// Also, in the real stage: in scene mode the board shrinks so the scene toolbars frame it (landscape,
+// portrait, rotation) and gets its room back on Done.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { setup } from "./harness.js";

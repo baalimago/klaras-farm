@@ -53,8 +53,8 @@ body {
 }
 @media (orientation: portrait) {
   .stage[data-mode="scene"] {
-    padding: calc(max(12px, env(safe-area-inset-top)) + var(--st-rail) + var(--st-gap)) var(--gutter-right)
-      calc(max(12px, env(safe-area-inset-bottom)) + var(--st-foot) + var(--st-gap)) var(--gutter);
+    padding: calc(var(--edge-top) + var(--st-rail) + var(--st-gap)) var(--gutter-right)
+      calc(var(--edge-bottom) + var(--st-foot) + var(--st-gap)) var(--gutter);
   }
 }
 .parent-layer { position: fixed; inset: 0; pointer-events: none; z-index: 10; }

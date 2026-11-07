@@ -5,8 +5,10 @@
 //   selected: null | pieceId   the piece the parent picked. Tapping empty board never clears it; only
 //                              'deselect', picking another piece or the piece going away does.
 //   sheet:    null | 'draw' | 'piece' | 'sky' | 'ground' | 'start'
-//             the foreground colour (or template) sheet. While a sheet is open the board takes no
-//             input (paused), so a tap meant for a colour can never draw a stroke.
+//             the colour (or template) sheet, in the options column beside the board. The draw and
+//             start sheets pause the board (no input), so no stroke starts while a colour is picked.
+//             The sky, ground and piece sheets leave it live: tapping another piece moves the piece
+//             sheet to it, so a parent can colour one piece after another.
 //   drag:     null | {mode: 'move' | 'resize', id}   a piece under the finger (Move tool)
 //   colors:   {shape, line}    felt colour for the next drawn shape / line
 //   lifted:   null | pieceId   a dropped piece the board still shows lifted, until the store's change
@@ -28,7 +30,8 @@
 //                          the selection stays. Colour with a selection opens the piece sheet.
 //   open-sheet {sheet}   → 'draw' in Shape/Line, 'piece' with a selection, 'start' always.
 //   close-sheet          → no sheet.
-//   tap-piece {id}       → selects it (Move, Colour, Delete). Colour opens the piece sheet.
+//   tap-piece {id}       → selects it (Move, Colour, Delete), not while paused. Colour opens the piece
+//                          sheet; an open piece sheet stays open for the new piece.
 //   tap-empty            → unchanged.
 //   deselect             → no selection, piece sheet closed.
 //   drag-start {mode,id} → Move tool only, no sheet; selects the piece. Resize needs it selected.
@@ -76,8 +79,13 @@ export function placeBefore(place) {
 const withoutSeq = (list, seq) => list.filter((u) => u.seq !== seq);
 const capped = (list) => (list.length > UNDO_LIMIT ? list.slice(list.length - UNDO_LIMIT) : list);
 
-/** True while a sheet is open: the board underneath takes no input. */
-export const isPaused = (s) => s.sheet !== null;
+/**
+ * True while the board takes no input: the felt colour sheet of Shape or Line (so no stroke starts
+ * while a colour is picked) or the Start sheet is open. The sky, ground and piece sheets sit beside
+ * the board and leave it live: the parent sees the colours land, and tapping another piece moves the
+ * piece sheet to it.
+ */
+export const isPaused = (s) => s.sheet === "draw" || s.sheet === "start" || (s.sheet !== null && isDrawTool(s.tool));
 
 /** True for the tools that draw new pieces on the board. */
 export const isDrawTool = (tool) => tool === "shape" || tool === "line";
@@ -111,8 +119,8 @@ export function nextSceneTools(s, e) {
     case "close-sheet":
       return s.sheet ? { ...s, sheet: null } : s;
     case "tap-piece": {
-      if (!e.id || s.sheet || !["move", "colour", "delete"].includes(s.tool)) return s;
-      const sheet = s.tool === "colour" ? "piece" : null;
+      if (!e.id || isPaused(s) || !["move", "colour", "delete"].includes(s.tool)) return s;
+      const sheet = s.tool === "colour" || s.sheet === "piece" ? "piece" : null;
       return s.selected === e.id && s.sheet === sheet ? s : { ...s, selected: e.id, sheet };
     }
     case "tap-empty":

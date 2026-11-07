@@ -63,6 +63,24 @@ test("a sheet pauses the board: taps and drags underneath do nothing", () => {
   assert.equal(run(s, { type: "drag-start", mode: "move", id: "a" }), s);
 });
 
+test("the piece sheet sits beside the board, so the board stays live: tapping another piece moves the sheet to it", () => {
+  const c = start({ tool: "colour", selected: "a", sheet: "piece" });
+  assert.equal(isPaused(c), false);
+  const next = run(c, { type: "tap-piece", id: "b" });
+  assert.equal(next.selected, "b");
+  assert.equal(next.sheet, "piece");
+  assert.equal(run(c, { type: "tap-piece", id: "a" }), c, "the same piece again changes nothing");
+  // Move → Change colour: another piece takes the sheet too; a drag still waits for Close.
+  const m = start({ tool: "move", selected: "a", sheet: "piece" });
+  assert.equal(isPaused(m), false);
+  assert.deepEqual([run(m, { type: "tap-piece", id: "b" }).selected, run(m, { type: "tap-piece", id: "b" }).sheet], ["b", "piece"]);
+  assert.equal(run(m, { type: "drag-start", mode: "move", id: "a" }), m);
+  // The other sheets still pause the board.
+  for (const sheet of ["draw", "start"]) assert.equal(isPaused(start({ tool: "colour", selected: "a", sheet })), true, sheet);
+  for (const tool of ["sky", "ground"]) assert.equal(isPaused(start({ tool, sheet: tool })), false, `${tool}: the colour shows on a clear board`);
+  assert.equal(isPaused(start({ tool: "shape", selected: "a", sheet: "piece" })), true, "never a live draw pad under a sheet");
+});
+
 test("tap-piece selects in Move, Colour (opens the sheet) and Delete; not in drawing tools", () => {
   assert.equal(run(start({ tool: "move" }), { type: "tap-piece", id: "a" }).selected, "a");
   const c = run(start({ tool: "colour" }), { type: "tap-piece", id: "a" });

@@ -1,6 +1,7 @@
 // The animals in Chromium (meeting 2): eight things walking on the real PlayEngine and Renderer stay
 // smooth and the loop still drops to 0 fps when they settle; every walking style (walk, hop,
-// scuttle) gets the contact shadow, floaters do not; the app loads every motion preset.
+// scuttle) gets the contact shadow, floaters do not; the app loads every motion preset; a resize
+// draws the board at once.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { setup } from "./harness.js";
@@ -128,4 +129,17 @@ test("the app boots with every motion preset loaded", async () => {
   const ids = await page.evaluate(() => Object.keys(window.__kf.presets).sort());
   assert.deepEqual(ids, ["float", "hop", "scuttle", "swim", "walk"]);
   assert.deepEqual(page.errors, []);
+});
+
+test("a resize draws the board at once: the cleared canvas is never painted (entering Change scene shrinks it)", async () => {
+  const page = await h.modulePage();
+  await mount(page, { things, place: farmPlace });
+  const pixel = await page.evaluate(() => {
+    const { renderer } = window.__a;
+    renderer.setSize(820, 615, 1); // the board's size in the scene tools at 1180 × 820
+    // Read the canvas in the same task, before any frame runs: it already holds the board.
+    const ctx = renderer.canvas.getContext("2d");
+    return [...ctx.getImageData(410, 300, 1, 1).data];
+  });
+  assert.ok(pixel[3] > 0, `the board is drawn right after the resize (alpha ${pixel[3]})`);
 });
