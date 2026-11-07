@@ -1,10 +1,11 @@
-// <kf-guided-add>: add a thing in eight steps (flow 1; US-3.1–3.5, 3.10, 4.1, 4.2, 4.8).
-// Body (draw one or more shapes, glued into one outline, each editable) → Felt → Eyes → Legs → Moves → Name → Ask → Sound, with a step bar.
+// <kf-guided-add>: add a thing in seven steps (flow 1; US-3.1–3.5, 3.10, 4.1, 4.2).
+// Body (draw one or more shapes, glued into one outline, each editable) → Felt → Eyes → Legs → Moves → Name → Sound, with a step bar.
 // Always a way out (playtest 3): ‹ Back steps back on every step (on Body it asks to stop), and ✕ asks
 // "Stop adding this animal?" (Keep going / Keep draft / Stop adding, which throws the draft away).
 // What covers a step (Klara's eye stamping, that dialog, the name prompt) is the pure machine in
-// flow.js. Ask shows the same 1–6 free-text questions as the thing card (kf-thing-card/questions.js),
-// kept in the draft until Finish (draft-questions.js). Nothing is added without a name. Enter in a
+// flow.js. There are no questions per thing: the find question is the family's (find game setup)
+// and the recorded name follows it. Name also picks the article where the language has them (the
+// iPad voice uses it). Nothing is added without a name. Enter in a
 // text field commits it and closes the keyboard; on Name it also goes on. Finish closes at once and
 // saves after. The draft is saved after every step and every kept recording, and an open draft for
 // the place is resumed (never past a step whose work is missing, steps.js normalizeDraft), its
@@ -28,13 +29,12 @@ import { ShapeDrawing } from "./drawing.js";
 import { ShapeEditor } from "./shape-editor.js";
 import { bodyGuide } from "./guide.js";
 import { LegPlacer } from "./legs.js";
-import { setDraftLine, addDraftQuestion, removeDraftQuestion, draftClips } from "./draft-questions.js";
 import { THING_COLORS, hex } from "../../farm/palette.js";
 import { editSound } from "../kf-dialog/feedback.js";
 import { failMessage, reportFailure } from "../kf-dialog/dom.js";
-import { questionsSection } from "../kf-thing-card/questions.js";
 import { clipSlot } from "../kf-thing-card/clip-slot.js";
 import { device } from "../../io/device.js";
+import { askLines } from "../../farm/scripts.js";
 
 const DEFAULT_MOTION = Object.freeze({ kind: "preset", preset: "walk", params: {} });
 const DRAW_FELT = "tan";
@@ -64,8 +64,6 @@ export class GuidedAddElement extends HTMLElement {
     this._stamper = null;
     /** What covers the step: flow.js ({overlay, prompt}). */
     this.flow = initialFlow();
-    /** The question being recorded on the Ask step: {language, take}, or null. */
-    this._recording = null;
   }
 
   connectedCallback() {
@@ -205,7 +203,7 @@ export class GuidedAddElement extends HTMLElement {
       "div",
       { class: "kf-tabs", role: "tablist", "aria-label": "Language" },
       this.languages.map((l) =>
-        h("button", { type: "button", role: "tab", "aria-selected": String(l === this.lang), text: languageName(l), onclick: () => { this.lang = l; this._recording = null; this._render(); } }),
+        h("button", { type: "button", role: "tab", "aria-selected": String(l === this.lang), text: languageName(l), onclick: () => { this.lang = l; this._render(); } }),
       ),
     );
   }
@@ -458,7 +456,8 @@ export class GuidedAddElement extends HTMLElement {
       this._langTabs(),
       form,
       prompt,
-      h("p", { class: "kf-note", text: "For you and the question scripts. Klara never sees text." }),
+      this._articleField(),
+      h("p", { class: "kf-note", text: `For you and the ${device().voice}. Klara never sees text.` }),
       rec,
       h("div", { class: "kf-row end" }, this._nextBtn()),
     );
@@ -473,83 +472,23 @@ export class GuidedAddElement extends HTMLElement {
     prompt.hidden = this.flow.prompt !== "name";
   }
 
-  _step_ask(panel) {
-    // Nothing recorded yet: the iPad voice asks instead, so going on is a skip and says so.
-    const recorded = draftClips(this.draft, { language: this.lang, kind: "prompt" }).length > 0;
-    fill(panel,
-      h("h2", { text: "Ask for it" }),
-      this._langTabs(),
-      questionsSection({
-        store: this._questionStore(),
-        scripts: this.services.scripts,
-        thing: { ...this.thing, id: null },
-        lang: this.lang,
-        busy: !!this._recording,
-        slot: (take, line) => this._questionSlot(take, line),
-        onArticle: (article) => this._setArticle(article),
-        onError: (e) => this._error(e),
-      }),
-      h("div", { class: "kf-row end" }, this._nextBtn(undefined, recorded ? "Next" : "Skip for now")),
-    );
-  }
-
-  /**
-   * What questionsSection needs from a store, over the draft: every edit changes the draft, shows at
-   * once, then saves (the thing is not in the farm until Finish).
-   */
-  _questionStore() {
-    // `rebuild: false` for new words: the field the parent typed in already shows them and nothing
-    // else on the panel depends on them, while rebuilding the panel as the field lets go would
-    // swallow the tap that took the focus away (Record, the next field). An open recorder shows the
-    // old words, so it closes and the panel rebuilds.
-    const edit = (fn, { rebuild = true } = {}) => (args) => {
-      try {
-        const next = fn({ thing: this.thing, clips: this.draft.clips }, args);
-        this.draft.thing = next.thing;
-        this.draft.clips = next.clips;
-        if (rebuild || this._recording) {
-          this._recording = null; // a rebuilt panel cannot keep a take going; the old clip stays
-          this._render();
-        }
-        return this._save();
-      } catch (e) {
-        return Promise.reject(e);
-      }
-    };
-    return {
-      clipsFor: (_thingId, filter) => draftClips(this.draft, filter),
-      setQuestionLine: edit(setDraftLine, { rebuild: false }),
-      addQuestion: edit(addDraftQuestion),
-      removeQuestion: edit(removeDraftQuestion),
-    };
-  }
-
-  /** Record / Re-record / ▶ for question `take`; the open recorder shows the words to say. */
-  _questionSlot(take, line) {
-    const lang = this.lang;
-    const clip = findClip(this.draft.clips, { language: lang, kind: "prompt", take });
-    const open = this._recording?.language === lang && this._recording.take === take;
-    return clipSlot({
-      services: this.services,
-      clip,
-      kind: "prompt",
-      take,
-      what: `question ${take}`,
-      recordText: clip ? "Re-record" : "Record",
-      cue: open ? line : "",
-      open,
-      clipRef: { thingId: null, language: lang, kind: "prompt", take },
-      onOpen: () => { this._recording = { language: lang, take }; this._render(); },
-      onCancel: () => { this._recording = null; this._render(); },
-      onRecorded: (detail) => this._saveRecording(detail),
-    });
+  /** The article the iPad voice puts before the name ("Wo ist der Hund?"), where the language has them. */
+  _articleField() {
+    const { articles } = askLines(this.services.scripts ?? {}, this.thing, this.lang);
+    if (!articles.length) return null;
+    const current = this.thing.cues?.[this.lang]?.article;
+    return h("label", { class: "kf-field kf-ga-article" }, h("span", { text: `Article (for the ${device().voice})` }),
+      h("select", { name: "article", onchange: (e) => this._setArticle(e.target.value || undefined) },
+        h("option", { value: "", text: "(none)", selected: !current }),
+        articles.map((a) => h("option", { value: a, text: a, selected: current === a }))));
   }
 
   _setArticle(article) {
-    const cue = (this.thing.cues[this.lang] ??= {});
+    const cue = ((this.thing.cues ??= {})[this.lang] ??= {});
     if (article) cue.article = article;
     else delete cue.article;
-    this._render();
+    // No rebuild: the select already shows the choice, and a rebuild would cut off a name take
+    // recording beside it.
     this._save();
   }
 
@@ -569,7 +508,7 @@ export class GuidedAddElement extends HTMLElement {
   }
 
   /**
-   * Enter in any other text field of a step (the Ask questions) commits it the way leaving the field
+   * Enter in any other text field of a step commits it the way leaving the field
    * does and closes the iPad keyboard. The Name field handles its own Enter (it also goes on).
    */
   _enterCloses(panel) {
@@ -646,7 +585,6 @@ export class GuidedAddElement extends HTMLElement {
     if (index !== this.draft.step) editSound(this.services, forward ? "next" : "back");
     this.draft.step = index;
     this._prefill();
-    this._recording = null;
     this.flow = flowReducer(this.flow, { type: "step" });
     if (prompt) this.flow = flowReducer(this.flow, { type: prompt });
     this.services.session?.activity?.();
@@ -683,18 +621,14 @@ export class GuidedAddElement extends HTMLElement {
   }
 
   /**
-   * A take finished (every good take is kept). The draft shows it at once (an open question
-   * recorder closes now, never after the disk write); then its blob is stored, then the draft that
+   * A take finished (every good take is kept). The draft shows it at once, never after the disk
+   * write; then its blob is stored, then the draft that
    * references it, in the save queue so no save can reference a blob that is not stored yet.
    */
   _saveRecording(detail) {
     const { clip, blob } = detail ?? {};
     if (!clip) return Promise.resolve();
     this.draft.clips = upsertClip(this.draft.clips, stripClip({ ...clip, language: clip.language ?? this.lang }));
-    if (this._recording) {
-      this._recording = null;
-      this._render();
-    }
     if (blob) {
       const put = this._saving.then(() => this.services.store.putBlob(blob));
       this._saving = put.catch((e) => this._error(e));

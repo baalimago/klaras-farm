@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { initialSetup, nextSetup, isRecording, askSlots, colorMissing, missingText } from "./setup.js";
+import { initialSetup, nextSetup, isRecording, askSlots, colorMissing, nameMissing, missingText } from "./setup.js";
 
 const run = (events, s = initialSetup("color", "en")) => events.reduce(nextSetup, s);
 
@@ -11,7 +11,7 @@ test("starts on the game it was opened for, nothing recording or picked", () => 
 });
 
 test("one recorder at a time; cancel and saved close it", () => {
-  const a = { kind: "prompt", thingId: "hen", take: 2 };
+  const a = { kind: "find-question", take: 2 };
   const b = { kind: "color-question", take: 1 };
   let s = run([{ type: "record", slot: a }]);
   assert.equal(isRecording(s, a), true);
@@ -72,11 +72,22 @@ test("what is missing: the question and the scene's colours without a word, per 
   assert.equal(missingText({ question: false, colors: ["red"] }), "Still to record: red.");
 });
 
-test("one animal's question slot is not another's: the recorder opens on one thing only", () => {
-  const s = run([{ type: "record", slot: { kind: "prompt", thingId: "hen", take: 2 } }]);
-  assert.equal(isRecording(s, { kind: "prompt", thingId: "hen", take: 2 }), true);
-  assert.equal(isRecording(s, { kind: "prompt", thingId: "pig", take: 2 }), false);
-  assert.equal(isRecording(s, { kind: "prompt", thingId: "hen", take: 1 }), false);
+test("one animal's name slot is not another's: the recorder opens on one thing only", () => {
+  const s = run([{ type: "record", slot: { kind: "name", thingId: "hen" } }]);
+  assert.equal(isRecording(s, { kind: "name", thingId: "hen" }), true);
+  assert.equal(isRecording(s, { kind: "name", thingId: "pig" }), false);
+  assert.equal(isRecording(s, { kind: "find-question", take: 1 }), false);
+});
+
+test("nameMissing: the find question and the scene's names still to record, in one language", () => {
+  const names = [{ thingId: "hen", language: "en" }, { thingId: "pig", language: "sv" }];
+  const questions = [{ language: "en" }];
+  assert.deepEqual(nameMissing({ things: ["hen", "pig"], names, questions, lang: "en" }), { question: false, things: ["pig"] });
+  assert.deepEqual(nameMissing({ things: ["hen", "pig"], names, questions, lang: "sv" }), { question: true, things: ["hen"] });
+  assert.deepEqual(nameMissing({ things: [], names: [], questions: [], lang: "en" }), { question: true, things: [] });
+  const label = (id) => ({ hen: "Hen", pig: "Pig" })[id];
+  assert.equal(missingText({ question: true, things: ["hen", "pig"] }, label), "Still to record: the question, Hen, Pig.");
+  assert.equal(missingText({ question: false, things: [] }, label), null);
 });
 
 test("a failed save shows until the parent does something else", () => {

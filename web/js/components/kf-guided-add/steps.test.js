@@ -6,8 +6,8 @@ import {
 } from "./steps.js";
 import { readdirSync } from "node:fs";
 
-test("eight steps in the approved order: Legs right after Eyes", () => {
-  assert.deepEqual(STEPS, ["draw", "felt", "eyes", "legs", "moves", "name", "ask", "sound"]);
+test("seven steps in the approved order: Legs right after Eyes, no Ask step (format 5)", () => {
+  assert.deepEqual(STEPS, ["draw", "felt", "eyes", "legs", "moves", "name", "sound"]);
 });
 
 test("the Legs step: Next waits until every chosen leg is placed", () => {
@@ -31,11 +31,18 @@ test("stampEye: up to two eyes, a third tap moves the oldest", () => {
 
 test("upsertClip replaces the clip with the same language, kind and take", () => {
   const a = { language: "en", kind: "name", take: 1, blobSha256: "a" };
-  const b = { language: "en", kind: "prompt", take: 1, blobSha256: "b" };
+  const b = { language: "sv", kind: "name", take: 1, blobSha256: "b" };
   const out = upsertClip([a, b], { ...a, blobSha256: "a2" });
   assert.equal(out.length, 2);
-  assert.equal(out.find((c) => c.kind === "name").blobSha256, "a2");
+  assert.equal(out.find((c) => c.language === "en").blobSha256, "a2");
   assert.equal(upsertClip(out, { ...b, take: 2 }).length, 3);
+});
+
+test("a draft from before format 5 resumes without its question recordings, on the step it can show", () => {
+  const thing = { outline: [[0.4, 0.5], [0.6, 0.5], [0.6, 0.7], [0.4, 0.7]], color: "pink", motion: { kind: "preset", preset: "walk", params: {} }, names: { en: "Hen" }, eyes: [], legs: [] };
+  const d = normalizeDraft({ step: 7, thing, clips: [{ language: "en", kind: "prompt", take: 1 }, { language: "en", kind: "name", take: 1 }] }, [0.5, 0.6]);
+  assert.deepEqual(d.clips.map((c) => c.kind), ["name"]);
+  assert.equal(STEPS[d.step], "sound", "an old step past the end lands on the last step");
 });
 
 test("a draft has one sound: a sound recorded in another language tab replaces it, and shows in every tab", () => {
@@ -129,14 +136,10 @@ test("sizedFill: 1.3 × the default size fills the preview, smaller sizes show s
   near(sizedFill(rect(0, 0, 0.001, 0.001), 0.6), 0.18);
 });
 
-test("cleanCues keeps every question line (1 to 6), trimmed, and drops only the untouched default", () => {
-  assert.deepEqual(cleanCues({ en: { lines: [" One ", "", "three", "four", "", "six"] } }), { en: { lines: ["One", "", "three", "four", "", "six"] } });
-  assert.deepEqual(cleanCues({ en: { lines: [""] } }), { en: { lines: [""] } }, "one example question is one question");
-  assert.deepEqual(cleanCues({ en: { lines: ["", "", "", ""] } }), { en: { lines: ["", "", "", ""] } }, "four examples");
-  assert.deepEqual(cleanCues({ en: { lines: ["", " ", ""] } }), {}, "three empty lines: the default");
+test("cleanCues keeps only a chosen article; question lines from an older draft go", () => {
+  assert.deepEqual(cleanCues({ en: { lines: [" One ", "", "three"] } }), {});
   assert.deepEqual(cleanCues({ de: { article: "das", lines: ["", "", ""] } }), { de: { article: "das" } });
-  assert.equal(cleanCues({ en: { lines: Array(9).fill("x") } }).en.lines.length, 6, "at most six");
-  assert.deepEqual(cleanCues({ en: { lines: [null, "b", undefined] } }), { en: { lines: ["", "b", ""] } });
+  assert.deepEqual(cleanCues({ de: null, fr: { article: "" } }), {});
   assert.deepEqual(cleanCues(), {});
 });
 

@@ -142,9 +142,7 @@ test("thing card: Undo changes shows after an edit and puts the thing back as it
 test("thing card: an opened recorder scrolls into view", async () => {
   const page = await panelPage("kf-thing-card", true);
   await page.setViewportSize({ width: 1180, height: 820 });
-  await page.evaluate(async () => {
-    for (let i = 0; i < 3; i++) await window.__t.store.addQuestion({ thingId: window.__t.thingId, language: "en", text: `Where is the pig ${i}?` });
-  });
+  await page.setViewportSize({ width: 1180, height: 600 }); // a short screen, so the sound slot starts low
   await page.locator('.kf-tc-clip[data-kind="sound"]').evaluate((slot) => slot.scrollIntoView({ block: "end" }));
   await page.locator('.kf-tc-clip[data-kind="sound"] [data-action="record"]').click();
   await page.locator(".kf-tc-clip[data-kind=sound] .kf-tc-recorder").waitFor();

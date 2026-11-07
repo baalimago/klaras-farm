@@ -47,7 +47,7 @@ export class KfFindButtonsElement extends HTMLElement {
     this._onArmed = () => this._step({ type: "armed" });
     this._onAsk = (e) => {
       const d = e.detail ?? {};
-      this._hintStep({ type: "ask", kind: d.kind, recorded: d.recorded !== false, enabled: this._tipsOn(), now: this.now() });
+      this._hintStep({ type: "ask", kind: d.kind, recorded: d.recorded !== false, missing: d.missing, enabled: this._tipsOn(), now: this.now() });
     };
     this._onPrefs = () => { if (!this._tipsOn()) this._hintStep({ type: "hide" }); };
   }
@@ -188,7 +188,7 @@ export class KfFindButtonsElement extends HTMLElement {
     bubble.className = "kf-find-hint__bubble";
     const mic = Object.assign(document.createElement("span"), { className: "kf-find-hint__mic", textContent: "🎤" });
     mic.setAttribute("aria-hidden", "true");
-    bubble.append(mic, document.createTextNode(hintText(holdMs)));
+    bubble.append(mic, document.createTextNode(hintText(holdMs, this._hint.showing ?? {})));
     el.replaceChildren(bubble);
   }
 }

@@ -94,7 +94,7 @@ test("libraryEntries skips ids in thingOrder that have no thing", () => {
 });
 
 test("copyOf makes an independent copy with fresh ids and its own clip records over the same blobs", () => {
-  const built = aThing({ cues: { en: { lines: ["Where is my pig?"] } } }).withClip(aClip({ kind: "name" })).withClip(aClip({ kind: "prompt" })).build();
+  const built = aThing({ cues: { de: { article: "das" } } }).withClip(aClip({ kind: "name" })).withClip(aClip({ kind: "sound" })).build();
   const other = aClip({ thingId: "someone-else" }).build();
   const env = fixedEnv({ prefix: "c" });
   const { thing, clips } = copyOf(built.thing, [...built.clips, other], { placeId: "p2", dx: 0.1, dy: -0.05 }, env);

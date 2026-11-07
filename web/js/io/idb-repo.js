@@ -11,7 +11,11 @@ export const DB_NAME = "klaras-farm";
 // inviting an import that would replace them.
 // 3 (format 5): no schema change either. It stops a format 4 app the same way, instead of reading
 // a custom sky or a new palette key as corrupt and inviting an import that would replace the farm.
-export const DB_VERSION = 3;
+// 4 (format 6): no schema change. The bump makes a format 5 app fail with VersionError and show
+// "update needed", instead of reading 'find-question' clips as corrupt and inviting an import that
+// would replace them; an open format 4 tab gets onversionchange and closes, so it stops writing
+// per-thing questions.
+export const DB_VERSION = 4;
 const SETTINGS_KEY = "settings";
 const KEYED = { places: "id", things: "id", clips: "id", blobs: "sha256", drafts: "id", meta: "key" };
 const ALL_STORES = ["places", "things", "clips", "blobs", "settings", "drafts", "usage", "meta"];

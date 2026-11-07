@@ -1,6 +1,7 @@
 // Find games (playtest round 3): the find buttons and the find game setup, each mounted alone, and
 // two journeys through the real app (the question is heard before the sound; long-press → adult
 // check → record a question and a colour word → a colour round plays them).
+// Format 5: the find game works like the colour game: the family's question, then the animal's name.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
@@ -147,65 +148,59 @@ async function setupPage(game) {
   return page;
 }
 
-test("find game setup: record a question per animal, edit the example lines freely, add and remove questions", async () => {
+test("find game setup: record the question once, then each animal's name; what plays and what is missing show", async () => {
   const page = await setupPage("animal");
   await page.getByRole("heading", { name: "Find game" }).waitFor();
-  const hen = page.locator(`.kf-fs-thing[data-thing="${await page.evaluate(() => window.__t.hen)}"]`);
-  assert.equal(await page.locator(".kf-fs-thing").count(), 2, "one section per thing in the scene");
-  await hen.getByText("Examples, change them freely", { exact: false }).waitFor();
-  assert.equal(await hen.locator('input[name^="cue-"]').count(), 3);
-  assert.equal(await hen.locator('input[name="cue-1"]').inputValue(), "Where is the Hen?");
+  const status = page.locator(".kf-fs-status");
+  assert.equal(await status.textContent(), "Still to record: the question, Hen, Pig.");
+  assert.equal(await page.locator('[role="tab"][data-lang="en"]').textContent(), "English · 3 to record");
+  assert.equal(await page.locator('input[name^="cue-"]').count(), 0, "no per-animal questions any more");
+  assert.equal(await page.locator(".kf-fs-thing").count(), 2, "one name slot per thing in the scene");
+  await page.getByTestId("find-invite").waitFor();
 
-  // Record question 1 (the stub recorder finishes a take at once).
-  await hen.locator('.kf-tc-clip[data-kind="prompt"][data-take="1"] [data-action="record"]').click();
-  assert.equal(await page.locator("kf-recorder .stub-label").textContent(), "Where is the Hen?", "the recorder says what to say");
+  // The question: the stub recorder finishes a take at once.
+  await page.locator('.kf-tc-clip[data-kind="find-question"][data-take="1"] [data-action="record"]').click();
+  assert.equal(await page.locator("kf-recorder .stub-label").textContent(), "Where is the…", "the recorder says what to say");
   await page.locator('kf-recorder [data-stub="take"]').click();
-  await page.waitForFunction(() => window.__t.store.clipsFor(window.__t.hen, { kind: "prompt" }).length === 1);
-  await hen.locator('.kf-tc-clip[data-take="1"] [data-action="play"]').waitFor();
+  await page.waitForFunction(() => window.__t.store.gameClips({ kind: "find-question" }).length === 1);
   assert.equal(await page.locator("kf-recorder").count(), 0, "the recorder closes after a good take");
+  assert.equal(await page.getByTestId("find-invite").count(), 0);
+  await status.filter({ hasText: "Still to record: Hen, Pig." }).waitFor();
+  const q1 = page.locator('.kf-tc-clip[data-kind="find-question"][data-take="1"] .kf-tc-voice');
+  assert.equal(await q1.textContent(), "Built-in voice until a name is recorded", "never says Your recording while Klara hears the iPad voice");
 
-  // Free text: change question 2, add a fourth.
-  await hen.locator('input[name="cue-2"]').fill("Where is my little hen?");
-  await hen.locator('input[name="cue-2"]').press("Tab");
-  await page.waitForFunction(() => window.__t.store.snapshot.things.find((t) => t.id === window.__t.hen).cues.en?.lines?.[1] === "Where is my little hen?");
-  await hen.getByRole("button", { name: "+ Add a question" }).click();
-  await hen.locator('input[name="cue-4"]').waitFor();
-  assert.equal(await hen.locator('input[name^="cue-"]').count(), 4);
+  // The hen's name: the question now plays for the hen, the iPad voice still asks for the pig.
+  const hen = page.locator(`.kf-fs-thing[data-thing="${await page.evaluate(() => window.__t.hen)}"]`);
+  assert.equal(await hen.locator(".kf-tc-voice").textContent(), "Built-in voice says “Hen” for now");
+  await hen.locator('.kf-tc-clip[data-kind="name"] [data-action="record"]').click();
+  assert.equal(await page.locator("kf-recorder .stub-label").textContent(), "Say just its name, slowly and clearly: “Hen”");
+  await page.locator('kf-recorder [data-stub="take"]').click();
+  await page.waitForFunction(() => window.__t.store.clipsFor(window.__t.hen, { kind: "name" }).length === 1);
+  await status.filter({ hasText: "Still to record: Pig." }).waitFor();
+  assert.equal(await hen.locator(".kf-tc-voice").textContent(), "Your recording");
+  assert.equal(await q1.getAttribute("data-voice"), "partial");
+  assert.equal(await q1.textContent(), "Plays with each name: 1 of 2 recorded (Pig: built-in voice for now)");
+  assert.equal(await page.locator('[role="tab"][data-lang="en"]').textContent(), "English · 1 to record");
 
-  // Removing question 1 removes its recording; the lines move up.
-  await hen.getByRole("button", { name: "Remove question 1" }).click();
-  await page.waitForFunction(() => window.__t.store.clipsFor(window.__t.hen, { kind: "prompt" }).length === 0);
-  assert.equal(await hen.locator('input[name^="cue-"]').count(), 3);
-  assert.equal(await hen.locator('input[name="cue-1"]').inputValue(), "Where is my little hen?");
-  // The removal offers Undo, which brings the question and its recording back.
-  const toast = await page.evaluate(() => window.__f1.toasts.at(-1)?.message);
-  assert.equal(toast, "Removed question 1");
-  await page.evaluate(() => window.__f1.toasts.at(-1).undo());
-  await page.waitForFunction(() => window.__t.store.clipsFor(window.__t.hen, { kind: "prompt" }).length === 1);
-  await hen.locator('input[name="cue-4"]').waitFor();
-  assert.equal(await hen.locator('input[name="cue-1"]').inputValue(), "Where is the Hen?");
+  // A second way to ask, then the pig: everything is recorded.
+  await page.getByRole("button", { name: "+ Another way to ask" }).click();
+  await page.locator('.kf-tc-clip[data-kind="find-question"][data-take="2"] [data-action="record"]').click();
+  await page.locator('kf-recorder [data-stub="take"]').click();
+  const pig = page.locator(`.kf-fs-thing[data-thing="${await page.evaluate(() => window.__t.pig)}"]`);
+  await pig.locator('.kf-tc-clip[data-kind="name"] [data-action="record"]').click();
+  await page.locator('kf-recorder [data-stub="take"]').click();
+  await status.filter({ hasText: "Everything for this scene is recorded in English ✓" }).waitFor();
+  assert.equal(await q1.textContent(), "Your recording");
+  const clips = await page.evaluate(() => window.__t.store.snapshot.clips.map((c) => [c.kind, c.take, c.thingId === null]).sort());
+  assert.deepEqual(clips, [["find-question", 1, true], ["find-question", 2, true], ["name", 1, false], ["name", 1, false]]);
+  await page.screenshot({ path: join(ROOT, "tests/browser/.shots/find-setup.png"), fullPage: true }).catch(() => {});
 
   await page.getByRole("button", { name: "Done" }).click();
   assert.equal(await page.evaluate(() => window.__closed), 1);
   assert.deepEqual(page.errors, []);
 });
 
-test("find game setup: typing a question then tapping a button straight away keeps the tap (no lost Done)", async () => {
-  const page = await setupPage("animal");
-  const hen = page.locator(`.kf-fs-thing[data-thing="${await page.evaluate(() => window.__t.hen)}"]`);
-  // No Tab first: the field commits on blur, inside this very tap.
-  await hen.locator('input[name="cue-2"]').fill("Where is my little hen?");
-  await hen.getByRole("button", { name: "+ Add a question" }).click();
-  await hen.locator('input[name="cue-4"]').waitFor({ timeout: 2000 });
-  assert.equal(await page.evaluate(() => window.__t.store.snapshot.things.find((t) => t.id === window.__t.hen).cues.en.lines[1]), "Where is my little hen?");
-  await hen.locator('input[name="cue-1"]').fill("Peekaboo, hen!");
-  await page.getByRole("button", { name: "Done" }).click();
-  assert.equal(await page.evaluate(() => window.__closed), 1, "one tap on Done closes the panel");
-  assert.equal(await page.evaluate(() => window.__t.store.snapshot.things.find((t) => t.id === window.__t.hen).cues.en.lines[0]), "Peekaboo, hen!");
-  assert.deepEqual(page.errors, []);
-});
-
-test("find game setup: editing the last animal's question keeps the place on screen, and its Record opens", async () => {
+test("find game setup: recording the last animal's name keeps the place on screen", async () => {
   const page = await setupPage("animal");
   await page.setViewportSize({ width: 1180, height: 820 });
   await page.evaluate(async () => {
@@ -214,27 +209,16 @@ test("find game setup: editing the last animal's question keeps the place on scr
     for (let i = 0; i < 5; i++) await store.addThing({ placeId: store.currentPlace.id, names: { en: `Thing ${i}` }, outline: sq(0.1 + i * 0.15, 0.2), color: "blue" });
   });
   const last = page.locator(".kf-fs-thing").last();
-  await last.locator('input[name="cue-2"]').scrollIntoViewIfNeeded();
+  await last.locator('[data-action="record"]').scrollIntoViewIfNeeded();
   const before = await page.evaluate(() => document.querySelector(".kf-fs").scrollTop);
-  assert.ok(before > 300, `the sheet scrolled down (${before})`);
-  await last.locator('input[name="cue-2"]').fill("Where did it go?");
-  await last.locator('.kf-tc-clip[data-take="2"] [data-action="record"]').click();
+  assert.ok(before > 200, `the sheet scrolled down (${before})`);
+  await last.locator('[data-action="record"]').click();
   await page.locator("kf-recorder").waitFor({ timeout: 2000 });
   const after = await page.evaluate(() => document.querySelector(".kf-fs").scrollTop);
   assert.ok(Math.abs(after - before) < 80, `the sheet stays where it was (${before} → ${after})`);
   assert.equal(await page.locator(".kf-fs-thing").last().locator("kf-recorder").count(), 1, "the recorder opens on the animal that was tapped");
-  assert.deepEqual(page.errors, []);
-});
-
-test("find game setup: while a question records, removing questions waits (it would move the recordings)", async () => {
-  const page = await setupPage("animal");
-  const hen = page.locator(`.kf-fs-thing[data-thing="${await page.evaluate(() => window.__t.hen)}"]`);
-  await hen.locator('.kf-tc-clip[data-take="3"] [data-action="record"]').click();
-  await page.locator("kf-recorder").waitFor();
-  for (let i = 1; i <= 3; i++) assert.equal(await hen.getByRole("button", { name: `Remove question ${i}` }).isDisabled(), true);
   await page.locator('kf-recorder [data-stub="take"]').click();
-  await page.locator("kf-recorder").waitFor({ state: "detached" });
-  assert.equal(await hen.getByRole("button", { name: "Remove question 2" }).isDisabled(), false);
+  await page.waitForFunction(() => window.__t.store.snapshot.clips.length === 1);
   assert.deepEqual(page.errors, []);
 });
 
@@ -341,7 +325,7 @@ test("journey: the 🔍 asks “Where is the …?” in the device voice first, 
   assert.deepEqual(page.errors, []);
 });
 
-test("journey: long-press 🔍 → adult check → record a question with the mic; long-press colours → record question and word → a colour round plays them", async () => {
+test("journey: long-press 🔍 → adult check → record the question and a name with the mic, an animal round plays them; long-press colours → record question and word → a colour round plays them", async () => {
   const page = await h.newPage({ init: speechStub });
   await startPlaying(page);
   const passGate = async () => {
@@ -370,14 +354,32 @@ test("journey: long-press 🔍 → adult check → record a question with the mi
   await passGate();
   await page.locator("kf-find-setup").getByRole("heading", { name: "Find game" }).waitFor();
   await page.screenshot({ path: join(ROOT, "tests/browser/.shots/find-setup.png") }).catch(() => {});
+  await recordWithMic(page.locator('.kf-tc-clip[data-kind="find-question"][data-take="1"]'));
   const first = page.locator(".kf-fs-thing").first();
-  await recordWithMic(first.locator('.kf-tc-clip[data-kind="prompt"][data-take="1"]'));
-  assert.equal(await page.evaluate(() => window.__kf.store.snapshot.clips.filter((c) => c.kind === "prompt").length), 1);
+  const firstId = await first.getAttribute("data-thing");
+  await recordWithMic(first.locator('.kf-tc-clip[data-kind="name"]'));
   await page.getByRole("button", { name: "Done", exact: true }).first().click();
   await page.locator("kf-find-setup").waitFor({ state: "detached" });
   // Done on the setup goes straight back to the child's game, not to edit mode.
   assert.equal(await page.evaluate(() => window.__kf.session.state.mode), "play");
   assert.equal(await page.locator("kf-edit-layer").count(), 0);
+
+  // An animal round on that animal plays the recorded question, then its recorded name.
+  const asked = await page.evaluate((id) => ({
+    q: window.__kf.store.gameClips({ kind: "find-question" })[0].id,
+    n: window.__kf.store.clipsFor(id, { kind: "name" })[0].id,
+  }), firstId);
+  await listen(page);
+  const animalButton = page.getByRole("button", { name: "Find the animal" });
+  for (let i = 0; i < 30; i++) {
+    await page.evaluate(() => { window.__heard = []; window.__kf.engine.stopFind(); });
+    await animalButton.click();
+    if ((await page.evaluate(() => window.__kf.engine.asking)) === firstId) break;
+  }
+  assert.equal(await page.evaluate(() => window.__kf.engine.asking), firstId);
+  await page.waitForFunction((n) => window.__heard.some((x) => x[1] === n), asked.n, { timeout: 5000 });
+  assert.deepEqual((await page.evaluate(() => window.__heard.map((x) => x[1]))).slice(0, 2), [asked.q, asked.n], "the question, then the name, and no device voice");
+  await page.evaluate(() => window.__kf.engine.stopFind());
 
   // Within the grace window the next hold opens its setup without asking the check again.
   await holdButton("Find a colour");
@@ -396,7 +398,6 @@ test("journey: long-press 🔍 → adult check → record a question with the mi
     q: window.__kf.store.gameClips({ kind: "color-question" })[0].id,
     w: window.__kf.store.gameClips({ kind: "color-word", color })[0].id,
   }), color);
-  await listen(page);
   const colorButton = page.getByRole("button", { name: "Find a colour" });
   for (let i = 0; i < 20; i++) {
     await page.evaluate(() => { window.__heard = []; window.__kf.engine.stopFind(); });

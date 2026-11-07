@@ -5,7 +5,7 @@
 //
 // Events:
 //   'reaction' {thingId, x, y}   a tap reaction started (confetti), board coordinates
-//   'ask'      {kind, thingId, color, repeat, recorded}  a find game asked ('animal': thingId;
+//   'ask'      {kind, thingId, color, repeat, recorded, missing}  a find game asked ('animal': thingId;
 //                                'color': color). recorded: false when nothing is recorded for the
 //                                question, so the device voice asks (the find buttons show a tip)
 //   'answer'   {thingId, outcome} a find game: 'correct' or 'wrong'
@@ -24,8 +24,8 @@ import { decideTap, idleMash, startPlaying, stopPlaying } from "./play/mash.js";
 import { createSleep, tickSleep, sleepRemainingS } from "./play/sleep.js";
 import { createFind, startRound, endRound, stepFind, answerFind, isAnswer, hinting, reconcileFind, findRemainingS } from "./play/find.js";
 import { tapClips, soundClip, playLanguageFor, clipsFor, gameClips } from "./farm/intents.js";
-import { planAnimalAsk, planColorAsk, colorAskLanguage, recordedColorLangs } from "./play/ask.js";
-import { cueLines, colorLine } from "./farm/scripts.js";
+import { planAnimalAsk, planColorAsk, askLanguage, recordedLangs } from "./play/ask.js";
+import { askLines, colorLine } from "./farm/scripts.js";
 import { spokenName } from "./play/voice.js";
 
 const MODES = ["play", "edit", "scene"];
@@ -374,7 +374,6 @@ export class PlayEngine extends EventTarget {
       id: t.id,
       color: t.color,
       askable:
-        clipsFor(snap, t.id, { kind: "prompt" }).length > 0 ||
         clipsFor(snap, t.id, { kind: "name" }).length > 0 ||
         (canSpeak && Object.values(t.names ?? {}).some(Boolean)),
     }));
@@ -421,20 +420,22 @@ export class PlayEngine extends EventTarget {
     if (f.kind === "color") {
       const questions = gameClips(snap, { kind: "color-question" });
       const words = gameClips(snap, { kind: "color-word", color: f.color });
-      const lang = colorAskLanguage(snap.settings, recordedColorLangs(questions, words), this.rng);
+      const lang = askLanguage(snap.settings, recordedLangs(questions, words), this.rng);
       const line = colorLine(this.scripts, f.color, lang, Math.floor(this.rng() * 3));
       return planColorAsk({ questions, words, lang, line, canSpeak, rng: this.rng, lastId: this._lastAskClipId });
     }
     const thing = snap.things.find((t) => t.id === f.target);
     if (!thing) return null;
-    const lang = this._langFor(snap, thing.id, "prompt");
-    const { lines, fallback } = cueLines(this.scripts, thing, lang);
+    const questions = gameClips(snap, { kind: "find-question" });
+    const names = clipsFor(snap, thing.id, { kind: "name" });
+    const lang = askLanguage(snap.settings, recordedLangs(questions, names), this.rng);
+    const { lines, fallback } = askLines(this.scripts, thing, lang);
     return planAnimalAsk({
-      prompts: clipsFor(snap, thing.id, { kind: "prompt" }),
+      questions,
+      names,
       lang,
       lines,
       linesLang: fallback ? "en" : lang,
-      name: tapClips(snap, thing.id, lang).find((c) => c.kind === "name") ?? null,
       sound: soundClip(snap, thing.id),
       canSpeak,
       rng: this.rng,
@@ -452,9 +453,9 @@ export class PlayEngine extends EventTarget {
   }
 
   /**
-   * Asks the current round's question (play/ask.js). Animal: the parent's recorded question (a
-   * random take), else a cue line in the device's voice, else the recorded name; only after the
-   * question has finished, the thing's own sound as a clue. Colour: the recorded colour question
+   * Asks the current round's question (play/ask.js). Animal: the family's recorded find question (a
+   * random take) and the thing's recorded name as one sequence, else a script line in the device's
+   * voice, else the recorded name; only after the question has finished, the thing's own sound as a clue. Colour: the recorded colour question
    * and colour word as one sequence, else the whole line in the device's voice.
    * The first step starts synchronously, inside the press; a step that is not heard (the device
    * voice never started, a clip would not decode) falls through to the next one.
@@ -468,7 +469,7 @@ export class PlayEngine extends EventTarget {
     const round = this._roundToken;
     const current = () => askToken === this._askToken && round === this._roundToken;
     this._prompting = true;
-    this.dispatchEvent(new CustomEvent("ask", { detail: { kind: f.kind, thingId: f.target, color: f.color, repeat, recorded: plan.recorded } }));
+    this.dispatchEvent(new CustomEvent("ask", { detail: { kind: f.kind, thingId: f.target, color: f.color, repeat, recorded: plan.recorded, missing: plan.missing ?? null } }));
     const run = (i) => {
       const step = plan.ask[i];
       if (step.kind === "clip" || step.kind === "clips") this._lastAskClipId = (step.clip ?? step.clips[0]).id;

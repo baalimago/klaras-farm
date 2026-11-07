@@ -15,7 +15,7 @@ export const HINT_SHOW_MS = 6000;
 /** The same game shows the tip at most once per this long, however often the child presses. */
 export const HINT_COOLDOWN_MS = 3 * 60 * 1000;
 
-/** @typedef {{showing: null | {kind: string, until: number}, shownAt: Record<string, number>}} HintState */
+/** @typedef {{showing: null | {kind: string, until: number, missing: 'question'|'word'}, shownAt: Record<string, number>}} HintState */
 
 /** @returns {HintState} */
 export function initialHint() {
@@ -25,7 +25,7 @@ export function initialHint() {
 /**
  * @param {HintState} s
  * @param {{type:'ask', kind:string, recorded:boolean, enabled:boolean, now:number} | {type:'expire', now:number} | {type:'hide'}} e
- *   ask: a find question just started; recorded: the parent's own recording plays (PlayEngine 'ask'
+ *   ask: a find question just started; missing: 'question' | 'word', what the tip asks for; recorded: the parent's own recording plays (PlayEngine 'ask'
  *   event); enabled: Settings "Show recording tips"
  * @returns {HintState}
  */
@@ -36,7 +36,7 @@ export function nextHint(s, e) {
       if (e.recorded) return s.showing?.kind === e.kind ? hide(s) : s;
       const last = s.shownAt[e.kind];
       if (last !== undefined && e.now - last < HINT_COOLDOWN_MS) return s;
-      return { showing: { kind: e.kind, until: e.now + HINT_SHOW_MS }, shownAt: { ...s.shownAt, [e.kind]: e.now } };
+      return { showing: { kind: e.kind, until: e.now + HINT_SHOW_MS, missing: e.missing === "word" ? "word" : "question" }, shownAt: { ...s.shownAt, [e.kind]: e.now } };
     }
     case "expire":
       return s.showing && e.now >= s.showing.until ? hide(s) : s;
@@ -51,8 +51,12 @@ function hide(s) {
   return s.showing ? { ...s, showing: null } : s;
 }
 
-/** The tip's words, matching the real hold time: "Hold 1 s to record your own question". */
-export function hintText(holdMs) {
+/**
+ * The tip's words, matching the real hold time: "Hold 1 s to record your own question". When the
+ * question is recorded but the answer's word is not (format 6: the animal's name), it names that.
+ */
+export function hintText(holdMs, { kind = "animal", missing = "question" } = {}) {
   const seconds = Math.round(holdMs / 100) / 10;
+  if (missing === "word") return `Hold ${seconds} s to record ${kind === "color" ? "the colour word" : "its name"}`;
   return `Hold ${seconds} s to record your own question`;
 }

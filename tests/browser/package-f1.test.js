@@ -200,15 +200,6 @@ test("add a thing end to end: draw, felt, eyes, legs, moves, name, one question,
   await page.waitForFunction(async () => (await window.__t.store.listDrafts())[0]?.clips.length === 1);
   await page.getByRole("button", { name: "Next" }).click();
 
-  // Ask: the three example questions, editable; record one, then go on
-  assert.equal(await step(page), "ask");
-  assert.equal(await page.locator('input[name="cue-1"]').inputValue(), "Where is the Pig?");
-  assert.doesNotMatch(await page.locator(".kf-ga-panel").textContent(), /null|undefined/, "no stray optional parts");
-  await page.getByRole("button", { name: "Record question 1" }).click();
-  await page.locator('kf-recorder [data-stub="take"]').click();
-  await page.getByRole("heading", { name: "Questions (1/3)" }).waitFor();
-  await page.getByRole("button", { name: "Next" }).click();
-
   // Sound: skip → finish
   assert.equal(await step(page), "sound");
   await page.getByRole("button", { name: "Skip" }).click();
@@ -237,9 +228,9 @@ test("add a thing end to end: draw, felt, eyes, legs, moves, name, one question,
   assert.equal(out.t.legs.length, legs.length);
   out.t.legs.forEach((l, i) => assert.ok(Math.abs(l.x - (legs[i].x + dx)) < 2e-3 && Math.abs(l.y - (legs[i].y + dy)) < 2e-3, `leg ${i} moved with the body`));
   assert.equal(out.t.legTarget, undefined, "the picked count is a draft detail, not part of the thing");
-  assert.deepEqual(out.clips.map((c) => `${c.kind}${c.take}`).sort(), ["name1", "prompt1"]);
+  assert.deepEqual(out.clips.map((c) => `${c.kind}${c.take}`).sort(), ["name1"]);
   assert.ok(out.clips.every((c) => c.thingId === out.t.id));
-  assert.deepEqual(out.blobs, [true, true], "blobs stored");
+  assert.deepEqual(out.blobs, [true], "blobs stored");
   assert.equal(out.drafts, 0, "draft discarded");
   assert.deepEqual(out.dropped, [out.t.id], "engine.dropIn");
   assert.ok(out.chimes.includes("plink"));
@@ -307,22 +298,19 @@ test("+ Add is refused when the place already has as many things as Settings all
   assert.equal(await closedCount(page), 1);
 });
 
-test("guided add records the article and edited question words in another language", async () => {
+test("guided add records the article for the iPad voice in another language, on the Name step", async () => {
   const page = await farmPage({ languages: ["de", "en"] });
   await mount(page, "kf-guided-add");
   await page.evaluate(() => { const el = window.__el; el.draft.thing.outline = [[0.4, 0.5], [0.6, 0.5], [0.6, 0.7], [0.4, 0.7]]; el.draft.thing.color = "red"; el.draft.thing.motion = { kind: "preset", preset: "walk", params: {} }; el._go(5); });
   assert.equal(await step(page), "name");
   await page.locator('input[name="name"]').fill("Schwein");
-  await page.getByRole("button", { name: "Next" }).click();
   await page.locator('select[name="article"]').selectOption("das");
-  assert.equal(await page.locator('input[name="cue-1"]').inputValue(), "Wo ist das Schwein?");
-  await page.locator('input[name="cue-1"]').fill("Wo ist denn das Schwein?");
-  await page.locator('input[name="cue-1"]').press("Tab");
-  assert.equal(await page.locator('input[name="cue-1"]').inputValue(), "Wo ist denn das Schwein?");
-  assert.match(await page.locator('input[name="cue-2"]').inputValue(), /Kannst du das Schwein finden/);
-  const cues = await page.evaluate(() => window.__el.thing.cues.de);
-  assert.equal(cues.article, "das");
-  assert.equal(cues.lines[0], "Wo ist denn das Schwein?");
+  assert.equal(await page.locator('input[name="name"]').inputValue(), "Schwein", "the typed name stays");
+  assert.doesNotMatch(await page.locator(".kf-ga-panel").textContent(), /null|undefined/, "no stray optional parts");
+  await page.getByRole("button", { name: "Next" }).click();
+  assert.equal(await step(page), "sound");
+  assert.deepEqual(await page.evaluate(() => window.__el.thing.cues.de), { article: "das" });
+  assert.equal(await page.locator('input[name^="cue-"]').count(), 0, "no per-thing questions");
 });
 
 test("thing card: rename, recolour, motion, + Language, re-record (cancel keeps, keep replaces), redraw, re-stamp, delete + Undo", async () => {
@@ -366,10 +354,10 @@ test("thing card: rename, recolour, motion, + Language, re-record (cancel keeps,
   assert.notEqual(now[0].blobSha256, old.blobSha256);
   assert.ok(await page.evaluate((sha) => window.__t.repo.getBlob(sha).then(Boolean), now[0].blobSha256), "new blob stored");
 
-  // A question clip can be recorded from the card too
-  await page.locator('.kf-tc-clip[data-kind="prompt"][data-take="2"] [data-action="record"]').click();
+  // The sound can be recorded from the card too
+  await page.locator('.kf-tc-clip[data-kind="sound"] [data-action="record"]').click();
   await page.locator('kf-recorder [data-stub="take"]').click();
-  await page.getByRole("heading", { name: "Questions (1/3)" }).waitFor();
+  await page.waitForFunction((id) => window.__t.store.clipsFor(id).length === 2, thingId);
 
   // Decode failures are flagged "re-record"
   await page.evaluate((id) => window.__t.services.audio.dispatchEvent(new CustomEvent("decode-failed", { detail: { clipId: id } })), now[0].id);
@@ -386,7 +374,7 @@ test("thing card: rename, recolour, motion, + Language, re-record (cancel keeps,
   await page.locator('input[name="name"]').blur();
   await page.locator('select[name="article"]').selectOption("das");
   await page.waitForFunction((id) => window.__t.store.snapshot.things.find((t) => t.id === id).cues.de?.article === "das", thingId);
-  assert.equal(await page.locator('input[name="cue-1"]').inputValue(), "Wo ist das Schwein?");
+  assert.equal(await page.locator('select[name="article"]').inputValue(), "das");
   assert.equal((await thing()).names.de, "Schwein");
   await page.locator('[role="tab"][data-lang="en"]').click();
   assert.equal(await page.locator('input[name="name"]').inputValue(), "Piggy");

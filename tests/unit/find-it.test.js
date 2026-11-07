@@ -37,18 +37,18 @@ class FakeAudio {
 const seeded = (s = 3) => () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 2 ** 32);
 const flush = async () => { for (let i = 0; i < 4; i++) await new Promise((r) => setImmediate(r)); };
 
-/** Pig: recorded question, name and sound, pink. Cow: typed name only, white. Hen: typed name, pink too. */
+/** The family's English find question is recorded. Pig: recorded name and sound, pink. Cow: typed name only, white. Hen: typed name, pink too. */
 async function setup({ findIt, lang = "en", withHen = false } = {}) {
   const place = aPlace({ id: "farm", ...(findIt === undefined ? {} : { findIt }) })
     .withThing(
       aThing({ id: "pig", color: "pink", names: { en: "pig", sv: "grisen" }, outline: square(0.3, 0.7, 0.08) })
-        .withClip(aClip({ language: "en", kind: "prompt", take: 1 }))
         .withClip(aClip({ language: "en", kind: "name" }))
         .withClip(aClip({ language: "en", kind: "sound" })),
     )
     .withThing(aThing({ id: "cow", color: "white", names: { en: "cow" }, outline: square(0.7, 0.7, 0.08) }));
   if (withHen) place.withThing(aThing({ id: "hen", color: "pink", names: { en: "hen" }, outline: square(0.5, 0.3, 0.06) }));
   const snap = aSnapshot().withPlace(place).build();
+  snap.clips.push(aClip({ thingId: null, language: "en", kind: "find-question", take: 1 }).build());
   snap.settings.languages = [lang];
   snap.settings.playLanguage = lang;
   const store = new FarmStore(new MemoryRepo(), fixedEnv());
@@ -106,13 +106,13 @@ test("the find games show by default (findIt absent), hide when the place switch
   assert.equal(off.asks().length, 0);
 });
 
-test("animal round: the recorded question, then the thing's own sound as a clue; things freeze meanwhile", async () => {
+test("animal round: the recorded question and the recorded name as one sequence, then the thing's own sound as a clue; things freeze meanwhile", async () => {
   const { engine, audio, asks, roundOn } = await setup();
   await roundOn("pig");
   assert.deepEqual(engine.findRound, { kind: "animal", thingId: "pig", color: null });
   assert.equal(asks().at(-1).kind, "animal");
   assert.equal(asks().at(-1).recorded, true, "the parent's own question: no recording tip");
-  assert.equal(audio.last("playClip"), "en:prompt:1");
+  assert.equal(audio.last("playSequence"), "en:find-question,en:name");
   assert.equal(engine._input.fingerDown || engine._prompting, true);
   const n = audio.calls.length;
   audio.finishAll();
@@ -120,7 +120,7 @@ test("animal round: the recorded question, then the thing's own sound as a clue;
   assert.deepEqual(audio.since(n), [["playClip", "en:sound:1"]], "the sound follows the question");
 });
 
-test("animal round without recordings: the scripted cue in the device's voice", async () => {
+test("animal round with the question recorded but not the name: the scripted cue in the device's voice", async () => {
   const { audio, roundOn, asks } = await setup();
   await roundOn("cow");
   assert.match(audio.last("speak"), /^en:(Where is|Can you find|Show me) the cow[?!]$/);
@@ -272,6 +272,7 @@ test("animal round without a recorded question: the device voice asks, and only 
 
 test("a device voice that never starts falls back to the recorded name; the sound still waits for it", async () => {
   const { audio, store, roundOn } = await setup();
+  await store.deleteClip({ clipId: store.gameClips({ kind: "find-question" })[0].id }); // no question: the voice asks
   await store.saveClip({ clip: { ...aClip({ language: "en", kind: "name" }).build(), thingId: "cow" } });
   await store.saveClip({ clip: { ...aClip({ language: "en", kind: "sound" }).build(), thingId: "cow" } });
   await roundOn("cow");
@@ -298,10 +299,13 @@ test("a question cut short by a tap never plays the sound afterwards", async () 
 
 test("recorded questions: a random take each time, never the same take twice in a row", async () => {
   const { audio, store, engine, roundOn } = await setup();
-  for (const take of [2, 3]) await store.saveClip({ clip: { ...aClip({ language: "en", kind: "prompt", take }).build(), thingId: "pig" } });
+  for (const take of [2, 3]) await store.saveClip({ clip: aClip({ thingId: null, language: "en", kind: "find-question", take }).build() });
+  const asked = [];
+  const play = audio.playSequence.bind(audio);
+  audio.playSequence = (clips) => { asked.push(clips[0].take); return play(clips); };
   await roundOn("pig");
-  const takes = [audio.last("playClip")];
-  for (let i = 0; i < 6; i++) { engine.startFind("animal"); takes.push(audio.last("playClip")); }
+  const takes = [asked.at(-1)];
+  for (let i = 0; i < 6; i++) { engine.startFind("animal"); takes.push(asked.at(-1)); }
   for (let i = 1; i < takes.length; i++) assert.notEqual(takes[i], takes[i - 1]);
   assert.ok(new Set(takes).size >= 2);
 });
@@ -393,7 +397,7 @@ test("a recorded sound but no recorded name: the device says the name, then the 
   assert.deepEqual(audio.since(n + 2), [["playClip", "en:sound:1"]]);
 });
 
-test("no question recorded in the play language: the device voice reads its lines, not another language's recording", async () => {
+test("no question recorded in the play language: the device voice asks, not the other language's question", async () => {
   const { audio, roundOn } = await setup({ lang: "sv" });
   const n = audio.calls.length;
   await roundOn("pig");

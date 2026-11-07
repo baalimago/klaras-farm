@@ -1,4 +1,5 @@
 { "lang": "es", "articles": ["el", "la"], "templates": ["¿Dónde está {the} {name}?", "¿Puedes encontrar {the} {name}?", "¡Enséñame {the} {name}!"],
+  "findQuestion": "¿Dónde está…",
   "colorQuestion": "Toca un animal de color…",
   "colorTemplates": ["¡Toca un animal que sea {color}!", "¿Qué animal es {color}?", "¿Puedes encontrar un animal {color}?"],
   "colors": { "red": "rojo", "orange": "naranja", "yellow": "amarillo", "green": "verde", "blue": "azul", "purple": "morado", "pink": "rosa", "brown": "marrón", "white": "blanco", "grey": "gris", "black": "negro" } }

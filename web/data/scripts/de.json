@@ -1,5 +1,6 @@
 { "lang": "de", "articles": ["der", "die", "das"], "templates": ["Wo ist {the} {name}?", "Kannst du {the} {name} finden?", "Zeig mir {the} {name}!"],
   "note": "Accusative forms (den) are said naturally; the cue is only a guide. Colour words are the plain form ('gelb'), said after the colour question.",
+  "findQuestion": "Wo ist…",
   "colorQuestion": "Tippe auf ein Tier in der Farbe…",
   "colorTemplates": ["Tippe auf ein Tier, das {color} ist!", "Welches Tier ist {color}?", "Kannst du ein Tier finden, das {color} ist?"],
   "colors": { "red": "rot", "orange": "orange", "yellow": "gelb", "green": "grün", "blue": "blau", "purple": "lila", "pink": "rosa", "brown": "braun", "white": "weiß", "grey": "grau", "black": "schwarz" } }

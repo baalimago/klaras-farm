@@ -112,7 +112,7 @@ describe("IdbRepo specifics", () => {
       return { ...res, blobRejected };
     });
     assert.deepEqual(out, {
-      version: 3, // DB_VERSION 2 (format 4) and 3 (format 5): no schema change, each stops the previous format's app with VersionError
+      version: 4, // DB_VERSION 2 (format 4), 3 (format 5) and 4 (format 6): no schema change, each stops the previous format's app with VersionError
       stores: ["blobs", "clips", "drafts", "meta", "places", "settings", "things", "usage"],
       thingIndexes: ["placeId"],
       clipIndexes: ["key", "thingId"],
@@ -174,7 +174,7 @@ describe("IdbRepo specifics", () => {
       });
       return { version, places, error };
     });
-    assert.deepEqual(out, { version: 3, places: ["farm"], error: "VersionError" });
+    assert.deepEqual(out, { version: 4, places: ["farm"], error: "VersionError" });
   });
 });
 
@@ -281,7 +281,7 @@ describe("export and import (IndexedDB)", () => {
         garbage: new TextEncoder().encode("hello, not a zip").buffer,
         truncated: zip(good).slice(0, 2000),
         foreign: zip({ "manifest.json": fflate.strToU8('{"name":"x"}') }),
-        newer: zip({ ...good, "manifest.json": fflate.strToU8(JSON.stringify({ ...manifest, formatVersion: 7, minReaderFormat: 6 })) }),
+        newer: zip({ ...good, "manifest.json": fflate.strToU8(JSON.stringify({ ...manifest, formatVersion: 8, minReaderFormat: 7 })) }),
         tampered: zip(tampered),
         missing: zip(missing),
         dupClip: zip({ ...good, "manifest.json": fflate.strToU8(JSON.stringify(dupClip)) }),

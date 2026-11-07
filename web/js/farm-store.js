@@ -59,7 +59,7 @@ export class FarmStore extends EventTarget {
     const base = emptySnapshot(this.env, this.appVersion);
     const candidate = migrate({
       ...base,
-      formatVersion: storedFormat(data.things, data.settings),
+      formatVersion: storedFormat(data.things, data.settings, data.clips),
       settings: data.settings ?? base.settings,
       places: data.places,
       things: data.things,
@@ -69,7 +69,23 @@ export class FarmStore extends EventTarget {
     if (!check.ok) throw new FarmError("corrupt", check.error);
     this.snapshot = candidate;
     this._emit({ kind: "hydrated", ids: [] });
+    this._settleMigration(data, candidate);
     return { fresh };
+  }
+
+  /**
+   * Records that migrate dropped or changed (format 6: per-thing questions) are written back, so
+   * the old recordings really go (their blobs become orphans for the sweep). Never waited on: the
+   * farm in memory is already right, and the next load migrates again if this write fails.
+   */
+  _settleMigration(data, snap) {
+    const kept = new Set(snap.clips.map((c) => c.id));
+    const stored = new Map((data.things ?? []).map((t) => [t.id, t]));
+    const writes = [
+      ...(data.clips ?? []).filter((c) => !kept.has(c.id)).map((c) => ({ store: "clips", op: "delete", key: c.id })),
+      ...snap.things.filter((t) => stored.has(t.id) && stored.get(t.id) !== t).map((t) => ({ store: "things", op: "put", value: t })),
+    ];
+    if (writes.length) this._write(writes).catch((e) => console.warn("FarmStore: migration write", e));
   }
 
   /** The current snapshot stamped for export. */
@@ -113,10 +129,6 @@ export class FarmStore extends EventTarget {
   saveClip(args) { return this._run(I.saveClip, args); }
   deleteClip(args) { return this._run(I.deleteClip, args); }
   updateSettings(args) { return this._run(I.updateSettings, args); }
-  setQuestionLine(args) { return this._run(I.setQuestionLine, args); }
-  addQuestion(args) { return this._run(I.addQuestion, args); }
-  removeQuestion(args) { return this._run(I.removeQuestion, args); }
-  restoreQuestions(args) { return this._run(I.restoreQuestions, args); }
 
   // ---- drafts (not part of the snapshot) ----
   async saveDraft(draft) {

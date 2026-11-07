@@ -19,18 +19,23 @@ import { MAX_LEGS, isLeg, legacyLegCount, spreadLegs } from "./legs.js";
 //      skyColor / groundColor may hold a freely picked colour, "#rrggbb" lowercase. Nothing to
 //      migrate. minReaderFormat is 5: a format 4 app would call a place with a new key or a custom
 //      colour damaged, so it says "made by a newer version" instead.
-export const FORMAT_VERSION = 5;
-export const MIN_READER_FORMAT = 5;
+//   6: find questions work like the colour game: the family records the question once per language
+//      (kind 'find-question', thingId null, takes 1–6: "Where is the…", "Show me the…") and it plays
+//      with the thing's recorded name. Per-thing questions are gone: 'prompt' clips and Cue.lines are
+//      dropped on migrate (their blobs become orphans and are swept). minReaderFormat is 6: a format 5
+//      app would call a 'find-question' clip damaged.
+export const FORMAT_VERSION = 6;
+export const MIN_READER_FORMAT = 6;
 /** Things per place: the family's cap is `settings.maxThings`, from 1 to MAX_THINGS_LIMIT. */
 export const MAX_THINGS_LIMIT = 12;
 export const DEFAULT_MAX_THINGS = 8;
 /** The hard ceiling validation allows in one place (the family's cap is settings.maxThings). */
 export const MAX_THINGS_PER_PLACE = MAX_THINGS_LIMIT;
-/** Questions per thing and language (Cue.lines, prompt takes), and colour question takes. */
+/** Takes of a game question (find question, colour question): up to 6 ways to ask. */
 export const MAX_QUESTIONS = 6;
-export const THING_CLIP_KINDS = Object.freeze(["name", "prompt", "sound"]);
-/** Family-level clips for the colour game: their thingId is null. */
-export const GAME_CLIP_KINDS = Object.freeze(["color-word", "color-question"]);
+export const THING_CLIP_KINDS = Object.freeze(["name", "sound"]);
+/** Family-level clips for the find games: their thingId is null. */
+export const GAME_CLIP_KINDS = Object.freeze(["find-question", "color-word", "color-question"]);
 export const CLIP_KINDS = Object.freeze([...THING_CLIP_KINDS, ...GAME_CLIP_KINDS]);
 export const BACKDROPS = Object.freeze(["meadow", "sea", "room", "blank"]);
 /** The shipped motion presets (web/data/motions/, motion/pose.js PRESET_IDS). `motion.preset` is validated only as a string. */
@@ -154,14 +159,13 @@ export function validateSnapshot(s, opts = {}) {
 const isTake = (v) => Number.isInteger(v) && v >= 1 && v <= MAX_QUESTIONS;
 const isMaxThings = (v) => Number.isInteger(v) && v >= 1 && v <= MAX_THINGS_LIMIT;
 
-/** A Cue: optional `lines` (up to MAX_QUESTIONS strings) and an optional `article`. */
+/** A Cue: an optional `article` (format 6 dropped `lines`). */
 function isCue(c) {
   if (!c || typeof c !== "object") return false;
-  if (c.lines !== undefined && !(Array.isArray(c.lines) && c.lines.length <= MAX_QUESTIONS && c.lines.every((l) => l === null || isStr(l)))) return false;
   return c.article === undefined || isStr(c.article);
 }
 
-/** A colour game clip: family-level, so its thingId is null. */
+/** A find game clip (find question, colour question or word): family-level, so its thingId is null. */
 export function isGameClip(c) {
   return c?.thingId === null && GAME_CLIP_KINDS.includes(c.kind);
 }
@@ -197,7 +201,21 @@ const STEPS = {
   3: (s) => ({ ...s, formatVersion: 4, settings: withMaxThings(s.settings) }),
   // 4 → 5: new palette keys and custom sky/ground colours are additions; format 4 data is valid as is.
   4: (s) => ({ ...s, formatVersion: 5 }),
+  // 5 → 6: per-thing questions are discarded (the family records one find question instead).
+  5: (s) => ({ ...s, formatVersion: 6, things: (s.things ?? []).map(withoutCueLines), clips: (s.clips ?? []).filter((c) => c?.kind !== "prompt") }),
 };
+
+/** A thing without per-thing question lines (format 6); a cue left empty goes. */
+export function withoutCueLines(t) {
+  if (!t?.cues || typeof t.cues !== "object" || !Object.values(t.cues).some((c) => c && typeof c === "object" && "lines" in c)) return t;
+  const cues = {};
+  for (const [lang, cue] of Object.entries(t.cues)) {
+    if (!cue || typeof cue !== "object") { cues[lang] = cue; continue; }
+    const { lines: _lines, ...rest } = cue;
+    if (Object.keys(rest).length) cues[lang] = rest;
+  }
+  return { ...t, cues };
+}
 
 /** Settings as format 4 has them: `maxThings` set (default 8) when it is missing or out of range. */
 export function withMaxThings(settings) {
@@ -214,17 +232,22 @@ export function withLegacyLegs(t) {
 
 /**
  * The format of records read back from storage, which carry no version. Things without legs are
- * format 2; stored settings without `maxThings` are format 3. No settings (a fresh install) tells nothing.
+ * format 2; stored settings without `maxThings` are format 3; 'prompt' clips or cue lines are
+ * format 5 or older (format 5 itself is told by nothing). No settings (a fresh install) tells nothing.
  */
-export function storedFormat(things, settings = null) {
+export function storedFormat(things, settings = null, clips = []) {
   if ((things ?? []).some((t) => !Array.isArray(t?.legs))) return 2;
   if (settings && typeof settings === "object" && !isMaxThings(settings.maxThings)) return 3;
+  if ((clips ?? []).some((c) => c?.kind === "prompt") || (things ?? []).some((t) => withoutCueLines(t) !== t)) return 5;
   return FORMAT_VERSION;
 }
 
 export function migrate(s) {
   let out = s;
   while (out.formatVersion < FORMAT_VERSION) out = STEPS[out.formatVersion](out);
+  // Cue lines mean nothing since format 6: a file that still carries them (hand-made, or a newer
+  // readable one) loses them here too, so it reads back from storage exactly as it was imported.
+  if (out.formatVersion >= 6 && (out.things ?? []).some((t) => withoutCueLines(t) !== t)) out = { ...out, things: out.things.map(withoutCueLines) };
   // A newer file that is still readable (minReaderFormat ≤ ours) is kept as is: unknown additive
   // fields are preserved.
   return out;

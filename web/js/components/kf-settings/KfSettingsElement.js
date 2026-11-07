@@ -193,7 +193,11 @@ export class KfSettingsElement extends HTMLElement {
     if (!place) return null;
     const id = newId("find-it");
     const things = store.thingsIn(place.id);
-    const recorded = things.filter((t) => store.clipsFor(t.id, { kind: "prompt" }).length > 0).length;
+    // Counted in the play language (with "Mix languages", in any): that is what a round plays.
+    const play = store.settings?.playLanguage;
+    const language = play && play !== "alternate" ? play : undefined;
+    const asked = store.gameClips({ kind: "find-question", language }).length > 0;
+    const named = things.filter((t) => store.clipsFor(t.id, { kind: "name", language }).length > 0).length;
     const input = h("input", {
       type: "checkbox",
       id,
@@ -215,9 +219,10 @@ export class KfSettingsElement extends HTMLElement {
         class: "kf-note",
         text:
           `Two round buttons in the bottom corners: 🔍 asks "Where is the …?" (then plays its sound), the coloured dots ask "Tap on an animal that is yellow!". ` +
-          `Hold a button for a second to record its questions in your voice. ` +
-          `${recorded} of ${things.length} things here have your recorded questions` +
-          (recorded < things.length ? `; the others are asked in the ${device().voice} until you record them.` : "."),
+          `Hold a button for a second to record its question in your voice; then each animal's recorded name follows it. ` +
+          (asked
+            ? `${named} of ${things.length} things here have a recorded name` + (named < things.length ? `; the others are asked in the ${device().voice} until you record them.` : ".")
+            : `The question isn't recorded yet, so the ${device().voice} asks for now.`),
       }),
     ]);
   }

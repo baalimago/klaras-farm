@@ -55,88 +55,25 @@ test("maxThings is a setting from 1 to 12; lowering it keeps the things and only
   assert.equal(I.maxThings({ settings: {} }), 8, "missing (never stored) means the default");
 });
 
-// ---------- questions ----------
+// ---------- find game clips ----------
 
-const promptsOf = (s, id, language = "en") => I.clipsFor(s, id, { kind: "prompt", language }).map((c) => [c.take, c.id]);
-
-test("questions: add up to 6, edit free text (empty is the example), remove down to 1", () => {
+test("find questions: game clips with takes 1 to 6, per language, a new take replacing the same take", () => {
+  const e = env();
   let s = aSnapshot().withPlace(aPlace().withThing(aThing())).build();
+  const ask = (fields) => ({ clip: aClip({ thingId: null, kind: "find-question", language: "en", take: 1, ...fields }).build() });
+  s = I.saveClip(s, ask({ take: 1 }), e).snapshot;
+  s = I.saveClip(s, ask({ take: 6, color: "red" }), e).snapshot;
+  s = I.saveClip(s, ask({ take: 1, language: "sv" }), e).snapshot;
+  const again = I.saveClip(s, ask({ take: 1 }), e);
+  valid(again.snapshot);
+  assert.deepEqual(I.gameClips(again.snapshot, { kind: "find-question", language: "en" }).map((c) => c.take), [1, 6]);
+  assert.equal(I.gameClips(again.snapshot, { kind: "find-question" }).length, 3);
+  assert.equal(again.writes.filter((w) => w.op === "delete").length, 1, "the old take 1 goes");
+  assert.equal(I.gameClips(s, { kind: "find-question", language: "en" })[1].color, undefined, "a question has no colour");
+  assert.throws(() => I.saveClip(s, ask({ take: 7 }), e), { code: "invalid" });
   const thingId = s.things[0].id;
-  s = I.setQuestionLine(s, { thingId, language: "en", index: 1, text: "  Where is our piggy?  " }, env()).snapshot;
-  assert.deepEqual(s.things[0].cues.en.lines, ["", "Where is our piggy?", ""], "starts from the 3 examples");
-  for (let i = 0; i < 3; i++) s = I.addQuestion(s, { thingId, language: "en", text: i === 0 ? "Peekaboo pig?" : "" }, env()).snapshot;
-  assert.equal(s.things[0].cues.en.lines.length, 6);
-  valid(s);
-  assert.throws(() => I.addQuestion(s, { thingId, language: "en" }, env()), { code: "invalid" });
-  assert.throws(() => I.setQuestionLine(s, { thingId, language: "en", index: 6, text: "x" }, env()), { code: "invalid" });
-  assert.equal(s.things[0].cues.sv, undefined, "other languages are untouched");
-  let one = s;
-  for (let i = 0; i < 5; i++) one = I.removeQuestion(one, { thingId, language: "en", index: 0 }, env()).snapshot;
-  assert.equal(one.things[0].cues.en.lines.length, 1);
-  assert.throws(() => I.removeQuestion(one, { thingId, language: "en", index: 0 }, env()), { code: "invalid" });
-  assert.throws(() => I.removeQuestion(s, { thingId, language: "en", index: 9 }, env()), { code: "invalid" });
-});
-
-test("removing a question deletes its recording and moves later recordings up one take", () => {
-  const thing = aThing({ cues: { en: { lines: ["one", "two", "three", "four"] } } })
-    .withClip(aClip({ id: "p1", kind: "prompt", take: 1 }))
-    .withClip(aClip({ id: "p2", kind: "prompt", take: 2 }))
-    .withClip(aClip({ id: "p4", kind: "prompt", take: 4 }))
-    .withClip(aClip({ id: "sv2", kind: "prompt", take: 2, language: "sv" }))
-    .withClip(aClip({ id: "n", kind: "name" }));
-  const s = aSnapshot().withPlace(aPlace().withThing(thing)).build();
-  const thingId = s.things[0].id;
-  const r = I.removeQuestion(s, { thingId, language: "en", index: 1 }, env());
-  valid(r.snapshot);
-  assert.deepEqual(r.snapshot.things[0].cues.en.lines, ["one", "three", "four"]);
-  assert.deepEqual(promptsOf(r.snapshot, thingId), [[1, "p1"], [3, "p4"]]);
-  assert.deepEqual(promptsOf(r.snapshot, thingId, "sv"), [[2, "sv2"]], "other languages keep their takes");
-  assert.deepEqual(r.writes.map((w) => [w.store, w.op, w.key ?? w.value.id]), [["things", "put", thingId], ["clips", "delete", "p2"], ["clips", "put", "p4"]]);
-});
-
-test("restoreQuestions undoes a removal: lines and recordings back at their takes", () => {
-  const thing = aThing({ cues: { en: { lines: ["one", "two", "three"] } } })
-    .withClip(aClip({ id: "p1", kind: "prompt", take: 1 }))
-    .withClip(aClip({ id: "p2", kind: "prompt", take: 2 }))
-    .withClip(aClip({ id: "p3", kind: "prompt", take: 3 }));
-  const s = aSnapshot().withPlace(aPlace().withThing(thing)).build();
-  const thingId = s.things[0].id;
-  const r = I.removeQuestion(s, { thingId, language: "en", index: 0 }, env());
-  const back = I.restoreQuestions(r.snapshot, r.change.removed, env());
-  valid(back.snapshot);
-  assert.deepEqual(back.snapshot.things[0].cues.en.lines, ["one", "two", "three"]);
-  assert.deepEqual(promptsOf(back.snapshot, thingId).sort(), [[1, "p1"], [2, "p2"], [3, "p3"]]);
-  const never = aSnapshot().withPlace(aPlace().withThing(aThing())).build();
-  const r2 = I.removeQuestion(never, { thingId: never.things[0].id, language: "en", index: 0 }, env());
-  assert.equal(I.restoreQuestions(r2.snapshot, r2.change.removed, env()).snapshot.things[0].cues.en.lines, undefined, "never-edited lines go back to the examples");
-});
-
-test("removing a question keeps what each later empty line said (its example becomes its text)", () => {
-  const s = aSnapshot().withPlace(aPlace().withThing(aThing({ cues: { en: { lines: ["", "", ""] } } }))).build();
-  const thingId = s.things[0].id;
-  const examples = ["Where is the hen?", "Can you find the hen?", "Show me the hen!"];
-  const r = I.removeQuestion(s, { thingId, language: "en", index: 0, examples }, env());
-  assert.deepEqual(r.snapshot.things[0].cues.en.lines, ["Can you find the hen?", "Show me the hen!"]);
-  const keepFirst = I.removeQuestion(s, { thingId, language: "en", index: 2, examples }, env());
-  assert.deepEqual(keepFirst.snapshot.things[0].cues.en.lines, ["", ""], "lines before the removed one stay examples");
-});
-
-test("editing or removing a question keeps the chosen article", () => {
-  const s = aSnapshot().withPlace(aPlace().withThing(aThing({ cues: { de: { article: "der", lines: ["", "", ""] } } }))).build();
-  const thingId = s.things[0].id;
-  const edited = I.setQuestionLine(s, { thingId, language: "de", index: 0, text: "Wo ist er?" }, env()).snapshot;
-  assert.equal(edited.things[0].cues.de.article, "der");
-  const removed = I.removeQuestion(edited, { thingId, language: "de", index: 1 }, env()).snapshot;
-  assert.equal(removed.things[0].cues.de.article, "der");
-});
-
-test("questions 4 to 6 can be recorded: prompt takes go up to 6, not past it", () => {
-  let s = aSnapshot().withPlace(aPlace().withThing(aThing({ cues: { en: { lines: ["a", "b", "c", "d", "e", "f"] } } }))).build();
-  const thingId = s.things[0].id;
-  s = I.saveClip(s, { clip: aClip({ thingId, kind: "prompt", take: 6 }).build() }, env()).snapshot;
-  valid(s);
-  assert.deepEqual(I.clipsFor(s, thingId, { kind: "prompt" }).map((c) => c.take), [6]);
-  assert.throws(() => I.saveClip(s, { clip: aClip({ thingId, kind: "prompt", take: 7 }).build() }, env()), { code: "invalid" });
+  assert.throws(() => I.saveClip(s, { clip: aClip({ thingId, kind: "prompt" }).build() }, e), { code: "invalid" }, "no per-thing questions");
+  assert.throws(() => I.saveClip(s, { clip: aClip({ thingId, kind: "find-question" }).build() }, e), { code: "invalid" });
 });
 
 // ---------- colour game clips ----------

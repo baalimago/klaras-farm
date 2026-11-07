@@ -1,8 +1,8 @@
 // Pure helpers for the add-a-thing flow (no DOM). Unit tested in steps.test.js.
-import { DEFAULT_QUESTIONS, MAX_CUE_LINES } from "../../farm/scripts.js";
-
-export const STEPS = Object.freeze(["draw", "felt", "eyes", "legs", "moves", "name", "ask", "sound"]);
-export const STEP_LABELS = Object.freeze(["Body", "Felt", "Eyes", "Legs", "Moves", "Name", "Ask", "Sound"]);
+// There is no Ask step any more (format 6): the find question is the family's, recorded once in the
+// find game setup, and the thing's recorded name follows it.
+export const STEPS = Object.freeze(["draw", "felt", "eyes", "legs", "moves", "name", "sound"]);
+export const STEP_LABELS = Object.freeze(["Body", "Felt", "Eyes", "Legs", "Moves", "Name", "Sound"]);
 
 /** Size of a new thing in board units (x: board width, y: board height). */
 export const THING_SIZE = Object.freeze({ w: 0.24, h: 0.32 });
@@ -83,8 +83,9 @@ export function normalizeDraft(d, fallbackAt) {
     at: d.at ?? fallbackAt,
     held: d.held === true,
     thing,
-    // a draft saved before sounds shared one slot may hold two: the last recorded stays
-    clips: Array.isArray(d.clips) ? d.clips.reduce(upsertClip, []) : [],
+    // a draft saved before sounds shared one slot may hold two: the last recorded stays; a draft
+    // from before format 6 may hold per-thing questions, which are gone
+    clips: Array.isArray(d.clips) ? d.clips.filter((c) => c?.kind !== "prompt").reduce(upsertClip, []) : [],
   };
 }
 
@@ -122,7 +123,7 @@ export function stampEye(eyes, eye) {
 // card keep it): sounds share one slot, so a new one replaces the old and every tab shows it.
 const sameSlot = (a, b) => a.kind === b.kind && (a.kind === "sound" || (a.language === b.language && a.take === b.take));
 
-/** The draft's clips with `clip` in its slot (a name or question per language and take; one sound). */
+/** The draft's clips with `clip` in its slot (a name per language; one sound). */
 export function upsertClip(clips, clip) {
   return [...clips.filter((c) => !sameSlot(c, clip)), clip];
 }
@@ -159,20 +160,10 @@ export function cleanNames(names = {}) {
   return out;
 }
 
-/**
- * Cues as handed to addThing: trimmed lines, all of them (1 to MAX_CUE_LINES; their number is how
- * many questions there are, an empty line plays the example). Only the untouched default, that
- * many empty lines, is left out, since it means the same as no lines.
- */
+/** Cues as handed to addThing: only a chosen article (a draft from before format 6 may hold lines). */
 export function cleanCues(cues = {}) {
   const out = {};
-  for (const [lang, cue] of Object.entries(cues)) {
-    const c = {};
-    if (cue?.article) c.article = cue.article;
-    const lines = Array.isArray(cue?.lines) ? cue.lines.slice(0, MAX_CUE_LINES).map((l) => String(l ?? "").trim()) : [];
-    if (lines.some(Boolean) || (lines.length && lines.length !== DEFAULT_QUESTIONS)) c.lines = lines;
-    if (Object.keys(c).length) out[lang] = c;
-  }
+  for (const [lang, cue] of Object.entries(cues)) if (cue?.article) out[lang] = { article: cue.article };
   return out;
 }
 

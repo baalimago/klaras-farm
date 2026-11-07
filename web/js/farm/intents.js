@@ -4,7 +4,6 @@
 import { BACKDROPS, DEFAULT_MAX_THINGS, MAX_THINGS_LIMIT, MAX_QUESTIONS, THING_CLIP_KINDS, GAME_CLIP_KINDS, clipKey, roundPoints } from "./snapshot.js";
 import { isColorKey, sceneColor, SIMPLE_COLORS } from "./palette.js";
 import { cleanLegs, isLeg, MAX_LEGS } from "./legs.js";
-import { questionCount } from "./scripts.js";
 import { copyOf, libraryEntries, pickSeeds, seedCount } from "./library.js";
 import { placeThing, thingBox, thingBoxes } from "../play/placement.js";
 
@@ -355,7 +354,7 @@ export function saveClip(s, { clip: input, blob }, env) {
   const clip = game ? { ...input, thingId: null } : input;
   checkClipOwner(s, clip);
   if (!Number.isInteger(clip.take) || clip.take < 1 || clip.take > MAX_QUESTIONS) throw new FarmError("invalid", "clip take");
-  if (game && clip.kind === "color-question") delete clip.color;
+  if (game && clip.kind !== "color-word") delete clip.color;
   const key = clipKey(clip);
   // A thing has one sound, whichever language tab recorded it (QA round 3): a new sound replaces them all.
   const sound = !game && clip.kind === "sound";
@@ -377,92 +376,6 @@ export function deleteClip(s, { clipId }) {
   if (!clip) throw new FarmError("not-found", `clip ${clipId}`);
   const ids = clip.thingId === null ? [clipId] : [clip.thingId, clipId];
   return { snapshot: { ...s, clips: s.clips.filter((c) => c.id !== clipId) }, writes: [del("clips", clipId)], change: change("clip-deleted", ids) };
-}
-
-// ---------- questions ("Where is the…?", US-4.8) ----------
-// Cue.lines are free text, 1 to MAX_QUESTIONS per thing and language; an empty line plays the
-// script example. Prompt take n is the recording of line n, so removing a line renumbers the
-// recordings after it.
-
-/** The parent's lines for a language, at its current length (empty strings stand for examples). */
-function linesOf(thing, language) {
-  const n = questionCount(thing, language);
-  const lines = thing.cues?.[language]?.lines ?? [];
-  return Array.from({ length: n }, (_, i) => String(lines[i] ?? "").trim());
-}
-
-function withLines(s, thing, language, lines, env) {
-  const cues = { ...(thing.cues ?? {}), [language]: { ...(thing.cues?.[language] ?? {}), lines } };
-  const next = { ...thing, cues, updatedAt: env.now() };
-  return { snapshot: { ...s, things: replace(s.things, next) }, write: put("things", next) };
-}
-
-/** Changes the text of question `index` (0-based). Empty text goes back to the example. */
-export function setQuestionLine(s, { thingId, language, index, text }, env) {
-  const thing = findThing(s, thingId);
-  const lines = linesOf(thing, language);
-  if (!Number.isInteger(index) || index < 0 || index >= lines.length) throw new FarmError("invalid", "question index");
-  lines[index] = String(text ?? "").trim();
-  const r = withLines(s, thing, language, lines, env);
-  return { snapshot: r.snapshot, writes: [r.write], change: change("thing-updated", [thingId]) };
-}
-
-/** Adds a question at the end (up to MAX_QUESTIONS). Empty text means "the example". */
-export function addQuestion(s, { thingId, language, text = "" }, env) {
-  const thing = findThing(s, thingId);
-  const lines = linesOf(thing, language);
-  if (lines.length >= MAX_QUESTIONS) throw new FarmError("invalid", `at most ${MAX_QUESTIONS} questions`);
-  const r = withLines(s, thing, language, [...lines, String(text).trim()], env);
-  return { snapshot: r.snapshot, writes: [r.write], change: change("thing-updated", [thingId]) };
-}
-
-/**
- * Removes question `index` (at least one stays) with its recording; later recordings move up one
- * take so each stays with its line. An empty line means "the example at this position", so moving
- * it up would change what it says: with `examples` (scripts.js cueLines), every empty line after
- * `index` keeps its example as written text. Blobs are left for the orphan sweep.
- */
-export function removeQuestion(s, { thingId, language, index, examples = [] }, env) {
-  const thing = findThing(s, thingId);
-  const lines = linesOf(thing, language);
-  if (lines.length <= 1) throw new FarmError("invalid", "at least one question");
-  if (!Number.isInteger(index) || index < 0 || index >= lines.length) throw new FarmError("invalid", "question index");
-  for (let i = index + 1; i < lines.length; i++) if (!lines[i]) lines[i] = String(examples[i] ?? "").trim();
-  lines.splice(index, 1);
-  const r = withLines(s, thing, language, lines, env);
-  const take = index + 1;
-  const prompts = s.clips.filter((c) => c.thingId === thingId && c.language === language && c.kind === "prompt");
-  const gone = prompts.filter((c) => c.take === take);
-  // Ascending order: each take moves into the slot just vacated, so no two clips share a key at any step.
-  const moved = prompts.filter((c) => c.take > take).sort((a, b) => a.take - b.take).map((c) => ({ ...c, take: c.take - 1 }));
-  const movedIds = new Map(moved.map((c) => [c.id, c]));
-  const clips = r.snapshot.clips.filter((c) => !gone.includes(c)).map((c) => movedIds.get(c.id) ?? c);
-  return {
-    snapshot: { ...r.snapshot, clips },
-    writes: [r.write, ...gone.map((c) => del("clips", c.id)), ...moved.map((c) => put("clips", c))],
-    // What restoreQuestions needs to undo this: the lines and this language's prompt clips before.
-    change: { ...change("thing-updated", [thingId]), removed: { thingId, language, lines: thing.cues?.[language]?.lines ?? null, clips: prompts } },
-  };
-}
-
-/**
- * Undo of removeQuestion: puts the lines and this language's prompt recordings back as they were.
- * Blobs survive because the orphan sweep only removes blobs older than 24 h.
- */
-export function restoreQuestions(s, { thingId, language, lines, clips = [] }, env) {
-  const thing = findThing(s, thingId);
-  const cue = { ...(thing.cues?.[language] ?? {}) };
-  if (Array.isArray(lines)) cue.lines = [...lines];
-  else delete cue.lines;
-  const next = { ...thing, cues: { ...(thing.cues ?? {}), [language]: cue }, updatedAt: env.now() };
-  const now = s.clips.filter((c) => c.thingId === thingId && c.language === language && c.kind === "prompt");
-  const back = clips.map((c) => ({ ...c }));
-  return {
-    snapshot: { ...s, things: replace(s.things, next), clips: [...s.clips.filter((c) => !now.includes(c)), ...back] },
-    // Deletes first, then puts: no two clips share a key at any step.
-    writes: [put("things", next), ...now.map((c) => del("clips", c.id)), ...back.map((c) => put("clips", c))],
-    change: change("thing-updated", [thingId]),
-  };
 }
 
 // ---------- settings ----------
@@ -500,8 +413,8 @@ export function clipsFor(s, thingId, { language, kind } = {}) {
 }
 
 /**
- * Colour game clips (thingId null), sorted by take.
- * @param {{kind?:'color-word'|'color-question', language?:string, color?:string}} [filter]
+ * Find game clips (thingId null), sorted by take.
+ * @param {{kind?:'find-question'|'color-word'|'color-question', language?:string, color?:string}} [filter]
  */
 export function gameClips(s, { kind, language, color } = {}) {
   return s.clips

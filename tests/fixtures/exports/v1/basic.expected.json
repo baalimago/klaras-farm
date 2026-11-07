@@ -1,4 +1,26 @@
 {
+  "blobs": [
+    {
+      "mime": "audio/webm;codecs=opus",
+      "sha256": "1688fce26a90970ca63771e6f33f57d55ca380a951f60d55d35e9dc1c3ed56eb",
+      "size": 700
+    },
+    {
+      "mime": "audio/mp4",
+      "sha256": "2221e9029a311028c76ec6d2d480c8ae7222ee382c39730a992c0209dd22704e",
+      "size": 1200
+    },
+    {
+      "mime": "audio/mp4",
+      "sha256": "417fc6e7e6f1050cfec794f972db02468fb218ea321fdcf14d07844681e63409",
+      "size": 900
+    },
+    {
+      "mime": "audio/mp4",
+      "sha256": "4aab8470275648e6968728692f80e2bb9a8afa42dad0059041bc0bd570a7abe5",
+      "size": 1100
+    }
+  ],
   "snapshot": {
     "appVersion": "fixture",
     "clips": [
@@ -61,7 +83,7 @@
     ],
     "deviceId": "device-fixture",
     "exportedAt": "2026-11-01T09:40:00.000Z",
-    "formatVersion": 5,
+    "formatVersion": 6,
     "minReaderFormat": 1,
     "places": [
       {
@@ -153,15 +175,7 @@
       {
         "color": "pink",
         "createdAt": "2026-11-01T09:06:00.000Z",
-        "cues": {
-          "sv": {
-            "lines": [
-              "Var är grisen?",
-              "Där är grisen!",
-              "Vad säger grisen?"
-            ]
-          }
-        },
+        "cues": {},
         "eyes": [
           {
             "x": 0.47,
@@ -307,27 +321,5 @@
         "updatedAt": "2026-11-01T09:08:00.000Z"
       }
     ]
-  },
-  "blobs": [
-    {
-      "sha256": "1688fce26a90970ca63771e6f33f57d55ca380a951f60d55d35e9dc1c3ed56eb",
-      "mime": "audio/webm;codecs=opus",
-      "size": 700
-    },
-    {
-      "sha256": "2221e9029a311028c76ec6d2d480c8ae7222ee382c39730a992c0209dd22704e",
-      "mime": "audio/mp4",
-      "size": 1200
-    },
-    {
-      "sha256": "417fc6e7e6f1050cfec794f972db02468fb218ea321fdcf14d07844681e63409",
-      "mime": "audio/mp4",
-      "size": 900
-    },
-    {
-      "sha256": "4aab8470275648e6968728692f80e2bb9a8afa42dad0059041bc0bd570a7abe5",
-      "mime": "audio/mp4",
-      "size": 1100
-    }
-  ]
+  }
 }

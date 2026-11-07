@@ -188,7 +188,6 @@ test("a parent adds a thing with a recorded name, and it survives a reload", asy
   await rec.locator(".kf-rec-saved").waitFor({ timeout: 10000 });
   assert.equal(await rec.getByRole("button", { name: "Keep" }).count(), 0);
   await page.getByRole("button", { name: "Next" }).click();
-  await page.getByRole("button", { name: "Skip for now" }).click();
   await page.getByRole("button", { name: "Skip" }).click();
   await page.locator("kf-guided-add").waitFor({ state: "detached" });
 

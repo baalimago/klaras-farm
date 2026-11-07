@@ -1,5 +1,6 @@
 // <kf-thing-card>: everything about one thing on one card (flow 2; US-3.6–3.8, 4.5, 4.7, 9.1).
-// One tab per language (typed name, name clip, 1–6 free-text questions with recordings) plus
+// One tab per language (typed name, name clip, the article the iPad voice uses where the language
+// has them; the find question is the family's, recorded in the find game setup) plus
 // "+ Language"; one sound for every language; felt colour, motion, Redraw, Re-stamp eyes, Place
 // legs, Delete with confirm and Undo. Size is not here: animals are resized with the edit-mode scale tool.
 // Every recording slot says what Klara hears for it now (play/voice.js, the rule play uses): "Your
@@ -19,18 +20,16 @@ import { LegPlacer } from "../kf-guided-add/legs.js";
 import { MOTIONS, stripClip, refitEyes, sizeScale, sizeBox, sizedFill } from "../kf-guided-add/steps.js";
 import { languageOptions } from "./languages.js";
 import { THING_COLORS, hex } from "../../farm/palette.js";
-import { cueLines } from "../../farm/scripts.js";
+import { askLines } from "../../farm/scripts.js";
 import { clipSlot } from "./clip-slot.js";
-import { questionsSection } from "./questions.js";
 import { pressGuard } from "../kf-dialog/press-guard.js";
 import { commitOnEnter } from "./enter.js";
 import { nameVoice, soundVoice } from "../../play/voice.js";
-import { lineVoiceText } from "./clip-slot.js";
 import { changedFields, revertPatch } from "./revert.js";
 import { reportFailure } from "../kf-dialog/dom.js";
 import { capital, device } from "../../io/device.js";
 
-const KIND_LABEL = { name: "name", prompt: "question", sound: "sound" };
+const KIND_LABEL = { name: "name", sound: "sound" };
 
 export class ThingCardElement extends HTMLElement {
   constructor() {
@@ -242,18 +241,8 @@ export class ThingCardElement extends HTMLElement {
           })),
         this._clipControls("name", 1),
       ),
-      questionsSection({
-        store: this.services.store,
-        scripts: this.services.scripts,
-        thing,
-        lang,
-        busy: !!this._recording,
-        shell: this.services.shell,
-        canSpeak: this.canSpeak,
-        slot: (take, _line, voice) => this._clipControls("prompt", take, lineVoiceText(voice)),
-        onArticle: (article) => this._setCue({ article }),
-        onError: (e) => this._error(e),
-      }),
+      h("p", { class: "kf-note", text: "Klara also hears this name in the find game, after your question (hold 🔍 in play to record the question)." }),
+      this._article(thing, lang),
       h("h3", { text: "Sound" }),
       h("p", { class: "kf-note", text: "One sound for every language." }),
       h("div", { class: "kf-tc-line" }, this._clipControls("sound", 1)),
@@ -283,7 +272,18 @@ export class ThingCardElement extends HTMLElement {
     return { source: "none", text: "Just a chime for now" };
   }
 
-  _clipControls(kind, take, voice = kind === "prompt" ? null : this._voice(kind)) {
+  /** The article the iPad voice puts before the name ("Wo ist der Hund?"), where the language has them. */
+  _article(thing, lang) {
+    const { articles } = askLines(this.services.scripts ?? {}, thing, lang);
+    if (!articles.length) return null;
+    const current = thing.cues?.[lang]?.article;
+    return h("label", { class: "kf-field kf-tc-article" }, h("span", { text: `Article (for the ${device().voice})` }),
+      h("select", { name: "article", onchange: (e) => this._setCue({ article: e.target.value || undefined }) },
+        h("option", { value: "", text: "(none)", selected: !current }),
+        articles.map((a) => h("option", { value: a, text: a, selected: current === a }))));
+  }
+
+  _clipControls(kind, take, voice = this._voice(kind)) {
     const clip = this._slotClip(kind, take);
     const open = !!this._recording && this._recording.kind === kind && this._recording.take === take && this._recording.language === this.lang;
     return clipSlot({
@@ -291,7 +291,7 @@ export class ThingCardElement extends HTMLElement {
       clip,
       kind,
       take,
-      what: kind === "prompt" ? `question ${take}` : KIND_LABEL[kind],
+      what: KIND_LABEL[kind],
       recordText: this._recordText(kind, !!clip),
       cue: open ? this._cueFor(kind, take) : "",
       open,
@@ -317,7 +317,6 @@ export class ThingCardElement extends HTMLElement {
 
   _cueFor(kind, take) {
     const thing = this.thing;
-    if (kind === "prompt") return cueLines(this.services.scripts ?? {}, thing, this.lang).lines[take - 1] ?? "";
     if (kind === "sound") return `Make the ${this.displayName(thing)}'s sound, not its name (moo! cluck!)`;
     const word = thing.names?.[this.lang];
     return word ? `Say just the word, slowly and clearly: “${word}”` : "Say just its name, slowly and clearly";

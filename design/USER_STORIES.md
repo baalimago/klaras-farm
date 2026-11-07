@@ -103,6 +103,8 @@ Priority: **M** = first playable version, **N** = next, **L** = later. Look is t
 - The old clip is replaced only when the new one is saved; cancelling keeps the old clip.
 - Test: stubbed recorder adapter covers save and cancel.
 
+> Superseded by format 5 (November 2026): the find question is recorded once per language ("Where is the…") and plays back to back with each thing's recorded name, the same way as the colour game. Per-thing question recordings are gone; see `docs/play.md`.
+
 **US-4.8 (M) Record scripted "Where is the…" variants.** As a parent, I want the app to tell me exactly what to say, so that I can record a few natural ways of asking for each thing in my language.
 - When creating a thing, the parent types its name once per language (parent-only text, never shown to Klara). The name is still recorded as its own clip (US-4.1).
 - The app then shows three scripts, one at a time, filled with that name, each with its own Record button. English example: "Where is the dog?", "Can you find the dog?", "Show me the dog!".

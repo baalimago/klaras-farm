@@ -1,4 +1,26 @@
 {
+  "blobs": [
+    {
+      "mime": "audio/mp4",
+      "sha256": "0a223de46d7b3c7955626b0ea17ccdefbaab6a89a32160ec4a12d9912e844830",
+      "size": 2
+    },
+    {
+      "mime": "audio/mp4",
+      "sha256": "381bf3f098f96c2b3b8f50cdc987e3fa141ad0440f8384d8d9ad1d31dd13fb99",
+      "size": 5
+    },
+    {
+      "mime": "audio/mp4",
+      "sha256": "5f53c0ff07ba5d9a330e68c95dabb1a9bc49e29f9ed53f6fa7c6d99abb000050",
+      "size": 4
+    },
+    {
+      "mime": "audio/mp4",
+      "sha256": "c0708a9a0bc30dd1c4218e90d3ec97303bcef25172c30aa5a8c37392e6e4727b",
+      "size": 3
+    }
+  ],
   "snapshot": {
     "appVersion": "fixture-v4",
     "clips": [
@@ -12,34 +34,6 @@
         "language": "en",
         "mime": "audio/mp4",
         "take": 1,
-        "thingId": "t3-hen",
-        "trimEndMs": 850,
-        "trimStartMs": 30
-      },
-      {
-        "blobSha256": "c0708a9a0bc30dd1c4218e90d3ec97303bcef25172c30aa5a8c37392e6e4727b",
-        "createdAt": "2026-11-02T10:00:00.000Z",
-        "durationMs": 900,
-        "gainDb": 2,
-        "id": "c3-1",
-        "kind": "prompt",
-        "language": "en",
-        "mime": "audio/mp4",
-        "take": 1,
-        "thingId": "t3-hen",
-        "trimEndMs": 850,
-        "trimStartMs": 30
-      },
-      {
-        "blobSha256": "0a223de46d7b3c7955626b0ea17ccdefbaab6a89a32160ec4a12d9912e844830",
-        "createdAt": "2026-11-02T10:00:00.000Z",
-        "durationMs": 900,
-        "gainDb": 2,
-        "id": "c3-2",
-        "kind": "prompt",
-        "language": "en",
-        "mime": "audio/mp4",
-        "take": 3,
         "thingId": "t3-hen",
         "trimEndMs": 850,
         "trimStartMs": 30
@@ -61,7 +55,7 @@
     ],
     "deviceId": "device-fixture",
     "exportedAt": "2026-11-07T10:00:00.000Z",
-    "formatVersion": 5,
+    "formatVersion": 6,
     "minReaderFormat": 4,
     "places": [
       {
@@ -96,15 +90,7 @@
       {
         "color": "sun",
         "createdAt": "2026-11-02T10:00:00.000Z",
-        "cues": {
-          "en": {
-            "lines": [
-              "Where is our hen?",
-              "",
-              ""
-            ]
-          }
-        },
+        "cues": {},
         "eyes": [
           {
             "x": 0.55,
@@ -153,27 +139,5 @@
         "updatedAt": "2026-11-02T10:00:00.000Z"
       }
     ]
-  },
-  "blobs": [
-    {
-      "sha256": "0a223de46d7b3c7955626b0ea17ccdefbaab6a89a32160ec4a12d9912e844830",
-      "mime": "audio/mp4",
-      "size": 2
-    },
-    {
-      "sha256": "381bf3f098f96c2b3b8f50cdc987e3fa141ad0440f8384d8d9ad1d31dd13fb99",
-      "mime": "audio/mp4",
-      "size": 5
-    },
-    {
-      "sha256": "5f53c0ff07ba5d9a330e68c95dabb1a9bc49e29f9ed53f6fa7c6d99abb000050",
-      "mime": "audio/mp4",
-      "size": 4
-    },
-    {
-      "sha256": "c0708a9a0bc30dd1c4218e90d3ec97303bcef25172c30aa5a8c37392e6e4727b",
-      "mime": "audio/mp4",
-      "size": 3
-    }
-  ]
+  }
 }
