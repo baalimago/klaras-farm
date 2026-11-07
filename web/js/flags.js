@@ -6,6 +6,8 @@ export const DEFAULT_FLAGS = Object.freeze({
   motionSpeed: 1,
   autoStopRecording: true,
   sleepTimer: true,
+  // Klara's birthday wrapping paper (gift/wrapper.js): auto = on 7 November, always, never.
+  wrap: "auto",
 });
 
 export function readFlags(search = "") {
