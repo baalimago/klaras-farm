@@ -11,9 +11,9 @@ This domain is everything on screen and the code that starts the app: the custom
 Boot and shell:
 
 - `web/index.html`: one document. `#stage` holds `<kf-board id="board">`; `#parent-layer` holds parent UI. Loads `js/report-boot.js` then `js/main.js` as modules. `<base href="%ASSET_BASE%">` is filled by the server.
-- `web/js/main.js`: composition root. Opens the repository, hydrates or loads starter content, builds services, connects the board, mounts `kf-find-buttons` and the `Shell`, wires wake lock, music and updates, sets `data-ready`.
+- `web/js/main.js`: composition root. First wraps the page in birthday paper on 7 November (`gift/wrapper.js`, flag `wrap`, see `docs/gift.md`), then opens the repository, hydrates or loads starter content, builds services, connects the board, mounts `kf-find-buttons` and the `Shell`, wires wake lock, music and updates, sets `data-ready`.
 - `web/js/shell.js`: `Shell`, mounts panels into `#parent-layer` from `session.state`; shared `confirm()` and `toast()`.
-- `web/js/flags.js`: `DEFAULT_FLAGS` and `readFlags(search)` for `?flag=name:value`. Read only in `main.js`.
+- `web/js/flags.js`: `DEFAULT_FLAGS` and `readFlags(search)` for `?flag=name:value`. Read only in `main.js`. `wrap` (`auto`, `always`, `never`) controls the birthday wrapping paper.
 - `web/js/report-boot.js`: installs `io/report.js` error reporting before anything else loads.
 - `web/sw.template.js`: service worker; the server fills `__VERSION__` and `__PRECACHE__`.
 - `web/css/tokens.css` (design tokens, `--tap: 44px`, `--stitch` for stitched edges), `web/css/parent.css` (sheets, buttons, fields, tabs), `web/css/main.css` (base, stage, and `@import` of every component stylesheet).
