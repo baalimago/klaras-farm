@@ -1,4 +1,5 @@
-/* <kf-scene-tools>: tool bar at the left, stage over the board, colour sheet at the bottom, Done bottom right.
+/* <kf-scene-tools>: tool rail left of the board, the tool's options (hint, options or colour sheet, Done) right of it,
+   the stage exactly over the board. Nothing but the stage covers the board. Portrait: rail on top, options below.
    Foreground rule: every control (z 20) sits above the drawing canvas (kf-draw-pad's overlay is z 5). */
 kf-scene-tools { position: absolute; inset: 0; display: block; touch-action: none; }
 .kf-st-stage { position: absolute; touch-action: none; z-index: 1; }
@@ -23,22 +24,24 @@ kf-scene-tools { position: absolute; inset: 0; display: block; touch-action: non
   touch-action: none;
   will-change: transform;
 }
-.kf-st-side,
-.kf-st-sheet,
-.kf-st-done { z-index: 20; }
-.kf-st-side {
+.kf-st-left,
+.kf-st-right { z-index: 20; }
+/* The rail, left of the board (the stage leaves room for it: main.css .stage[data-mode="scene"]). */
+/* --st-top / --st-bottom: the board's top and bottom edges in this element, set by layout(), so both
+   toolbars line up with the board they frame. */
+.kf-st-left {
   position: absolute;
-  top: max(12px, env(safe-area-inset-top));
+  top: max(12px, env(safe-area-inset-top), var(--st-top, 0px));
+  bottom: max(12px, env(safe-area-inset-bottom), var(--st-bottom, 0px));
   left: var(--gutter);
   display: grid;
-  grid-template-columns: auto minmax(0, 300px);
-  gap: 10px;
-  align-items: start;
+  align-content: center;
   pointer-events: none;
 }
-.kf-st-side > * { pointer-events: auto; }
+.kf-st-left > * { pointer-events: auto; }
 .kf-st-rail {
-  grid-row: span 2;
+  box-sizing: border-box;
+  width: var(--st-rail);
   display: grid;
   gap: 4px;
   padding: 8px;
@@ -47,6 +50,24 @@ kf-scene-tools { position: absolute; inset: 0; display: block; touch-action: non
   box-shadow: var(--shadow);
   outline: 2px dashed var(--stitch);
   outline-offset: -6px;
+}
+/* The chosen tool's options, right of the board: hint, options or the open colour sheet, then Done. */
+.kf-st-right {
+  position: absolute;
+  /* It scrolls if it ever overflows; the padding (outside the column's own width) keeps shadows unclipped. */
+  --st-pad: 16px;
+  top: calc(max(12px, env(safe-area-inset-top), var(--st-top, 0px)) - var(--st-pad));
+  bottom: calc(max(12px, env(safe-area-inset-bottom), var(--st-bottom, 0px)) - var(--st-pad));
+  right: calc(var(--gutter-right) - var(--st-pad));
+  box-sizing: border-box;
+  width: calc(var(--st-side) + 2 * var(--st-pad));
+  padding: var(--st-pad);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
 }
 .kf-st-tool {
   display: grid;
@@ -71,10 +92,11 @@ kf-scene-tools { position: absolute; inset: 0; display: block; touch-action: non
   margin: 0;
   padding: 10px 14px;
   background: var(--paper);
-  border-radius: 999px;
+  border-radius: var(--radius);
   box-shadow: var(--shadow);
   font: 600 0.95rem/1.3 var(--font);
 }
+.kf-st-hint[hidden] { display: none; }
 .kf-st-panel:empty { display: none; }
 .kf-st-panel {
   display: grid;
@@ -85,19 +107,14 @@ kf-scene-tools { position: absolute; inset: 0; display: block; touch-action: non
   box-shadow: var(--shadow);
 }
 .kf-st-label { margin: 0; font-weight: 600; }
-.kf-st-actions { flex-wrap: wrap; gap: 8px; }
-.kf-st-colour { display: inline-flex; align-items: center; gap: 10px; justify-self: start; }
+.kf-st-actions { display: grid; gap: 8px; }
+.kf-st-colour { display: inline-flex; align-items: center; gap: 10px; justify-self: stretch; }
 .kf-st-chip { width: 28px; height: 28px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 2px var(--stitch); }
 .kf-st-sheet {
-  position: absolute;
-  left: 50%;
-  bottom: max(12px, env(safe-area-inset-bottom));
-  transform: translateX(-50%);
   box-sizing: border-box;
-  width: min(640px, calc(100% - 2 * var(--gutter)));
   display: grid;
   gap: 10px;
-  padding: 14px 18px 18px;
+  padding: 14px 14px 16px;
   background: var(--paper);
   border-radius: var(--radius);
   box-shadow: 0 6px 0 rgb(74 51 38 / 0.18), var(--shadow);
@@ -105,9 +122,36 @@ kf-scene-tools { position: absolute; inset: 0; display: block; touch-action: non
   outline-offset: -7px;
 }
 .kf-st-sheet[hidden] { display: none; }
-.kf-st-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.kf-st-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .kf-st-sheet-head h2 { margin: 0; font: 700 1.1rem/1.2 var(--font); }
-.kf-st-templates { flex-wrap: wrap; gap: 10px; }
+.kf-st-templates { display: grid; gap: 8px; }
 .kf-st-template[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
-.kf-st-done { position: absolute; right: var(--gutter); bottom: max(16px, env(safe-area-inset-bottom)); box-shadow: var(--shadow); }
+.kf-st-done { flex: none; margin-top: auto; box-shadow: var(--shadow); }
 kf-scene-tools:has(.kf-st-sheet:not([hidden])) .kf-st-done { display: none; }
+/* Portrait: the rail runs along the top, the options fill a band under the board. */
+@media (orientation: portrait) {
+  /* Hugging the board: the rail ends just above it, the options band starts just below it. */
+  .kf-st-left {
+    top: max(12px, env(safe-area-inset-top), calc(var(--st-top, 0px) - var(--st-gap) - var(--st-rail)));
+    bottom: auto;
+    right: var(--gutter-right);
+    justify-content: center;
+  }
+  .kf-st-rail { width: auto; height: var(--st-rail); grid-auto-flow: column; }
+  .kf-st-tool[data-tool="start"] { border-top: 0; border-left: 2px solid var(--stitch); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+  .kf-st-right {
+    top: calc(100% - var(--st-bottom, var(--st-foot)) + var(--st-gap) - var(--st-pad));
+    bottom: calc(max(12px, env(safe-area-inset-bottom)) - var(--st-pad));
+    left: calc(var(--gutter) - var(--st-pad));
+    width: auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-auto-rows: min-content;
+    align-content: start;
+  }
+  .kf-st-right > :not(.kf-st-done) { grid-column: 1; }
+  .kf-st-done { grid-column: 2; grid-row: 1; margin: 0; }
+  .kf-st-actions { display: flex; flex-wrap: wrap; }
+  .kf-st-templates { display: flex; flex-wrap: wrap; }
+  .kf-st-colour { justify-self: start; }
+}

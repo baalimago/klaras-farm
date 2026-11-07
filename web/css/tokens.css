@@ -15,4 +15,10 @@
   --tap: 44px;               /* minimum parent target (US-7.6) */
   --font: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif;
   --gutter: max(16px, env(safe-area-inset-left));
+  --gutter-right: max(16px, env(safe-area-inset-right));
+  /* Scene tools frame the board: the tool rail on one side, the chosen tool's options on the other. */
+  --st-rail: 84px;           /* the rail's thickness (one tool button plus its padding) */
+  --st-side: 220px;          /* the options column's width (landscape) */
+  --st-foot: 290px;          /* the options band's height (portrait) */
+  --st-gap: 12px;            /* between the board and either toolbar */
 }

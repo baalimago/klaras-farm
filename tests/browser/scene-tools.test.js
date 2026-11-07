@@ -12,8 +12,9 @@ let h;
 before(async () => { h = await setup(); });
 after(async () => { await h?.teardown(); });
 
-// Board stub rect: left 140, top 60, 900 × 675.
-const B = { left: 140, top: 60, width: 900, height: 675 };
+// Board stub rect: where the real stage puts the board in scene mode at 1180 × 820 (main.css
+// .stage[data-mode="scene"]: room for the rail on the left and the options column on the right).
+const B = { left: 112, top: 102, width: 820, height: 615 };
 const toClient = ([x, y]) => [B.left + x * B.width, B.top + y * B.height];
 
 function farm() {
@@ -31,7 +32,7 @@ async function open({ snapshot = farm(), drawPad = true } = {}) {
   const page = await h.modulePage('<div id="parent-layer" class="parent-layer"></div>');
   await page.setViewportSize({ width: 1180, height: 820 });
   await page.addScriptTag({ path: STUBS });
-  await page.evaluate(async ({ snapshot, drawPad }) => { await window.F2.boot(snapshot, { mode: "scene", drawPad }); }, { snapshot, drawPad });
+  await page.evaluate(async ({ snapshot, drawPad, B }) => { await window.F2.boot(snapshot, { mode: "scene", drawPad, boardRect: B }); }, { snapshot, drawPad, B });
   await page.evaluate(async () => { await window.F2.mount("kf-scene-tools", {}); });
   await page.locator("kf-scene-tools").getByRole("button", { name: "Shape" }).waitFor();
   return page;
@@ -105,10 +106,10 @@ test("colour picker: on top of the drawing canvas, which is paused while it is o
     return out;
   });
   assert.deepEqual(covered, []);
-  assert.ok(await page.evaluate(() => {
+  assert.ok(await page.evaluate((B) => {
     const r = document.querySelector(".kf-st-sheet").getBoundingClientRect();
-    return r.bottom > 60 && r.top < 735;
-  }), "the sheet overlaps the board (the case that used to fail)");
+    return r.left >= B.left + B.width && r.right <= innerWidth && r.top >= B.top - 1;
+  }, B), "the sheet sits in the options column, right of the board");
   assert.equal(await page.evaluate(() => document.querySelector(".kf-st-stage").inert), true, "the canvas takes no input");
   // A stroke attempted on the board while picking draws nothing.
   await drag(page, toClient([0.45, 0.3]), toClient([0.6, 0.35]), 12);
@@ -130,6 +131,55 @@ test("colour picker: on top of the drawing canvas, which is paused while it is o
   await until(page, () => window.services.store.currentPlace.pieces.length === 3);
   assert.equal((await place(page)).pieces[2].color, "red");
   assert.ok((await chimes(page)).includes("colour"));
+  assert.deepEqual(page.errors, []);
+});
+
+/** Controls in either toolbar whose box reaches into the board (none may: they frame it). */
+const overBoard = (page) => page.evaluate((B) => {
+  const out = [];
+  for (const el of document.querySelectorAll("kf-scene-tools .kf-st-left *, kf-scene-tools .kf-st-right *")) {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) continue;
+    if (r.right > B.left && r.left < B.left + B.width && r.bottom > B.top && r.top < B.top + B.height) out.push(el.className || el.tagName);
+  }
+  return out;
+}, B);
+
+test("toolbars frame the board: the rail left, the tool's options right, never over a piece", async () => {
+  // A piece in the board's top-left corner, where the options used to pop out over the scene.
+  const corner = aSnapshot()
+    .withPlace(aPlace({ id: "farm", name: "Farm" }).withPiece({ id: "cloud", kind: "shape", color: "white", stroke: square(0.12, 0.2, 0.06) }))
+    .build();
+  const page = await open({ snapshot: corner });
+  const rail = await tools(page).locator(".kf-st-rail").boundingBox();
+  const right = await tools(page).locator(".kf-st-right").boundingBox();
+  assert.ok(rail.x + rail.width <= B.left, "the rail is left of the board");
+  assert.ok(right.x >= B.left + B.width - 16, "the options column is right of the board");
+  assert.ok(Math.abs(right.y + 16 - B.top) <= 1, "the options start level with the board's top");
+  assert.deepEqual(await overBoard(page), [], "Shape");
+  for (const name of ["Line", "Move", "Colour", "Sky", "Ground", "Delete"]) {
+    await tools(page).getByRole("button", { name, exact: true }).click();
+    assert.deepEqual(await overBoard(page), [], name);
+  }
+  // Move: the piece in the corner is selected and dragged; its options show beside the board.
+  await tools(page).getByRole("button", { name: "Move", exact: true }).click();
+  await drag(page, toClient([0.12, 0.2]), toClient([0.3, 0.3]));
+  await until(page, () => window.services.store.currentPlace.pieces[0].stroke[0][0] > 0.2);
+  await tools(page).getByRole("button", { name: "Change colour" }).waitFor();
+  assert.deepEqual(await overBoard(page), [], "Move with a selection");
+  const done = await tools(page).getByRole("button", { name: "Done" }).boundingBox();
+  assert.ok(done.y + done.height <= B.top + B.height + 1 && done.x >= B.left + B.width, "Done sits bottom right, beside the board");
+  // A sheet takes the options' place in the column: no hint, no options behind it, still beside the board.
+  await tools(page).getByRole("button", { name: "Change colour" }).click();
+  await page.getByRole("dialog", { name: "Piece colour" }).waitFor();
+  assert.equal(await tools(page).locator(".kf-st-hint").isHidden(), true);
+  assert.equal(await tools(page).getByRole("button", { name: "Let go" }).count(), 0);
+  assert.deepEqual(await overBoard(page), [], "the colour sheet");
+  await tools(page).getByRole("button", { name: "Close" }).click();
+  await tools(page).getByRole("button", { name: "Start", exact: true }).click();
+  await page.getByRole("dialog", { name: "Start from" }).waitFor();
+  assert.deepEqual(await overBoard(page), [], "the Start sheet");
+  await assertAccessible(page);
   assert.deepEqual(page.errors, []);
 });
 

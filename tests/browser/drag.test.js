@@ -161,3 +161,48 @@ test("scene tools: a dragged felt piece tracks the pointer 1:1 with cheap frames
   assert.deepEqual(page.errors, []);
   await context.close();
 });
+
+test("scene tools: the board makes room for both toolbars, so no control covers it, in landscape and portrait", async () => {
+  const { page, context } = await ipadPage();
+  const boardBefore = await page.evaluate(() => window.__kf.board.boardRect().toJSON());
+  await page.evaluate(() => { window.__kf.session.holdArmed(); window.__kf.session.gatePassed(); window.__kf.session.sceneTools(); });
+  const tools = page.locator("kf-scene-tools");
+  await tools.getByRole("button", { name: "Move", exact: true }).click();
+  const covering = () => page.evaluate(() => {
+    const b = window.__kf.board.boardRect();
+    const out = [];
+    for (const el of document.querySelectorAll("kf-scene-tools .kf-st-left *, kf-scene-tools .kf-st-right *")) {
+      const r = el.getBoundingClientRect();
+      if (r.width && r.height && r.right > b.left && r.left < b.right && r.bottom > b.top && r.top < b.bottom) out.push(el.className || el.tagName);
+    }
+    const stage = document.querySelector(".kf-st-stage").getBoundingClientRect();
+    const fits = (r) => r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight;
+    return {
+      out,
+      board: b.toJSON(),
+      stageOnBoard: Math.abs(stage.left - b.left) < 1 && Math.abs(stage.top - b.top) < 1 && Math.abs(stage.width - b.width) < 1,
+      inView: [...document.querySelectorAll("kf-scene-tools .kf-st-tool, kf-scene-tools .kf-st-done")].every((el) => fits(el.getBoundingClientRect())),
+    };
+  });
+  await page.waitForFunction((w) => window.__kf.board.boardRect().width < w, boardBefore.width);
+  let got = await covering();
+  assert.deepEqual(got.out, [], "landscape");
+  assert.ok(got.stageOnBoard && got.inView, "landscape: the stage follows the board and every control is on screen");
+  assert.ok(got.board.width >= 800, `landscape board stays large (${got.board.width} px)`);
+  await page.setViewportSize({ width: 820, height: 1180 });
+  await page.waitForFunction(() => {
+    const b = window.__kf.board.boardRect();
+    const s = document.querySelector(".kf-st-stage").getBoundingClientRect();
+    return Math.abs(s.left - b.left) < 1 && Math.abs(s.top - b.top) < 1;
+  });
+  got = await covering();
+  assert.deepEqual(got.out, [], "portrait");
+  assert.ok(got.stageOnBoard && got.inView, "portrait: the stage follows the board and every control is on screen");
+  // Done gives the board its whole room back.
+  await page.setViewportSize({ width: 1180, height: 820 });
+  await tools.getByRole("button", { name: "Done" }).click();
+  await page.locator("kf-scene-tools").waitFor({ state: "detached" });
+  await page.waitForFunction((w) => Math.abs(window.__kf.board.boardRect().width - w) < 1, boardBefore.width);
+  assert.deepEqual(page.errors, []);
+  await context.close();
+});

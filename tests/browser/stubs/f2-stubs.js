@@ -103,7 +103,7 @@
     const store = new FarmStore(new MemoryRepo(), env, "test");
     if (snapshot) await store.replaceAll(snapshot, []);
     if (opts.drawPad !== false) defineDrawPad();
-    const board = fakeBoard();
+    const board = fakeBoard(opts.boardRect);
     const session = fakeSession(opts.mode ?? "edit");
     const engine = { mode: "edit", setMode(m) { log("engine.setMode", m); this.mode = m; } };
     const audio = { unlock() { log("audio.unlock"); }, chime(k) { log("audio.chime", k); } };

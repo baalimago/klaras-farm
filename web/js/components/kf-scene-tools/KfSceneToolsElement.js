@@ -7,9 +7,13 @@
 // events and renders from it (and from the store) after every event. Tool bar: Shape, Line, Move,
 // Colour, Sky, Ground, Delete, Start, Undo, and Done (→ session.sceneDone()).
 //
-// Foreground rule: the tool bar, panel and colour sheet sit above the drawing canvas (z-index over
-// kf-draw-pad's overlay), and while a sheet is open the stage underneath is inert: no stroke can
-// start behind the picker.
+// Layout: nothing but the stage covers the board, so every piece stays reachable whatever tool is
+// chosen. The rail sits left of the board and the chosen tool's options (hint, options or the open
+// colour sheet, then Done) in a column right of it; in portrait, above and below. The room for them is
+// made by the stage itself (main.css .stage[data-mode="scene"] padding, tokens --st-rail, --st-side,
+// --st-foot), so the board letterboxes into what is left and this element only follows its rect.
+// Foreground rule: both toolbars sit above the drawing canvas (z-index over kf-draw-pad's overlay),
+// and while a sheet is open the stage is inert: no stroke can start while a colour is being picked.
 //
 // No lag: a piece being dragged or resized is drawn by the board's renderer from its cached sprite
 // (services.board.setLift), with the board rect read once per drag. Nothing is written to the store
@@ -131,15 +135,22 @@ export class KfSceneToolsElement extends HTMLElement {
         this.services.session?.sceneDone?.();
       },
     });
-    this.replaceChildren(this.stage, h("div", { class: "kf-st-side" }, [this.rail, this.hintEl, this.panel]), this.sheet, this.done);
+    this.replaceChildren(
+      this.stage,
+      h("div", { class: "kf-st-left" }, [this.rail]),
+      h("div", { class: "kf-st-right", role: "region", "aria-label": "Tool options" }, [this.hintEl, this.panel, this.sheet, this.done]),
+    );
     this.render();
   }
 
-  /** Puts the stage exactly over the board. */
+  /** Puts the stage exactly over the board and lines the toolbars up with it. */
   layout() {
     const r = this.boardRect();
     const host = this.getBoundingClientRect();
     Object.assign(this.stage.style, { left: `${r.left - host.left}px`, top: `${r.top - host.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+    // The toolbars line up with the board's top and bottom edges (kf-scene-tools.css).
+    this.style.setProperty("--st-top", `${Math.round(r.top - host.top)}px`);
+    this.style.setProperty("--st-bottom", `${Math.round(host.bottom - r.bottom)}px`);
     this.renderSelection();
   }
 
@@ -168,8 +179,10 @@ export class KfSceneToolsElement extends HTMLElement {
     const place = this.place;
     this.renderRail(s);
     this.renderStage(s);
+    // An open sheet takes the options column's place: its title says what to pick, and the board is paused.
+    this.hintEl.hidden = Boolean(s.sheet && place);
     this.hintEl.textContent = place ? this._note || this.hint(s) : "There is no scene to change.";
-    this.panel.replaceChildren(...(place ? this.panelContent(s, place) : []));
+    this.panel.replaceChildren(...(place && !s.sheet ? this.panelContent(s, place) : []));
     this.renderSheet(s, place);
     this.renderSelection();
     if (this._lifting && !s.drag && !s.lifted) this._setLift(null); // the renderer has the piece itself now

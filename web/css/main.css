@@ -44,6 +44,19 @@ body {
   place-items: center;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
+/* Scene tools (session mode 'scene') never cover the board: the stage leaves room for the tool rail on the
+   left and the options column on the right (top and bottom in portrait), and the 4:3 board letterboxes
+   into what is left. kf-scene-tools.css places the toolbars in that room. */
+.stage[data-mode="scene"] {
+  padding-left: calc(var(--gutter) + var(--st-rail) + var(--st-gap));
+  padding-right: calc(var(--gutter-right) + var(--st-side) + var(--st-gap));
+}
+@media (orientation: portrait) {
+  .stage[data-mode="scene"] {
+    padding: calc(max(12px, env(safe-area-inset-top)) + var(--st-rail) + var(--st-gap)) var(--gutter-right)
+      calc(max(12px, env(safe-area-inset-bottom)) + var(--st-foot) + var(--st-gap)) var(--gutter);
+  }
+}
 .parent-layer { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
 .parent-layer > * { pointer-events: auto; }
 .noscript { position: fixed; inset: auto 0 0; text-align: center; }
