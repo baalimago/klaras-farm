@@ -11,12 +11,12 @@ import { device } from "../../io/device.js";
 // Each leaf: where it lands (% from the left, px above the bottom), shape, colour, and when it
 // starts and how long it falls. One fall each, so the card is still once they have landed.
 const LEAVES = [
-  { x: 8, y: 24, shape: "maple", color: PAINT.flags[3], delay: 0.2, secs: 5.5, spin: 160 },
-  { x: 22, y: 8, shape: "round", color: PAINT.flags[4], delay: 1.4, secs: 6.5, spin: -120 },
-  { x: 34, y: 30, shape: "long", color: PAINT.flags[2], delay: 0.8, secs: 6, spin: 200 },
-  { x: 76, y: 32, shape: "maple", color: PAINT.flags[1], delay: 2.2, secs: 5.8, spin: -180 },
-  { x: 85, y: 22, shape: "round", color: PAINT.flags[8], delay: 0.5, secs: 7, spin: 140 },
-  { x: 63, y: 34, shape: "long", color: PAINT.flags[6], delay: 3, secs: 6.2, spin: -150 },
+  { x: 8, y: 24, shape: "maple", color: PAINT.flags[3], delay: 0.1, secs: 3.3, spin: 160 },
+  { x: 22, y: 8, shape: "round", color: PAINT.flags[4], delay: 0.7, secs: 3.9, spin: -120 },
+  { x: 34, y: 30, shape: "long", color: PAINT.flags[2], delay: 0.4, secs: 3.6, spin: 200 },
+  { x: 76, y: 32, shape: "maple", color: PAINT.flags[1], delay: 1.1, secs: 3.5, spin: -180 },
+  { x: 85, y: 22, shape: "round", color: PAINT.flags[8], delay: 0.2, secs: 4.2, spin: 140 },
+  { x: 63, y: 34, shape: "long", color: PAINT.flags[6], delay: 1.5, secs: 3.7, spin: -150 },
 ];
 
 function fallingLeaves() {
